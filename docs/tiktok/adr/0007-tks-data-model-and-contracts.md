@@ -1,6 +1,6 @@
 # ADR 0007: tks data model and contracts
 
-Status: accepted (owner approved the plan, 2026-10-31). Field names below come from public sources and are hypotheses until the owner's recordings and the probe confirm them ([open-questions.md](../open-questions.md)). M3 finalises this ADR against that evidence; the shape does not depend on it.
+Status: accepted (owner approved the plan, 2026-10-31). Field names were checked against the owner's recordings of 2026-10-31 ([har-findings-2026-10-31.md](../har-findings-2026-10-31.md)) where they show them; the rest are hypotheses ([open-questions.md](../open-questions.md)). M3 finalises this ADR against the evidence; the shape does not depend on it.
 
 ## Context
 tks monitors public TikTok accounts (build brief §2, D1–D2):
@@ -71,15 +71,15 @@ Content tables (monthly partitions where marked; every post and comment key star
 
 | Table | Primary key | Partitioned by | Holds |
 |---|---|---|---|
-| `accounts` | `user_id` | — | `sec_uid` (unique), username, nickname, bio, bio link, avatar media id, verified, private, follower, following, total-likes (`heart_count`), video and likes-given counts, `author_key`, status (`active`, `private`, `unavailable`, `banned`, `suppressed`), `content_hash`, first and last seen, profile refreshed at |
+| `accounts` | `user_id` | — | `sec_uid` (unique), username, nickname, bio, bio link (and TikTok's `risk` value for it), avatar media id, verified, private, organization flag, account created at, username and nickname last changed at (`uniqueIdModifyTime`, `nickNameModifyTime`), exact follower, following, total-likes (`heart_count`), video and likes-given counts (from `statsV2`; `stats` is rounded), `author_key`, status (`active`, `private`, `unavailable`, `banned`, `suppressed`), `content_hash`, first and last seen, profile refreshed at |
 | `account_usernames` | `(user_id, username)` | — | first and last seen: the username history; also resolves an old username |
 | `account_snapshots` | `(user_id, captured_at)` | `captured_at` | username, nickname, counts, verified, private: the daily history |
-| `posts` | `(created_at, post_id)` | `created_at` | author `user_id`, `kind` (`video`, `photo`), caption, hashtags (`text[]`, GIN) and hashtag ids, duration, cover media id, photo count, `music_id`, `is_pinned` (nullable: known only from lists), `is_ad` (nullable), `labels` (`jsonb`: branded content, AI-generated, warnings, as served), comments disabled, region of creation, language, status, `comments_state` and counters (§5), `content_hash`, first and last seen |
+| `posts` | `(created_at, post_id)` | `created_at` | author `user_id`, `kind` (`video`, `photo`), caption, hashtags (`text[]`, GIN) and hashtag ids, duration, cover media id, photo count, `music_id`, `is_pinned` (nullable: known only from lists), `is_ad` (nullable), `labels` (`jsonb`: AI-generated (`ShowAIGC`, `aigcLabelType`), warnings, anchors, as served), TikTok's category, playlist id, comments disabled (`itemCommentStatus`), region of creation, text language, status, `comments_state` and counters (§5), `content_hash`, first and last seen |
 | `post_index` | `post_id` | — | author `user_id`, `created_at`, `kind` |
 | `post_mentions` | `(post_id, author_key)` | — | mentioned user id (NULL when pseudonymized), offsets |
-| `post_metrics` | `(post_id, captured_at)` | `captured_at` | plays, likes, comments, shares, saves: written only on change |
+| `post_metrics` | `(post_id, captured_at)` | `captured_at` | plays, likes, comments, shares, saves, reposts (exact, from `statsV2`): written only on change |
 | `music` | `music_id` | — | title, author name, original-sound flag, duration, album, cover media id |
-| `comments` | `(post_created_at, post_id, comment_id)` | `post_created_at` | `parent_comment_id` (NULL for top level), `reply_to_comment_id`, `depth` (0 or 1), `author_key`, author user id (NULL when pseudonymized), text, `created_at`, like count, reply count, liked by the creator, pinned by the creator, labels, language, status, `redacted`, `content_hash`, edit and deletion columns as fbs's `00004` |
+| `comments` | `(post_created_at, post_id, comment_id)` | `post_created_at` | `parent_comment_id` (NULL for top level; a reply's `reply_id`), `reply_to_comment_id` (a reply's `reply_to_reply_id`, when not 0), `depth` (0 or 1), `author_key`, author user id (NULL when pseudonymized), text, `created_at`, like count, reply count, liked by the creator (`is_author_digged`), pinned by the creator (`author_pin`, `stick_position`), has images, labels, language, status, `redacted`, `content_hash`, edit and deletion columns as fbs's `00004` |
 | `people` | `author_key` | — | user id, `sec_uid`, username, nickname, avatar, verified (identifying columns NULL when pseudonymized): comment authors and mentioned users |
 | `media` | `media_id` | — | owner ids (`user_id`, `post_id`, `music_id`), kind (`cover`, `origin_cover`, `dynamic_cover`, `video`, `photo`, `avatar`, `music_cover`), variant, URL and expiry, width, height, duration, size, plus fbs's lifecycle columns under the same names |
 | `media_acks` | `(media_id, consumer)` | — | as fbs |
@@ -93,7 +93,7 @@ Retention drops whole partitions; comment retention equals the maximum backfill 
 ### 5. Comments: completeness, refresh and deletions
 * `comments_state` per post: `complete` when a full top-level read ends with `has_more` false (and, when replies are collected, every thread read to its end), `partial` when it stops early (cap, yield, error), `truncated` when a wall cuts it, `none` when not read.
 * **Completeness check.** If TikTok serves replies logged out (T14), fbs's rule applies again: Σ(1 + reply_count) over top-level comments should equal `comment_count`. tks reports the ratio per post; whether a gap is normal (hidden, filtered or deleted comments) is T15, answered by the probe. It is information, never a failure.
-* **Refresh when the count went up.** Two strategies, chosen by T13:
+* **Refresh when the count went up.** Two strategies, chosen by T13 (**confirmed 2026-10-31: TikTok's ranking order, so the second applies**; the first stays for a future sort parameter):
   * if the top-level list can be read **newest first** (by its default order or a sort parameter), read until the first stored comment, then re-read reply threads whose `reply_comment_total` grew: fbs's incremental pattern, one or two requests when little changed;
   * if it is ordered **by relevance**, re-read the top-level list to the cap (`limits.max_comments_per_post`, carried across continuations in `PostScope.items_seen`), upserting what is new and updating like and reply counts; deletion detection runs only on reads that reached `has_more` false.
 * Deletion detection (fbs chapter 4 §11) runs only on complete full reads: a stored comment the read did not return is marked deleted.
@@ -104,6 +104,7 @@ Retention drops whole partitions; comment retention equals the maximum backfill 
 * **`pseudonymized` mode** stores the `author_key` instead of a person's id, `sec_uid`, username, nickname and avatar, as fbs does.
 * **Erasure subjects:** `author` (by author key, user id, `sec_uid` or username) and `account` (by user id, `sec_uid` or username). A suppression row (author key, or the account's user id) stops re-collection; the crawler and the persister both check it (igs brief §5 item 4).
 * The HMAC secret is permanent: rotating it orphans every author key.
+* **Never stored:** TikTok's inferences about people that comment and user objects carry, such as `predicted_age_group` (seen on a third of comment authors in the recordings), and every empty profile field of comment authors. Parsers drop them before anything is emitted.
 
 ### 7. Media
 `tt.media.v1` always carries metadata: the cover (original and the dynamic cover), each photo of a photo post, video renditions mapped to `sd` and `hd` by bitrate, avatars as `avatar`, music covers. Download tasks exist only when `limits.include_media` is true; it defaults to false until the analysis service exists (D5). When on, the downloader follows fbs's contract (TTL, acknowledgements, orphan sweep) with tks's buckets and `tt.media.*` topics. TikTok's media links are signed and expire (T18), so downloads run within minutes of the read that produced the link, and an expired link is re-read from the post, not retried as is.

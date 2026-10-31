@@ -22,7 +22,7 @@ Sources are numbered [W1], [O1], [P1], [L1] by section and listed in §8.
 
 **Contingency, the owner's decision (D4): a per-call data provider.** ScrapeCreators-class APIs advertise the whole objective, replies included, for about **$0.001 per call** (§4.5): tens to hundreds of dollars a month for a few hundred accounts, six figures a month at 300,000. They put a third party between us and the data, under its terms and outages. It is the right answer only if the probe shows our own tool cannot work, or as a bridge while it is built.
 
-**The biggest risk to the objective: comments.** Public reports conflict on whether TikTok still serves comments to logged-out visitors: several open-source projects report empty answers for guests since 2023–2025, others report them working from residential IPs (§2.5, T12). If comments need login, no logged-out method gets them, ours included, and objective §3 needs the owner's decision (narrow the scope, or a provider). The recordings (R2) and the probe's test pass settle it first.
+**Comments, the biggest risk in the public sources, are served.** Public reports conflicted on whether TikTok still serves comments to logged-out visitors (§2.5, T12). The owner's recordings of 2026-10-31 settled it for a browser: TikTok served top-level comments and replies to a logged-out session in Iraq ([har-findings-2026-10-31.md](har-findings-2026-10-31.md)). Whether a crawler gets them unsigned is part of T4, for the probe.
 
 **Rejected:**
 - **Official APIs** (§4): the Research API is for non-profit academic researchers and forbids commercial use; the Display and Business APIs return only accounts that log in to our app; the Commercial Content API covers ads in Europe.
@@ -82,17 +82,17 @@ The usual failure is not an error but **HTTP 200 with an empty body** [W1][W3][W
 | Objective | Covered | Source in the website (hypothesis) |
 |---|---|---|
 | Account details and counts, daily | yes | server-rendered profile page; or `/api/user/detail/` if unsigned (T1, T24); or the creator embed (T26) |
-| Bio link | unknown | not seen in open-source code (T1) |
+| Bio link | **yes** (owner's recordings) | `bioLink.link` on the profile page (T1) |
 | Username history | yes, by observation | the numeric id and `secUid` stay, the username changes (T17) |
 | Posts: caption, hashtags, mentions, time, duration, cover, music | yes | list items (T9) |
-| Pinned flag | unknown | not seen in public sources; `needPinnedItemIds` on the app's own list call suggests one exists (T10) |
+| Pinned flag | **yes** (owner's recordings) | `isPinnedItem` on the app's own list call (T10) |
 | Sponsored or ad flag | partly | `isAd` seen; paid-partnership labels not seen (T16) |
 | Counts: plays, likes, comments, shares, saves | yes | list items and post pages (T9) |
 | Photo posts | yes | `imagePost` (T19) |
 | 365-day backfill | likely | the unsigned list pages back by time; yt-dlp's tests expect ≥ 593 posts for one account [W1] (T11) |
 | New posts within 3 hours | yes | first list page every 2 h 45 min |
-| **Top-level comments** | **uncertain** | empty for guests per TikTok-Api issues (2023-12, 2025-08-28) [W5] and pytok (July 2026) [W6]; working without login from residential IPs per tiktok-cli (June 2026) [W13]; several providers advertise them (T12) |
-| Replies | unknown | `/api/comment/list/reply/` (T14) |
+| **Top-level comments** | **yes, for a browser** (owner's recordings, 2026-10-31) | public reports conflicted (TikTok-Api issues [W5], pytok [W6] against tiktok-cli [W13]); the recordings show them served logged out, in TikTok's ranking order (T12, T13) |
+| Replies | **yes, for a browser** (owner's recordings) | `/api/comment/list/reply/`, 3 per call (T14) |
 | Media metadata and files | yes | links in each item; media fetches reportedly need the page's cookies and `Referer` [W1] (T18) |
 
 ### 2.6 Requests and bytes per account per day
@@ -250,7 +250,7 @@ A provider that collects for us would be our processor (or an independent contro
 
 | Method | Covers (objective §1–4) | History depth | Calls and bytes per account per day | Proxy cost | Block and captcha risk | Breaks how often; upkeep | Dependencies | Legal and terms |
 |---|---|---|---|---|---|---|---|---|
-| **Website, plain HTTP + browser signer** (recommended) | all, **if comments are served logged out** (T12); replies if T14 | 365 days likely (T11) | 15–530 calls; 0.3–10 MB (§2.6) | ISP per IP; T20 decides | medium: TLS and header checks, IP reputation, JavaScript challenge, captchas (T5, T6, T28) | several changes a year (T25); low with variants, canary and TikTok's own script | igs's code, tls-client, Chromium for signing | terms forbid scraping; US logged-out case law favourable; data-protection questions (§5) |
+| **Website, plain HTTP + browser signer** (recommended) | all: the recordings show every part served to a logged-out browser, comments and replies included | 365 days likely (T11) | 15–530 calls; 0.3–10 MB (§2.6) | ISP per IP; T20 decides | medium: TLS and header checks, IP reputation, JavaScript challenge, captchas (T5, T6, T28) | several changes a year (T25); low with variants, canary and TikTok's own script | igs's code, tls-client, Chromium for signing | terms forbid scraping; US logged-out case law favourable; data-protection questions (§5) |
 | **Headless browser for everything** (fallback) | as above | same | same calls; more bytes (page assets) | same IPs; more bandwidth | medium; automation is detectable | low for signing; page-flow changes | Chromium at fleet scale (~200–400 MB per page) | as above |
 | **Mobile app API** | all, richer fields | same | similar | similar | device-registration based | high: app releases change signing | reverse-engineered app internals | weakest: app reverse engineering |
 | **Embeds / oEmbed** | caption, author, cover; recent posts (creator embed) | per known link | 1 call per post | low | low (documented) | low | none | documented by TikTok |
@@ -266,7 +266,7 @@ A provider that collects for us would be our processor (or an independent contro
 
 1. **Build our own tool on the logged-out website** (D11), starting with the probe (M1) so the evidence arrives before the crawler is built. Unsigned plain HTTP wherever TikTok accepts it (the `creator` list call first); TikTok's own script, in a capped browser pool, where it does not.
 2. **Fallback: the browser for everything**, if the probe shows plain HTTP refused for bootstrap or signed URLs bound to their page. The code above the client does not change; the cost per call does.
-3. **Settle comments first.** If the recordings and the probe show comments are not served logged out (T12), the owner decides between dropping objective §3 for now and a provider for comments only (D4), before the crawler is built.
+3. **Comments are served to a logged-out browser** (recordings, 2026-10-31). If the probe shows a crawler cannot get them even through the browser signer, the owner decides between dropping objective §3 for now and a provider for comments only (D4), before the crawler is built.
 4. **Decide at G1, after the probe**, with the measured answers to T3, T4, T7, T12, T20 (first look), T27 and T28, and the cost per account per day projected to 300, 10,000 and 300,000 accounts. If our tool cannot work, the owner may choose a per-call provider, knowing the cost curve in §4.5.
 5. **Never re-implement TikTok's signatures, never solve captchas, never log in.**
 
