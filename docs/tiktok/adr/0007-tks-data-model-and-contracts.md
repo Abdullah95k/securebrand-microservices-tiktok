@@ -1,6 +1,6 @@
 # ADR 0007: tks data model and contracts
 
-Status: proposed (kickoff session, 2026-10-31; accepted when the owner approves the plan). Field names below come from public sources and are hypotheses until the owner's recordings and the probe confirm them ([open-questions.md](../open-questions.md)). M3 finalises this ADR against that evidence; the shape does not depend on it.
+Status: accepted (owner approved the plan, 2026-10-31). Field names below come from public sources and are hypotheses until the owner's recordings and the probe confirm them ([open-questions.md](../open-questions.md)). M3 finalises this ADR against that evidence; the shape does not depend on it.
 
 ## Context
 tks monitors public TikTok accounts (build brief §2, D1–D2):

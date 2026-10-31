@@ -12,7 +12,7 @@ Sources are numbered [W1], [O1], [P1], [L1] by section and listed in §8.
 
 ## 1. Summary
 
-**Recommendation (D11): the logged-out website, through our own tool.**
+**Recommendation (D11, approved by the owner on 2026-10-31): the logged-out website, through our own tool.**
 - Plain HTTP with a current Chrome TLS fingerprint for pages and for the JSON calls TikTok's own web app makes, from bootstrapped identities on the owner's ISP proxies, paced like a person. This is igs's method, with TikTok's request format.
 - The public evidence favours it more than expected: two maintained open-source tools (yt-dlp and gallery-dl) read an account's whole post list today through an **unsigned** call, `/api/creator/item_list/`, with no browser [W1][W3] (T4). Post pages and the account page carry their data as JSON [W1][W3] (T1).
 - Calls that TikTok refuses unsigned (reported today: the other list call `/api/post/item_list/`, possibly the account call) go through a small, capped pool of headless Chromium pages, where TikTok's own script signs them [W4][W9] (T7). tks never re-implements TikTok's signature algorithms.

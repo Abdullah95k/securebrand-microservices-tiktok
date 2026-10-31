@@ -2,19 +2,21 @@
 
 Each build session updates this file at the end of its work. The plan and rules are in [`build-brief.md`](build-brief.md).
 
-**Next step:** **the owner approves the plan** (M0), then **records C1** (the [recording guide](recording-guide.md), about 30 minutes) and sends the account list privately. The next build session does **M1a** (seed tks from igs), then M1b to M1e, and stops at **C2** (the probe test pass on the droplet).
+**Next step:** the plan is approved and merged (M0). **The owner records C1** (the [recording guide](recording-guide.md), about 30 minutes) and prepares the account list. **The next build session does M1a** (seed tks from igs), then M1b to M1e, and stops at **C2** (the probe test pass on the droplet). If the recordings arrive first, it analyses them before M1d.
 
 ## Decisions taken in the kickoff session (2026-10-31)
 
 | Question | Owner's answer | Effect |
 |---|---|---|
-| Approve the plan: method (D11), copy of igs (D7), probe as the first milestone? | *pending* (asked at the end of the kickoff session) | — |
+| Method for tks? | **The logged-out website through our own tool**: plain HTTP where TikTok accepts it, TikTok's own script in a browser page where it does not; the browser for everything as the fallback; a provider stays the owner's contingency at G1 | D11 approved; `methods.md` §1 and §7 |
+| Code organisation? | **Copy igs now**, with its history; the probe first; igs's later work ported by cherry-pick | D7 approved; ADR 0006 accepted; M1a seeds from igs's main of that day |
+| How strict is "new posts within 3 hours"? | **At least 99 % within 3 h**: the list is checked every 2 h 45 min | D2 and §8 A2; ADR 0007 §4 |
 
 ## Milestones
 
 | # | Milestone | State | PRs | Notes |
 |---|---|---|---|---|
-| M0 | Plan: methods, open questions, recording guide, probe spec, reuse plan, brief, ADRs 0006 and 0007 | **in review** (2026-10-31) | (this PR) | No TikTok request made; sources cited in `methods.md` |
+| M0 | Plan: methods, open questions, recording guide, probe spec, reuse plan, brief, ADRs 0006 and 0007 | **done** (2026-10-31) | [#1](https://github.com/Abdullah95k/securebrand-microservices-tiktok/pull/1) | Approved by the owner; no TikTok request made; sources cited in `methods.md` |
 | C1 | Owner: recordings R1–R7 | waiting for owner | | Best before M1d |
 | M1 | The probe: M1a seed, M1b names, M1c seams, M1d TikTok client and `fakett` slice, M1e probe and runbook | not started | | Spec: [`probe-spec.md`](probe-spec.md) |
 | C2 | Owner: probe test pass (3–5 accounts, ISP) | blocked by M1 | | |
@@ -47,11 +49,11 @@ From the kickoff research (public sources only; details and citations in [`metho
 
 ## What the owner needs to do
 
-1. **Approve the plan** (the question at the end of the kickoff session).
-2. **Record C1** in Chrome, following [`recording-guide.md`](recording-guide.md): six recordings (a seventh is optional), about 30 minutes. Put the files in your Drive folder and paste the folder link into the next build session.
-3. **Prepare the account list** (a few hundred Iraqi accounts) as a plain text file on your Mac, one account per line (`username`, `@username` or a profile link). Keep it private: it goes to the droplet by `scp` when the probe is ready, never into git. Mark 3 to 5 of them for the test pass: one big TV or news account, one brand, one public figure, one small account, and one that posts photo posts.
+1. **Record C1** in Chrome, following [`recording-guide.md`](recording-guide.md): six recordings (a seventh is optional), about 30 minutes. Put the files in your Drive folder and paste the folder link into the next build session.
+2. **Prepare the account list** (a few hundred Iraqi accounts) as a plain text file on your Mac, one account per line (`username`, `@username` or a profile link). Keep it private: it goes to the droplet by `scp` when the probe is ready, never into git. Mark 3 to 5 of them for the test pass: one big TV or news account, one brand, one public figure, one small account, and one that posts photo posts.
+3. **Tell the next build session which country your ISP proxies are in.** TikTok's US service is run by a separate company since January 2026, and what a US exit sees may differ (T23).
 4. **Legal:** share [`methods.md` §5](methods.md#5-legal-and-terms-of-service-notes-for-the-legal-team) with the legal team.
 
 ## Log
 
-- **2026-10-31 (kickoff session):** plan written in `docs/tiktok/` with ADRs 0006 and 0007. Research by public sources only: no request to any TikTok host, no paid service called. igs read at `9463b91`.
+- **2026-10-31 (kickoff session):** plan written in `docs/tiktok/` with ADRs 0006 and 0007 ([#1](https://github.com/Abdullah95k/securebrand-microservices-tiktok/pull/1)). Research by public sources only: no request to any TikTok host, no paid service called. igs read at `9463b91`. The repository was empty, so the session created `main` with one initial commit (`.gitignore`) as the PR's base. The owner approved the method (D11), the copy of igs (D7) and the 99 %-within-3-h target; the PR was merged on green CI.

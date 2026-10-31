@@ -1,6 +1,6 @@
 # ADR 0006: tks code organisation
 
-Status: proposed (kickoff session, 2026-10-31; accepted when the owner approves the plan).
+Status: accepted (proposed in the kickoff session; the owner chose "copy igs now" on 2026-10-31).
 
 Numbering: tks starts as a copy of igs (§1), whose `docs/adr/` holds ADRs 0001 to 0005 (fbs's three and igs's two). tks's ADRs continue the sequence from 0006 so references stay unambiguous in the copied history. They live under `docs/tiktok/adr/` with the rest of tks's plan.
 
