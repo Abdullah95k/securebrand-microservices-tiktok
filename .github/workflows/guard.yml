@@ -1,0 +1,24 @@
+name: guard
+
+# Fails when a recording, probe output or credentials file is committed, or
+# when a relative link in docs/ points at a missing file. The seed (M1a)
+# brings igs's full CI next to this.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No recordings, probe output or credentials in git
+        run: |
+          bad=$(git ls-files | grep -Ei '(\.har(\.gz|\.zip)?$|^\.local/|^phase0/(out|proxies\.yaml|tt-accounts(-all)?\.txt))' || true)
+          if [ -n "$bad" ]; then echo "::error::committed files that must stay local:"; echo "$bad"; exit 1; fi
+      - name: Relative links in docs resolve
+        run: scripts/check-doc-links.sh
