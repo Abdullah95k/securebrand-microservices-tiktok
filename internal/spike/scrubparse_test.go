@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fixtures"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fixtures"
 )
 
 // Scrubbing keeps a fixture parseable: every committed fixture, treated as

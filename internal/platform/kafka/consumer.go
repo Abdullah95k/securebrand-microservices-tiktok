@@ -12,7 +12,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 )
 
 // Handler processes one record. Returning nil marks the record done. An

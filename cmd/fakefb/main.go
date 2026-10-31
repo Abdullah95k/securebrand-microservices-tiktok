@@ -9,9 +9,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/configs"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fakefb"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/registry"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/configs"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakefb"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
 )
 
 func main() {

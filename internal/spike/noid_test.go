@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fakefb"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/fbtest"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/session"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/transport"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakefb"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/fbtest"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/transport"
 )
 
 // A page whose HTML names no id is measured when it was asked for by its

@@ -14,17 +14,17 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v3"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/configs"
-	fbv1 "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fb/v1"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/api"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/app"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/config"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fixtures"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/kafka"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/pg"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/registry"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/store"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/topics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/configs"
+	fbv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/api"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/app"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fixtures"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/pg"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/store"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/topics"
 )
 
 func migrate(ctx context.Context, cfg *config.Config, sub string) error {

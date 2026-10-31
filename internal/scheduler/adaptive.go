@@ -9,12 +9,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	fbv1 "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fb/v1"
-	taskv1 "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fbs/task/v1"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/config"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/dispatch"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/parse"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/metrics"
+	fbv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1"
+	taskv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fbs/task/v1"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/dispatch"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/parse"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 )
 
 // DormantTier is the tier of pages that have not posted for DormantAfter.

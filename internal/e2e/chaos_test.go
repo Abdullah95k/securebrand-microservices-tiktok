@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/api"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/config"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/crawl/jobs"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fakefb"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/api"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/jobs"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakefb"
 )
 
 // TestChaosRestartsAndFaults crawls several pages while Facebook rate

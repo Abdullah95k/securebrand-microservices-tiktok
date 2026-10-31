@@ -4,7 +4,7 @@ package securebrand.fb.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fb/v1;fbv1";
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1;fbv1";
 
 enum JobStatus {
   JOB_STATUS_UNSPECIFIED = 0;

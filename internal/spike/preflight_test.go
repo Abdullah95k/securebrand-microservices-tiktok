@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/config"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/fbtest"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/proxy"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/fbtest"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/proxy"
 )
 
 type rtFunc func(*http.Request) (*http.Response, error)

@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fakefb"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/parse"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/breaker"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/detect"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/graphql"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/session"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakefb"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/parse"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/breaker"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 )
 
 // crawlPage walks a whole page through the client layer and returns the

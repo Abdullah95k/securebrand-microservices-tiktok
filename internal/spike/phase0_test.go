@@ -18,15 +18,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/configs"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/config"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fakefb"
-	fbclient "github.com/abdullah95k/securebrand-microservices-igs/internal/fb/client"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/fbtest"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/detect"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/graphql"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/proxy"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/registry"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/configs"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakefb"
+	fbclient "github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/client"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/fbtest"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/proxy"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
 )
 
 const (

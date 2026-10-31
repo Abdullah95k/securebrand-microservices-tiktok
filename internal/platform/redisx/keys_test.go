@@ -9,11 +9,11 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/crawl/checkpoint"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/crawl/jobs"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/redisx"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/detect"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/ratelimit"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/checkpoint"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/jobs"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/redisx"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/ratelimit"
 )
 
 // TestEveryKeyIsPrefixed drives each Valkey-backed store and checks that

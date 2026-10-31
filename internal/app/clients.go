@@ -8,9 +8,9 @@ import (
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/config"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/kafka"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/redisx"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/redisx"
 )
 
 // KafkaClient is a component's Kafka client configuration: id is appended

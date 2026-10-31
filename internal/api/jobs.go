@@ -9,9 +9,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	taskv1 "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fbs/task/v1"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/crawl/task"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/dispatch"
+	taskv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fbs/task/v1"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/task"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/dispatch"
 )
 
 // CrawlOptions are the per-job/per-page crawl settings accepted by the API.

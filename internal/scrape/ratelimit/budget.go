@@ -11,9 +11,9 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/config"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/metrics"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/redisx"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/redisx"
 )
 
 // The daily traffic budget: crawlers add requests and wire bytes per lane

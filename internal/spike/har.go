@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/parse"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fixtures"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/graphql"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/registry"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/parse"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fixtures"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
 )
 
 // HAR import: a browser recording of a logged-out session is the most

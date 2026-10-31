@@ -6,7 +6,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kadm"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 )
 
 // LagGauges publishes the consumer lag of every fbs consumer group per

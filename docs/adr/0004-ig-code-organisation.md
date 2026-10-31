@@ -13,7 +13,7 @@ Kafka, Postgres 18, Valkey and S3 with separate topics, tables, lock keys,
 consumer groups and metric prefixes (D6).
 
 Facts that shape the choice (evidence in
-[`docs/instagram/reuse-matrix.md`](../instagram/reuse-matrix.md)):
+[`docs/instagram/reuse-matrix.md`](https://github.com/Abdullah95k/securebrand-microservices-igs/blob/9463b91/docs/instagram/reuse-matrix.md)):
 
 * **Go cannot import another module's `internal/` packages.** All of fbs's
   reusable code lives under `internal/`. Sharing it across repositories would

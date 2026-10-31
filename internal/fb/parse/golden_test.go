@@ -11,8 +11,8 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/parse"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/graphql"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/parse"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
 )
 
 var update = flag.Bool("update", false, "rewrite expected.json golden files")

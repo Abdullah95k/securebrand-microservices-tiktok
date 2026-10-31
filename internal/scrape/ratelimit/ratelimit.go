@@ -10,7 +10,7 @@ import (
 	"github.com/go-redis/redis_rate/v10"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/redisx"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/redisx"
 )
 
 // Limiter blocks until a request under key is allowed at perSecond.

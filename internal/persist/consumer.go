@@ -10,9 +10,9 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/protobuf/proto"
 
-	fbv1 "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fb/v1"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/kafka"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/topics"
+	fbv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/topics"
 )
 
 // Group is the persister's consumer group; the job finaliser waits for its

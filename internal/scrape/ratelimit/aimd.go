@@ -11,10 +11,10 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/config"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/metrics"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/redisx"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/redisx"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 )
 
 // The fleet-wide request ceiling is adjusted by AIMD (additive increase,

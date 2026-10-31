@@ -12,14 +12,14 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/crawl/task"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/htmlx"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/parse"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fixtures"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/detect"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/docids"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/graphql"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/session"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/task"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/htmlx"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/parse"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fixtures"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/docids"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 )
 
 // Capture records real responses of one page as parser fixtures under

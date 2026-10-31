@@ -16,10 +16,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/config"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/breaker"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/metrics"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/breaker"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 )
 
 // Endpoint is one proxy exit to use for an identity's lifetime.

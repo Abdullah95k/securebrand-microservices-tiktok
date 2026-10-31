@@ -8,9 +8,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/configs"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/breaker"
-	pconfig "github.com/abdullah95k/securebrand-microservices-igs/internal/platform/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/configs"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/breaker"
+	pconfig "github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/config"
 )
 
 // EnvPrefix is the prefix of environment variable overrides.

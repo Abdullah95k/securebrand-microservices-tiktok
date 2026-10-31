@@ -9,10 +9,10 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/htmlx"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/metrics"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/session"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/transport"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/htmlx"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/transport"
 )
 
 // Hooks are Facebook's page hooks. acceptLanguage is sent with the consent

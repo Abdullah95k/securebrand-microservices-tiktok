@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/crawl/task"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/task"
 )
 
 // PageRef is one page to measure. Labels (size, category, region, ...) come

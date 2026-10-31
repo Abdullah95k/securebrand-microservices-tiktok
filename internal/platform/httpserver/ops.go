@@ -12,7 +12,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 )
 
 // Check reports whether a dependency is usable.

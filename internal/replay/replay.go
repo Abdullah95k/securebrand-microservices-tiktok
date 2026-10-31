@@ -20,11 +20,11 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/minio/minio-go/v7"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/crawl/rawsink"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/parse"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fixtures"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/detect"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/graphql"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/rawsink"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/parse"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fixtures"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
 )
 
 // ShadowPrefix prefixes the query of shadow-parser captures.

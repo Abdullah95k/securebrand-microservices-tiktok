@@ -6,7 +6,7 @@ import "google/protobuf/timestamp.proto";
 import "securebrand/fb/v1/common.proto";
 import "securebrand/fb/v1/media.proto";
 
-option go_package = "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fbs/task/v1;taskv1";
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fbs/task/v1;taskv1";
 
 enum Lane {
   LANE_UNSPECIFIED = 0;

@@ -11,14 +11,14 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"github.com/twmb/franz-go/pkg/kadm"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/configs"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/api"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/app"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fakefb"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/metrics"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/registrysync"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scheduler"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/registry"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/configs"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/api"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/app"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakefb"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/registrysync"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scheduler"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
 )
 
 // TestRegistrySyncHealsRotation: Facebook rotates every doc_id at once.

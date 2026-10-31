@@ -15,10 +15,10 @@ import (
 	"github.com/minio/minio-go/v7"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	fbv1 "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fb/v1"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/kafka"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/metrics"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/topics"
+	fbv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/topics"
 )
 
 // Eraser processes pending erasure requests.

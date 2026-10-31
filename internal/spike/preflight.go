@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/crawl/task"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/htmlx"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/detect"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/proxy"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/registry"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/session"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/task"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/htmlx"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/proxy"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 )
 
 // Preflight check statuses.

@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	fbv1 "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fb/v1"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/gdpr"
+	fbv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/gdpr"
 )
 
 func TestHashIgnoresSignedURLParams(t *testing.T) {

@@ -5,7 +5,7 @@ package securebrand.fb.v1;
 import "google/protobuf/timestamp.proto";
 import "securebrand/fb/v1/common.proto";
 
-option go_package = "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fb/v1;fbv1";
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1;fbv1";
 
 message Author {
   // Empty when pii_mode=pseudonymized or the author was erased.

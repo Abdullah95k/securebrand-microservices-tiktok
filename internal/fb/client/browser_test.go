@@ -10,15 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/config"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fakefb"
-	fbclient "github.com/abdullah95k/securebrand-microservices-igs/internal/fb/client"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/fbtest"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/htmlx"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/browser"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/detect"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/graphql"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/session"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakefb"
+	fbclient "github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/client"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/fbtest"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/htmlx"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/browser"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 )
 
 // These browser tests need fakefb and Facebook's hooks, so they live on the

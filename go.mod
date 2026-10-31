@@ -1,4 +1,4 @@
-module github.com/abdullah95k/securebrand-microservices-igs
+module github.com/abdullah95k/securebrand-microservices-tiktok
 
 go 1.27.2
 

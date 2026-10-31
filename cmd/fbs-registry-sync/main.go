@@ -15,14 +15,14 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/app"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/config"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/httpserver"
-	plog "github.com/abdullah95k/securebrand-microservices-igs/internal/platform/log"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/pg"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/run"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/registrysync"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scheduler"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/app"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/httpserver"
+	plog "github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/log"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/pg"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/run"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/registrysync"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scheduler"
 )
 
 func main() {

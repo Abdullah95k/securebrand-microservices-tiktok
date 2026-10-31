@@ -16,7 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/redisx"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/redisx"
 )
 
 // Scopes.

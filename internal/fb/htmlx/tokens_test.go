@@ -4,7 +4,7 @@ import (
 	"maps"
 	"testing"
 
-	scrapehtml "github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/htmlx"
+	scrapehtml "github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/htmlx"
 )
 
 const sample = `<html><script type="application/json">{"require":[["ScheduledServerJS","handle",null,[{"__bbox":{"define":[["LSD",[],{"token":"AVqTok3n"},323],["SiteData",[],{"server_revision":1017000000,"haste_session":"20390.HYP:comet","hsi":"7431","__spin_r":1017000000,"__spin_b":"trunk","__spin_t":1730000000},317]]}}]],["CookieCoreConfig","set",null,[["_js_datr","DATR123",1]]]]}</script>

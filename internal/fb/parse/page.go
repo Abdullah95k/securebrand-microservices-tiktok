@@ -7,10 +7,10 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	fbv1 "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fb/v1"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/htmlx"
-	scrapehtml "github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/htmlx"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/walk"
+	fbv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/htmlx"
+	scrapehtml "github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/htmlx"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/walk"
 )
 
 // PageVersion is recorded in Observation.parser_version.

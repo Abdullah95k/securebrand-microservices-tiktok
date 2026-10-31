@@ -16,7 +16,7 @@ import (
 	"github.com/twmb/franz-go/pkg/sasl"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 )
 
 // Header names used on every record.

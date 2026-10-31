@@ -16,7 +16,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/minio/minio-go/v7"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 )
 
 // Sink implements graphql.RawSink.

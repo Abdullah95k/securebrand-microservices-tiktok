@@ -1,10 +1,10 @@
 package client
 
 import (
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fb/htmlx"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/graphql"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/registry"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/session"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/htmlx"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 )
 
 // DefaultEndpoint is the path of Facebook's persisted queries.

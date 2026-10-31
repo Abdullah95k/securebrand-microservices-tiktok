@@ -62,7 +62,7 @@ groups:
             Rate limits, login walls and checkpoints are above 10% fleet-wide.
             AIMD should be lowering the ceiling; check which tier and exit
             buckets are affected.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#block-storm-block-rate--10
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#block-storm-block-rate--10
       - alert: IgsBlockRateCritical
         expr: igs:block_ratio:rate5m > 0.25
         for: 10m
@@ -72,7 +72,7 @@ groups:
           description: >-
             A quarter of responses are blocks even with AIMD backing off.
             Consider pinning the ceiling low and moving routing to another tier.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#block-storm-block-rate--10
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#block-storm-block-rate--10
       - alert: IgsCrawlersIdleWithBacklog
         # Tasks, not requests: fbs-registry-sync's own requests every 30m
         # would otherwise keep resetting the for timer.
@@ -87,7 +87,7 @@ groups:
             No crawl task handled in 10 minutes with crawl tasks queued.
             Check the crawler pods, the AIMD ceiling (a pinned 0?), the proxy
             breakers and the budget.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#kafka-lag
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#kafka-lag
       - alert: IgsQueryBreakerOpen
         expr: max by (name) (igs_breaker_state{name=~"query:.*"}) == 2
         for: 15m
@@ -98,7 +98,7 @@ groups:
             The responses of this (query, doc_id) keep being rejected or failing
             to parse, so it is not being sent. Expect fbs-registry-sync to
             promote a replacement, or a parser fix.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
       - alert: IgsProxyBucketOpen
         expr: max by (name) (igs_breaker_state{name=~"proxy:.*"}) == 2
         for: 30m
@@ -108,7 +108,7 @@ groups:
           description: >-
             The bucket keeps failing its probes after cooldowns. Check the
             provider; remove the endpoints or route around the tier.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#block-storm-block-rate--10
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#block-storm-block-rate--10
 
       - alert: IgsBrowserFallbackSaturated
         expr: sum(rate(igs_bootstrap_total{method="browser", outcome=~"capped|busy"}[15m])) > 0.05
@@ -120,7 +120,7 @@ groups:
             More HTML loads carry no tokens than fb.browser.max_share or
             max_concurrent allow; those bootstraps fail and their tasks retry.
             Facebook may now require JavaScript on more pages.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#browser-fallback
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#browser-fallback
       - alert: IgsBrowserFallbackFailing
         expr: |
           sum(rate(igs_bootstrap_total{method="browser", outcome=~"error|no_tokens"}[30m]))
@@ -130,7 +130,7 @@ groups:
         annotations:
           summary: "{{ $value | humanizePercentage }} of browser bootstraps fail"
           description: Chromium fails to start or render, or the rendered pages carry no tokens either.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#browser-fallback
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#browser-fallback
 
   - name: igs.registry
     rules:
@@ -143,7 +143,7 @@ groups:
           description: >-
             Facebook rejects the active doc_id and fbs-registry-sync has not
             promoted a replacement within a run or two.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
       - alert: IgsRegistryQueryFailing
         expr: min by (query) (igs_registry_query_healthy) == 0
         for: 5m
@@ -154,7 +154,7 @@ groups:
             Stale with no working candidate (Facebook may have renamed the
             operation: see not_found in the run report), or drift (the parser
             needs a fix). GET /v1/admin/registry-sync/runs has the details.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
       - alert: IgsRegistrySyncNotRunning
         # Every fbs binary exports the gauge (0 outside fbs-registry-sync);
         # the runs counter exists only where syncs run.
@@ -170,7 +170,7 @@ groups:
             page, blocked tier), the probes are blocked (every check
             inconclusive), the canary pages lack posts with comments or reply
             threads, or registry_sync.canary_pages is empty.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
       - alert: IgsSchemaDrift
         expr: igs:parse_drift_ratio:rate15m > 0.05
         for: 15m
@@ -180,7 +180,7 @@ groups:
           description: >-
             Facebook changed the response shape. Raw failing responses are in
             the raw bucket under raw-failures/<query>/.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#schema-drift
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#schema-drift
 
       - alert: IgsOptionalFieldDrift
         # Facebook renamed or dropped a field the parser treats as
@@ -203,7 +203,7 @@ groups:
             Compared with a week ago. Look at captured responses (fbctl replay
             --prefix raw with capture_raw: all, or the fixtures) and add the
             field's new path to the parser.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#schema-drift
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#schema-drift
       - alert: IgsShadowParserDiffers
         expr: |
           sum by (query) (rate(igs_parse_shadow_total{outcome!="same"}[1h]))
@@ -213,7 +213,7 @@ groups:
         annotations:
           summary: "{{ $labels.query }}: the candidate parser disagrees on {{ $value | humanizePercentage }} of sampled responses"
           description: The differing responses are captured under raw-failures/shadow-<query>/; replay them (fbctl replay --query shadow-<query>) before promoting the candidate.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#schema-drift
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#schema-drift
 
   - name: igs.pipeline
     rules:
@@ -226,7 +226,7 @@ groups:
           description: >-
             Nothing plans scheduled jobs, finalises jobs, runs AIMD or the
             budget. Check the scheduler pods and their Postgres connection.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#stuck-jobs
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#stuck-jobs
       - alert: IgsOnDemandLag
         expr: max by (group, topic) (igs:leader:kafka_consumer_lag{group=~"igs-crawler-.*-p0"}) > 500
         for: 10m
@@ -236,7 +236,7 @@ groups:
           description: >-
             On-demand work waits. KEDA should be scaling the stage; check its
             max replicas, the lane slots and the AIMD ceiling.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#kafka-lag
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#kafka-lag
       - alert: IgsPersisterLag
         expr: max by (topic) (igs:leader:kafka_consumer_lag{group="igs-persister"}) > 50000
         for: 15m
@@ -244,7 +244,7 @@ groups:
         annotations:
           summary: "The persister is {{ $value }} records behind on {{ $labels.topic }}"
           description: Results reach Postgres late. Check igs_persist_batch_seconds and the database.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#kafka-lag
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#kafka-lag
       - alert: IgsDLQGrowing
         expr: sum by (stage, reason) (increase(igs_dlq_total[1h])) > 100
         for: 15m
@@ -252,7 +252,7 @@ groups:
         annotations:
           summary: "{{ $value }} {{ $labels.stage }} tasks dead-lettered in an hour ({{ $labels.reason }})"
           description: Fix the cause, then replay with fbctl dlq replay --reason <reason>.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#stuck-jobs
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#stuck-jobs
       - alert: IgsJobsFailing
         expr: |
           sum(rate(igs_jobs_total{status="failed"}[30m]))
@@ -262,7 +262,7 @@ groups:
         annotations:
           summary: "{{ $value | humanizePercentage }} of jobs fail"
           description: Look at the failed jobs' error and the request classes of their queries.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#stuck-jobs
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#stuck-jobs
       - alert: IgsAPIErrors
         expr: |
           sum(rate(igs_api_requests_total{code=~"5.."}[5m]))
@@ -272,7 +272,7 @@ groups:
         annotations:
           summary: "{{ $value | humanizePercentage }} of API requests fail with 5xx"
           description: Check the API logs and the read replica.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#key-signals
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#key-signals
 
   - name: igs.coverage
     rules:
@@ -286,7 +286,7 @@ groups:
             The crawl capacity does not keep up with the schedule (or the
             budget stretches it). Add crawler capacity or move pages to slower
             tiers.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#schedule-and-tiers
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#schedule-and-tiers
       - alert: IgsCommentCompletenessLow
         expr: igs:comment_completeness:p50_1h < 0.8
         for: 2h
@@ -296,7 +296,7 @@ groups:
           description: >-
             Posts end with fewer comments than Facebook reports. Compare
             orderings, look for login walls (timelines_truncated) and drift.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#key-signals
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#key-signals
       - alert: IgsDeletionChecksSkipped
         expr: |
           sum(rate(igs_deletion_checks_total{outcome=~"skipped_.*"}[6h]))
@@ -310,7 +310,7 @@ groups:
             Full reads of known posts do not account for the comment count
             Facebook gives, so their posts are not checked for deleted
             comments. Facebook is likely serving partial comment lists.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#comment-edits-and-deletions
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#comment-edits-and-deletions
       - alert: IgsBudgetOverrun
         expr: |
           max by (kind) (igs:leader:budget_projected)
@@ -323,7 +323,7 @@ groups:
           description: >-
             On-demand and scheduled traffic alone overrun the budget, even with
             backfill paused and slow tiers stretched.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#daily-budget
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#daily-budget
       - alert: IgsBackfillPausedLong
         expr: igs:leader:budget_backfill_paused == 1
         for: 12h
@@ -331,7 +331,7 @@ groups:
         annotations:
           summary: The budget has held backfill back for 12 hours
           description: Backfills of new pages make no progress. Raise the budget or reduce scheduled work.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#daily-budget
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#daily-budget
       - alert: IgsMediaTTLExpiries
         expr: sum(increase(igs_media_deleted_total{reason="ttl_expired"}[1h])) > 0
         for: 1h
@@ -339,4 +339,4 @@ groups:
         annotations:
           summary: Media is deleted at its TTL before the analysis service acknowledged it
           description: The analysis service is not keeping up with fb.media.ready.v1, or its acks do not arrive.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-igs/blob/main/docs/runbooks/operations.md#media-backlog--ttl-expiries
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#media-backlog--ttl-expiries

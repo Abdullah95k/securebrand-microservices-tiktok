@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/migrations"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/migrations"
 )
 
 func gooseProvider(pool *pgxpool.Pool) (*goose.Provider, *sql.DB, error) {

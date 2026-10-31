@@ -17,9 +17,9 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/detect"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/proxy"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/transport"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/proxy"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/transport"
 )
 
 // Tokens are the values a page hands its web client for later requests,

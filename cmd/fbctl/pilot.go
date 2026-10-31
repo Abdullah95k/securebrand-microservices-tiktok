@@ -7,10 +7,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/config"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/pilot"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/pg"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/registry"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/pilot"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/pg"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
 )
 
 // registryImport makes every query of a registry file (a Phase 0

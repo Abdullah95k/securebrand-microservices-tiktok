@@ -10,7 +10,7 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 )
 
 var forPrefix = []byte("for (;;);")

@@ -10,20 +10,21 @@ import (
 	"testing"
 )
 
-const module = "github.com/abdullah95k/securebrand-microservices-igs"
+const module = "github.com/abdullah95k/securebrand-microservices-tiktok"
 
 // forbidden are the import paths no neutral package may use: platform code
-// belongs in internal/fb or internal/ig, never below internal/scrape.
+// belongs in internal/fb or internal/tt, never below internal/scrape.
 var forbidden = []string{
 	module + "/internal/fb",
-	module + "/internal/ig",
+	module + "/internal/tt",
+	module + "/internal/fakett",
 	module + "/internal/fakefb",
 	module + "/gen/go/securebrand/fb/",
 	module + "/gen/go/securebrand/fbs/",
 }
 
-// TestNoPlatformImports enforces the layering of ADR 0004 §2 on every Go
-// file under internal/scrape, tests included.
+// TestNoPlatformImports enforces the layering of ADR 0004 §2 and tks's ADR
+// 0006 §2 on every Go file under internal/scrape, tests included.
 func TestNoPlatformImports(t *testing.T) {
 	fset := token.NewFileSet()
 	files := 0

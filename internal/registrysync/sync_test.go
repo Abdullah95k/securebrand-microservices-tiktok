@@ -11,16 +11,16 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/configs"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/app"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/config"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/fakefb"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/metrics"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/registrysync"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/browser"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/registry"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/store"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/testenv"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/configs"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/app"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakefb"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/registrysync"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/browser"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/store"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/testenv"
 )
 
 type fixture struct {

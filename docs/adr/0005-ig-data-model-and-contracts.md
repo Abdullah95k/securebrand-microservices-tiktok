@@ -14,7 +14,7 @@ testing, igs shares fbs's Kafka, Postgres 18, Valkey and S3 (D6); production
 may share them or not, so the model must work either way.
 
 What the data looks like comes from the owner's recordings
-([`har-findings-2026-10-30.md`](../instagram/har-findings-2026-10-30.md)):
+([`har-findings-2026-10-30.md`](https://github.com/Abdullah95k/securebrand-microservices-igs/blob/9463b91/docs/instagram/har-findings-2026-10-30.md)):
 
 * Every entity has a numeric `pk` (users, media, carousel children, comments).
   Media also has a `code`, the shortcode in `/p/<code>/` and `/reel/<code>/`

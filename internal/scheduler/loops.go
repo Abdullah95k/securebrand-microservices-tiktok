@@ -12,17 +12,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	fbv1 "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fb/v1"
-	taskv1 "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fbs/task/v1"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/config"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/crawl/jobs"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/crawl/task"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/dispatch"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/kafka"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/metrics"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/ratelimit"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/store"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/topics"
+	fbv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1"
+	taskv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fbs/task/v1"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/jobs"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/task"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/dispatch"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/ratelimit"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/store"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/topics"
 )
 
 func taskLane(l int16) taskv1.Lane { return taskv1.Lane(l) }

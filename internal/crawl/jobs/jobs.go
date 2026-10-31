@@ -15,7 +15,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/redisx"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/redisx"
 )
 
 // FinalizeSet holds job ids whose pending count reached zero.

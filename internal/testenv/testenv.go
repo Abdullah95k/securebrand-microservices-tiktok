@@ -14,8 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/platform/pg"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/store"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/pg"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/store"
 )
 
 // Postgres creates a fresh database for the test, migrates it and returns

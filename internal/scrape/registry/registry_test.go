@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/configs"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/configs"
 )
 
 func TestSeedAndRender(t *testing.T) {

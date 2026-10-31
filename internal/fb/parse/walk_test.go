@@ -3,7 +3,7 @@ package parse
 import (
 	"testing"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/walk"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/walk"
 	"github.com/tidwall/gjson"
 )
 

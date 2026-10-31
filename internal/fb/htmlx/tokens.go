@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strconv"
 
-	scrapehtml "github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/htmlx"
+	scrapehtml "github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/htmlx"
 )
 
 // Valid reports whether tokens hold the minimum for GraphQL calls (an lsd).

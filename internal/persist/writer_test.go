@@ -8,9 +8,9 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	fbv1 "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fb/v1"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/store"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/testenv"
+	fbv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/store"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/testenv"
 )
 
 func obs(at time.Time, hash string) *fbv1.Observation {

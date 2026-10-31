@@ -6,17 +6,17 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/abdullah95k/securebrand-microservices-igs/configs"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/config"
-	fbclient "github.com/abdullah95k/securebrand-microservices-igs/internal/fb/client"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/media"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/registrysync"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/browser"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/detect"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/docids"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/proxy"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/registry"
-	"github.com/abdullah95k/securebrand-microservices-igs/internal/scrape/session"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/configs"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	fbclient "github.com/abdullah95k/securebrand-microservices-tiktok/internal/fb/client"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/media"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/registrysync"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/browser"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/docids"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/proxy"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 )
 
 // NewRegistrySync builds the registry sync: its own small identity pool
