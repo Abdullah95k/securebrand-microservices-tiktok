@@ -54,7 +54,11 @@ type Response struct {
 	BytesOut int64
 }
 
-// Client sends GraphQL requests on behalf of identities.
+// Client sends GraphQL and JSON web-API requests on behalf of identities.
+// The package keeps its name from fbs (so igs's later changes cherry-pick
+// cleanly), but it is the persisted-query and JSON web-API client: a
+// platform's RequestBuilder picks the method and query string, its Decoder
+// reads the answer (docs/tiktok ADR 0006 §3).
 type Client struct {
 	Registry    registry.Registry
 	Rules       detect.Rules
@@ -64,7 +68,9 @@ type Client struct {
 	GlobalRPS   int
 	// Builder writes the platform's request (internal/fb/client.Builder
 	// for fbs).
-	Builder    RequestBuilder
+	Builder RequestBuilder
+	// Decode reads a response body; nil reads GraphQL.
+	Decode     Decoder
 	Raw        RawSink
 	CaptureAll bool
 	// Ceiling, when set, replaces GlobalRPS with the fleet ceiling AIMD
@@ -175,10 +181,17 @@ func (c *Client) do(ctx context.Context, id *session.Identity, q registry.Query,
 	if err != nil {
 		return nil, fmt.Errorf("graphql: %s endpoint: %w", q.Name, err)
 	}
+	if b.Query != "" {
+		endpoint.RawQuery = b.Query
+	}
+	method := b.Method
+	if method == "" {
+		method = "POST"
+	}
 	body := b.Body
 	hdr := withHeaders(b.Header, q.Headers)
 	start := time.Now()
-	tr, err := id.Doer.Do(ctx, &transport.Request{Method: "POST", URL: endpoint.String(), Header: hdr, Body: body})
+	tr, err := id.Doer.Do(ctx, &transport.Request{Method: method, URL: endpoint.String(), Header: hdr, Body: body})
 	elapsed := time.Since(start)
 	tier := id.Endpoint.Tier
 	metrics.FBRequestSecs.WithLabelValues(q.Name, tier).Observe(elapsed.Seconds())
@@ -196,13 +209,19 @@ func (c *Client) do(ctx context.Context, id *session.Identity, q registry.Query,
 	metrics.ProxyBytes.WithLabelValues(tier, "out").Add(float64(tr.BytesOut))
 	metrics.FBResponseBytes.WithLabelValues(q.Name).Observe(float64(len(tr.Body)))
 
-	parts := SplitParts(tr.Body)
-	errs := Errors(parts)
+	decode := c.Decode
+	if decode == nil {
+		decode = decodeGraphQL
+	}
+	parts, errs, hasData := decode(tr.Body)
 	ct := tr.Header.Get("Content-Type")
 	cls, reason := c.Rules.Classify(detect.Input{Status: tr.Status, Location: tr.Location,
-		ContentType: ct, Body: tr.Body, Errors: errs, HasData: HasData(parts), Expect: "graphql"})
+		ContentType: ct, Body: tr.Body, Errors: errs, HasData: hasData, Expect: "graphql"})
 	if cls == detect.OK && len(parts) == 0 {
 		cls, reason = detect.SoftError, "empty body"
+		if c.Rules.EmptyIsStale {
+			cls, reason = detect.RegistryStale, "empty answer: request refused"
+		}
 	}
 	session.Outcome(id, cls)
 	if c.Outcomes != nil {

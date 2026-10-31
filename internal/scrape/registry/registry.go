@@ -2,6 +2,11 @@
 // the platform's current doc_id, friendly name, variables template and, where
 // a platform has more than one GraphQL endpoint, the endpoint and extra
 // headers. doc_ids rotate, so the registry is data, reloaded at runtime.
+//
+// A platform without doc_ids (TikTok's JSON web API) uses the same table:
+// doc_id then holds a variant label ("web", "web-signed", "creator"), the
+// variables template holds the query parameters, and method says GET, so
+// the fallback and breakers switch between variants of an operation.
 package registry
 
 import (
@@ -47,6 +52,10 @@ type Query struct {
 	// with more than one GraphQL endpoint (Instagram: /api/graphql and
 	// /graphql/query). Empty means the client's default endpoint.
 	Endpoint string `json:"endpoint,omitempty"`
+	// Method is the HTTP method the platform's builder uses (GET for
+	// TikTok's web API). Empty means the builder's default (POST for
+	// GraphQL).
+	Method string `json:"method,omitempty"`
 	// Headers are sent with this query only, in this order: a name the
 	// client already sends takes this value in the client's position, a new
 	// name is added. Names are lower case. Empty means none.
@@ -73,6 +82,16 @@ var endpointPath = regexp.MustCompile(`^/[A-Za-z0-9/_.~-]*$`)
 var reservedHeaders = map[string]bool{
 	"host": true, "content-length": true, "transfer-encoding": true, "connection": true,
 	"keep-alive": true, "proxy-connection": true, "upgrade": true, "te": true, "cookie": true,
+}
+
+// normalizeMethod checks a query's method: empty, GET or POST, in any case.
+func normalizeMethod(name, m string) (string, error) {
+	switch u := strings.ToUpper(m); u {
+	case "", "GET", "POST":
+		return u, nil
+	default:
+		return "", fmt.Errorf("registry: %s: method %q must be GET or POST", name, m)
+	}
 }
 
 // normalizeRoute checks a query's endpoint and headers and returns the
@@ -150,6 +169,7 @@ type seedQueryYAML struct {
 	ParserVersion int            `yaml:"parser_version"`
 	Priority      int            `yaml:"priority"`
 	Status        string         `yaml:"status,omitempty"`
+	Method        string         `yaml:"method,omitempty"`
 	Endpoint      string         `yaml:"endpoint,omitempty"`
 	Headers       []Header       `yaml:"headers,omitempty"`
 	Variables     map[string]any `yaml:"variables"`
@@ -175,10 +195,14 @@ func ParseSeed(b []byte) (Seed, error) {
 		if err != nil {
 			return Seed{}, fmt.Errorf("registry: seed: %w", err)
 		}
+		method, err := normalizeMethod(q.Name, q.Method)
+		if err != nil {
+			return Seed{}, fmt.Errorf("registry: seed: %w", err)
+		}
 		s.Queries = append(s.Queries, Query{
 			Name: q.Name, DocID: q.DocID, FriendlyName: q.FriendlyName, Variables: vars,
 			Parser: q.Parser, ParserVersion: q.ParserVersion, Status: st, Priority: q.Priority, Source: "seed",
-			Endpoint: q.Endpoint, Headers: hdr,
+			Method: method, Endpoint: q.Endpoint, Headers: hdr,
 		})
 	}
 	return s, nil
@@ -220,7 +244,7 @@ func MarshalSeed(s Seed) ([]byte, error) {
 		}
 		y.Queries = append(y.Queries, seedQueryYAML{Name: q.Name, FriendlyName: q.FriendlyName, DocID: q.DocID,
 			Parser: q.Parser, ParserVersion: q.ParserVersion, Priority: q.Priority, Status: st,
-			Endpoint: q.Endpoint, Headers: q.Headers, Variables: vars})
+			Method: q.Method, Endpoint: q.Endpoint, Headers: q.Headers, Variables: vars})
 	}
 	var b bytes.Buffer
 	enc := yaml.NewEncoder(&b)
@@ -383,7 +407,7 @@ func (r *DB) Run(ctx context.Context, every time.Duration) error {
 // List returns every row of fb_queries.
 func List(ctx context.Context, pool *pgxpool.Pool) ([]Query, error) {
 	rows, err := pool.Query(ctx, `SELECT name, doc_id, friendly_name, variables_template, parser,
-		parser_version, status, priority, source, endpoint, headers,
+		parser_version, status, priority, source, method, endpoint, headers,
 		coalesce(last_check, ''), last_checked_at, last_ok_at
 		FROM fb_queries ORDER BY name, priority DESC`)
 	if err != nil {
@@ -393,7 +417,7 @@ func List(ctx context.Context, pool *pgxpool.Pool) ([]Query, error) {
 		var q Query
 		var hdr []byte
 		err := row.Scan(&q.Name, &q.DocID, &q.FriendlyName, &q.Variables, &q.Parser,
-			&q.ParserVersion, &q.Status, &q.Priority, &q.Source, &q.Endpoint, &hdr,
+			&q.ParserVersion, &q.Status, &q.Priority, &q.Source, &q.Method, &q.Endpoint, &hdr,
 			&q.LastCheck, &q.LastCheckedAt, &q.LastOKAt)
 		if err == nil {
 			q.Headers, err = ScanHeaders(hdr)
@@ -421,20 +445,21 @@ func ApplySeed(ctx context.Context, pool *pgxpool.Pool, seed Seed) error {
 		for _, q := range seed.Queries {
 			_, err := tx.Exec(ctx, `
 				INSERT INTO fb_queries (name, doc_id, friendly_name, variables_template, parser,
-					parser_version, status, priority, endpoint, headers, source, promoted_at)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'seed', now())
+					parser_version, status, priority, method, endpoint, headers, source, promoted_at)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$11,$9,$10,'seed', now())
 				ON CONFLICT (name, doc_id) DO UPDATE SET
 					friendly_name = EXCLUDED.friendly_name,
 					variables_template = EXCLUDED.variables_template,
 					parser = EXCLUDED.parser,
 					parser_version = EXCLUDED.parser_version,
 					priority = EXCLUDED.priority,
+					method = EXCLUDED.method,
 					endpoint = EXCLUDED.endpoint,
 					headers = EXCLUDED.headers,
 					updated_at = now()
 				WHERE fb_queries.source = 'seed'`,
 				q.Name, q.DocID, q.FriendlyName, q.Variables, q.Parser, q.ParserVersion, q.Status, q.Priority,
-				q.Endpoint, headersJSON(q.Headers))
+				q.Endpoint, headersJSON(q.Headers), q.Method)
 			if err != nil {
 				return fmt.Errorf("registry: seed %s: %w", q.Name, err)
 			}
@@ -459,6 +484,9 @@ func Upsert(ctx context.Context, pool *pgxpool.Pool, q Query) error {
 	if err != nil {
 		return err
 	}
+	if q.Method, err = normalizeMethod(q.Name, q.Method); err != nil {
+		return err
+	}
 	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 		if q.Status == StatusActive {
 			if _, err := tx.Exec(ctx, `UPDATE fb_queries SET status = 'fallback', updated_at = now()
@@ -468,16 +496,16 @@ func Upsert(ctx context.Context, pool *pgxpool.Pool, q Query) error {
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO fb_queries (name, doc_id, friendly_name, variables_template, parser,
-				parser_version, status, priority, source, endpoint, headers, promoted_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, CASE WHEN $7 = 'active' THEN now() END)
+				parser_version, status, priority, source, method, endpoint, headers, promoted_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$12,$10,$11, CASE WHEN $7 = 'active' THEN now() END)
 			ON CONFLICT (name, doc_id) DO UPDATE SET
 				friendly_name = EXCLUDED.friendly_name, variables_template = EXCLUDED.variables_template,
 				parser = EXCLUDED.parser, parser_version = EXCLUDED.parser_version,
 				status = EXCLUDED.status, priority = EXCLUDED.priority, source = EXCLUDED.source,
-				endpoint = EXCLUDED.endpoint, headers = EXCLUDED.headers,
+				method = EXCLUDED.method, endpoint = EXCLUDED.endpoint, headers = EXCLUDED.headers,
 				promoted_at = COALESCE(EXCLUDED.promoted_at, fb_queries.promoted_at), updated_at = now()`,
 			q.Name, q.DocID, q.FriendlyName, q.Variables, q.Parser, q.ParserVersion, q.Status, q.Priority, q.Source,
-			q.Endpoint, headersJSON(hdr))
+			q.Endpoint, headersJSON(hdr), q.Method)
 		return err
 	})
 }

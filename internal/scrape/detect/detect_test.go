@@ -75,3 +75,29 @@ func TestPlatformWallRules(t *testing.T) {
 		}
 	}
 }
+
+// TestStatusCodeLists checks the code lists a platform without GraphQL
+// errors uses (TikTok's statusCode, mapped to GQLError codes by its
+// decoder), and that Facebook's defaults leave them empty.
+func TestStatusCodeLists(t *testing.T) {
+	if d := DefaultRules(); len(d.CheckpointCodes) != 0 || len(d.UnavailableCodes) != 0 || d.EmptyIsStale {
+		t.Fatalf("Facebook's defaults must not set the new lists: %+v", d)
+	}
+	r := Rules{CheckpointCodes: []int64{10000}, UnavailableCodes: []int64{10216, 10222}, RateLimitCodes: []int64{10101}}
+	cases := []struct {
+		name string
+		code int64
+		want Class
+	}{
+		{"captcha", 10000, Checkpoint},
+		{"private post", 10216, ContentUnavailable},
+		{"private account", 10222, ContentUnavailable},
+		{"rate limit", 10101, RateLimited},
+		{"unknown", 42, SoftError},
+	}
+	for _, c := range cases {
+		if got, reason := r.Classify(Input{Status: 200, Errors: []GQLError{{Code: c.code}}, Expect: "graphql"}); got != c.want {
+			t.Errorf("%s: got %v (%s), want %v", c.name, got, reason, c.want)
+		}
+	}
+}

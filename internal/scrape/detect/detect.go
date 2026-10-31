@@ -1,4 +1,4 @@
-// Package detect classifies Facebook responses so the session layer knows
+// Package detect classifies platform responses so the session layer knows
 // whether to continue, back off, rotate the identity, or give up on content.
 package detect
 
@@ -64,7 +64,18 @@ type Rules struct {
 	RateLimitCodes []int64
 	SoftCodes      []int64
 	LoginCodes     []int64
-	StaleMessages  []*regexp.Regexp
+	// CheckpointCodes and UnavailableCodes are error or status codes that
+	// mean a challenge (TikTok's captcha answer, statusCode 10000) or a
+	// node the viewer cannot see (a private account or post). Facebook's
+	// rules leave them empty.
+	CheckpointCodes  []int64
+	UnavailableCodes []int64
+	// EmptyIsStale classes an answer with no content as RegistryStale
+	// instead of SoftError: TikTok answers a request it refuses (unsigned,
+	// badly signed, without a device id) with an empty HTTP 200, so the
+	// client should fall back to the operation's next variant.
+	EmptyIsStale  bool
+	StaleMessages []*regexp.Regexp
 	// LoginMarkers mark an HTML login page returned where GraphQL JSON was
 	// expected; BlockMarkers a block page, on either kind of request.
 	LoginMarkers [][]byte
@@ -150,6 +161,10 @@ func (r Rules) Classify(in Input) (Class, string) {
 			return RateLimited, "fb error " + i64toa(e.Code)
 		case contains(r.LoginCodes, e.Code):
 			return LoginWall, "fb error " + i64toa(e.Code)
+		case contains(r.CheckpointCodes, e.Code):
+			return Checkpoint, "error " + i64toa(e.Code) + " " + truncate(e.Message, 60)
+		case contains(r.UnavailableCodes, e.Code):
+			return ContentUnavailable, "error " + i64toa(e.Code) + " " + truncate(e.Message, 60)
 		}
 		for _, re := range r.StaleMessages {
 			if re.MatchString(e.Message) || re.MatchString(e.Summary) {
