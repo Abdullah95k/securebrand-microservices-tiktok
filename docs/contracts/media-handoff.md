@@ -13,7 +13,7 @@ analysis service ──fb.media.processed.v1──▶ fbs-media-janitor ──�
 ```
 
 Schemas: `api/proto/securebrand/fb/v1/media.proto` (generated Go:
-`gen/go/securebrand/fb/v1`). Records are protobuf; the `igs-type` header holds
+`gen/go/securebrand/fb/v1`). Records are protobuf; the `tks-type` header holds
 the full message name and `content-type` is `application/x-protobuf`. Topic
 names get `kafka.topic_prefix` prepended.
 
@@ -62,7 +62,7 @@ object without a ready row). After this event the key no longer exists.
 
 ## Obligations of the analysis service
 
-1. Process before `delete_after`. Watch `igs_media_deleted_total{reason="ttl_expired"}`:
+1. Process before `delete_after`. Watch `tks_media_deleted_total{reason="ttl_expired"}`:
    a rising rate means you are lagging.
 2. Ack every `MediaReady` exactly with your configured consumer name.
 3. Do not copy media to long-term storage unless your own retention and

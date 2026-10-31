@@ -13,8 +13,8 @@ func TestLoadLayers(t *testing.T) {
 	b := filepath.Join(dir, "b.yaml")
 	_ = os.WriteFile(a, []byte("crawler:\n  yield_pages: 7\nfb:\n  base_url: http://a\n"), 0o644)
 	_ = os.WriteFile(b, []byte("fb:\n  base_url: http://b\n  proxy:\n    tiers:\n      - {name: isp, kind: static_list, endpoints: [\"http://u:p@1.2.3.4:1\"]}\n"), 0o644)
-	t.Setenv("IGS_KAFKA__BROKERS", "k1:9092,k2:9092")
-	t.Setenv("IGS_MEDIA__TTL", "48h")
+	t.Setenv("TKS_KAFKA__BROKERS", "k1:9092,k2:9092")
+	t.Setenv("TKS_MEDIA__TTL", "48h")
 	c, err := Load(a + "," + b)
 	if err != nil {
 		t.Fatal(err)

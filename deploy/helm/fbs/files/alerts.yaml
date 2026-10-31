@@ -5,55 +5,55 @@
 # every metric referenced here exists.
 #
 # Gauges the leader scheduler publishes (AIMD, budget, schedule lag,
-# consumer lag) are read through igs:leader:* so a former leader's last
+# consumer lag) are read through tks:leader:* so a former leader's last
 # values do not count.
 groups:
-  - name: igs.recording
+  - name: tks.recording
     interval: 30s
     rules:
-      - record: igs:ig_requests:rate5m
-        expr: sum by (query, class, tier) (rate(igs_ig_requests_total[5m]))
-      - record: igs:block_ratio:rate5m
+      - record: tks:ig_requests:rate5m
+        expr: sum by (query, class, tier) (rate(tks_tt_requests_total[5m]))
+      - record: tks:block_ratio:rate5m
         expr: |
-          sum(rate(igs_ig_requests_total{class=~"rate_limited|login_wall|checkpoint"}[5m]))
-            / clamp_min(sum(rate(igs_ig_requests_total{class!="transport"}[5m])), 1e-9)
-      - record: igs:parse_drift_ratio:rate15m
+          sum(rate(tks_tt_requests_total{class=~"rate_limited|login_wall|checkpoint"}[5m]))
+            / clamp_min(sum(rate(tks_tt_requests_total{class!="transport"}[5m])), 1e-9)
+      - record: tks:parse_drift_ratio:rate15m
         expr: |
-          sum by (query) (rate(igs_parse_total{outcome="drift"}[15m]))
-            / clamp_min(sum by (query) (rate(igs_parse_total[15m])), 1e-9)
+          sum by (query) (rate(tks_parse_total{outcome="drift"}[15m]))
+            / clamp_min(sum by (query) (rate(tks_parse_total[15m])), 1e-9)
       # How often each optional field is missing, per parsed response. The
       # drift baseline compares it with the same series a week earlier.
-      - record: igs:parse_missing_per_response:rate1h
+      - record: tks:parse_missing_per_response:rate1h
         expr: |
-          sum by (query, field) (rate(igs_parse_missing_field_total[1h]))
-            / on (query) group_left () clamp_min(sum by (query) (rate(igs_parse_total[1h])), 1e-9)
-      - record: igs:registry_stale_ratio:rate10m
+          sum by (query, field) (rate(tks_parse_missing_field_total[1h]))
+            / on (query) group_left () clamp_min(sum by (query) (rate(tks_parse_total[1h])), 1e-9)
+      - record: tks:registry_stale_ratio:rate10m
         expr: |
-          sum by (query) (rate(igs_ig_requests_total{class="registry_stale", query!~"registry_sync:.*"}[10m]))
-            / clamp_min(sum by (query) (rate(igs_ig_requests_total{query!~"registry_sync:.*"}[10m])), 1e-9)
-      - record: igs:leader:aimd_ceiling_rps
-        expr: max(igs_aimd_ceiling_rps * on (instance) (igs_scheduler_leader == 1))
-      - record: igs:leader:fleet_rps
-        expr: max(igs_fleet_rps * on (instance) (igs_scheduler_leader == 1))
-      - record: igs:leader:fleet_block_rate
-        expr: max(igs_fleet_block_rate * on (instance) (igs_scheduler_leader == 1))
-      - record: igs:leader:schedule_lag_seconds
-        expr: max by (tier) (igs_schedule_lag_seconds * on (instance) group_left () (igs_scheduler_leader == 1))
-      - record: igs:leader:budget_projected
-        expr: max by (kind) (igs_budget_projected * on (instance) group_left () (igs_scheduler_leader == 1))
-      - record: igs:leader:budget_limit
-        expr: max by (kind) (igs_budget_limit * on (instance) group_left () (igs_scheduler_leader == 1))
-      - record: igs:leader:budget_backfill_paused
-        expr: max(igs_budget_backfill_paused * on (instance) (igs_scheduler_leader == 1))
-      - record: igs:leader:kafka_consumer_lag
-        expr: max by (group, topic) (igs_kafka_consumer_lag * on (instance) group_left () (igs_scheduler_leader == 1))
-      - record: igs:comment_completeness:p50_1h
-        expr: histogram_quantile(0.5, sum by (le) (rate(igs_comment_completeness_ratio_bucket[1h])))
+          sum by (query) (rate(tks_tt_requests_total{class="registry_stale", query!~"registry_sync:.*"}[10m]))
+            / clamp_min(sum by (query) (rate(tks_tt_requests_total{query!~"registry_sync:.*"}[10m])), 1e-9)
+      - record: tks:leader:aimd_ceiling_rps
+        expr: max(tks_aimd_ceiling_rps * on (instance) (tks_scheduler_leader == 1))
+      - record: tks:leader:fleet_rps
+        expr: max(tks_fleet_rps * on (instance) (tks_scheduler_leader == 1))
+      - record: tks:leader:fleet_block_rate
+        expr: max(tks_fleet_block_rate * on (instance) (tks_scheduler_leader == 1))
+      - record: tks:leader:schedule_lag_seconds
+        expr: max by (tier) (tks_schedule_lag_seconds * on (instance) group_left () (tks_scheduler_leader == 1))
+      - record: tks:leader:budget_projected
+        expr: max by (kind) (tks_budget_projected * on (instance) group_left () (tks_scheduler_leader == 1))
+      - record: tks:leader:budget_limit
+        expr: max by (kind) (tks_budget_limit * on (instance) group_left () (tks_scheduler_leader == 1))
+      - record: tks:leader:budget_backfill_paused
+        expr: max(tks_budget_backfill_paused * on (instance) (tks_scheduler_leader == 1))
+      - record: tks:leader:kafka_consumer_lag
+        expr: max by (group, topic) (tks_kafka_consumer_lag * on (instance) group_left () (tks_scheduler_leader == 1))
+      - record: tks:comment_completeness:p50_1h
+        expr: histogram_quantile(0.5, sum by (le) (rate(tks_comment_completeness_ratio_bucket[1h])))
 
-  - name: igs.facebook
+  - name: tks.facebook
     rules:
-      - alert: IgsBlockRateHigh
-        expr: igs:block_ratio:rate5m > 0.10
+      - alert: TksBlockRateHigh
+        expr: tks:block_ratio:rate5m > 0.10
         for: 10m
         labels: {severity: warning}
         annotations:
@@ -63,8 +63,8 @@ groups:
             AIMD should be lowering the ceiling; check which tier and exit
             buckets are affected.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#block-storm-block-rate--10
-      - alert: IgsBlockRateCritical
-        expr: igs:block_ratio:rate5m > 0.25
+      - alert: TksBlockRateCritical
+        expr: tks:block_ratio:rate5m > 0.25
         for: 10m
         labels: {severity: critical}
         annotations:
@@ -73,12 +73,12 @@ groups:
             A quarter of responses are blocks even with AIMD backing off.
             Consider pinning the ceiling low and moving routing to another tier.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#block-storm-block-rate--10
-      - alert: IgsCrawlersIdleWithBacklog
+      - alert: TksCrawlersIdleWithBacklog
         # Tasks, not requests: fbs-registry-sync's own requests every 30m
         # would otherwise keep resetting the for timer.
         expr: |
-          sum(rate(igs_tasks_total[10m])) == 0
-            and sum(igs:leader:kafka_consumer_lag{group=~"igs-crawler-.*"}) > 0
+          sum(rate(tks_tasks_total[10m])) == 0
+            and sum(tks:leader:kafka_consumer_lag{group=~"tks-crawler-.*"}) > 0
         for: 15m
         labels: {severity: critical}
         annotations:
@@ -88,8 +88,8 @@ groups:
             Check the crawler pods, the AIMD ceiling (a pinned 0?), the proxy
             breakers and the budget.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#kafka-lag
-      - alert: IgsQueryBreakerOpen
-        expr: max by (name) (igs_breaker_state{name=~"query:.*"}) == 2
+      - alert: TksQueryBreakerOpen
+        expr: max by (name) (tks_breaker_state{name=~"query:.*"}) == 2
         for: 15m
         labels: {severity: warning}
         annotations:
@@ -99,8 +99,8 @@ groups:
             to parse, so it is not being sent. Expect fbs-registry-sync to
             promote a replacement, or a parser fix.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
-      - alert: IgsProxyBucketOpen
-        expr: max by (name) (igs_breaker_state{name=~"proxy:.*"}) == 2
+      - alert: TksProxyBucketOpen
+        expr: max by (name) (tks_breaker_state{name=~"proxy:.*"}) == 2
         for: 30m
         labels: {severity: warning}
         annotations:
@@ -110,8 +110,8 @@ groups:
             provider; remove the endpoints or route around the tier.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#block-storm-block-rate--10
 
-      - alert: IgsBrowserFallbackSaturated
-        expr: sum(rate(igs_bootstrap_total{method="browser", outcome=~"capped|busy"}[15m])) > 0.05
+      - alert: TksBrowserFallbackSaturated
+        expr: sum(rate(tks_bootstrap_total{method="browser", outcome=~"capped|busy"}[15m])) > 0.05
         for: 30m
         labels: {severity: warning}
         annotations:
@@ -121,10 +121,10 @@ groups:
             max_concurrent allow; those bootstraps fail and their tasks retry.
             Facebook may now require JavaScript on more pages.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#browser-fallback
-      - alert: IgsBrowserFallbackFailing
+      - alert: TksBrowserFallbackFailing
         expr: |
-          sum(rate(igs_bootstrap_total{method="browser", outcome=~"error|no_tokens"}[30m]))
-            / clamp_min(sum(rate(igs_bootstrap_total{method="browser", outcome=~"ok|error|no_tokens"}[30m])), 1e-9) > 0.5
+          sum(rate(tks_bootstrap_total{method="browser", outcome=~"error|no_tokens"}[30m]))
+            / clamp_min(sum(rate(tks_bootstrap_total{method="browser", outcome=~"ok|error|no_tokens"}[30m])), 1e-9) > 0.5
         for: 30m
         labels: {severity: warning}
         annotations:
@@ -132,10 +132,10 @@ groups:
           description: Chromium fails to start or render, or the rendered pages carry no tokens either.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#browser-fallback
 
-  - name: igs.registry
+  - name: tks.registry
     rules:
-      - alert: IgsRegistryStale
-        expr: igs:registry_stale_ratio:rate10m > 0.2
+      - alert: TksRegistryStale
+        expr: tks:registry_stale_ratio:rate10m > 0.2
         for: 45m
         labels: {severity: warning}
         annotations:
@@ -144,8 +144,8 @@ groups:
             Facebook rejects the active doc_id and fbs-registry-sync has not
             promoted a replacement within a run or two.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
-      - alert: IgsRegistryQueryFailing
-        expr: min by (query) (igs_registry_query_healthy) == 0
+      - alert: TksRegistryQueryFailing
+        expr: min by (query) (tks_registry_query_healthy) == 0
         for: 5m
         labels: {severity: critical}
         annotations:
@@ -155,12 +155,12 @@ groups:
             operation: see not_found in the run report), or drift (the parser
             needs a fix). GET /v1/admin/registry-sync/runs has the details.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
-      - alert: IgsRegistrySyncNotRunning
+      - alert: TksRegistrySyncNotRunning
         # Every fbs binary exports the gauge (0 outside fbs-registry-sync);
         # the runs counter exists only where syncs run.
         expr: |
-          time() - max(igs_registry_sync_last_success_timestamp_seconds) > 3 * 3600
-            and on () count(igs_registry_sync_runs_total) > 0
+          time() - max(tks_registry_sync_last_success_timestamp_seconds) > 3 * 3600
+            and on () count(tks_registry_sync_runs_total) > 0
         for: 10m
         labels: {severity: warning}
         annotations:
@@ -171,8 +171,8 @@ groups:
             inconclusive), the canary pages lack posts with comments or reply
             threads, or registry_sync.canary_pages is empty.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
-      - alert: IgsSchemaDrift
-        expr: igs:parse_drift_ratio:rate15m > 0.05
+      - alert: TksSchemaDrift
+        expr: tks:parse_drift_ratio:rate15m > 0.05
         for: 15m
         labels: {severity: critical}
         annotations:
@@ -182,7 +182,7 @@ groups:
             the raw bucket under raw-failures/<query>/.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#schema-drift
 
-      - alert: IgsOptionalFieldDrift
+      - alert: TksOptionalFieldDrift
         # Facebook renamed or dropped a field the parser treats as
         # optional: nothing fails, but the data loses it silently. Fires
         # when a field goes missing far more often than a week before, or
@@ -190,11 +190,11 @@ groups:
         # before (the raw counter, which predates the recording rule).
         expr: |
           (
-            igs:parse_missing_per_response:rate1h > 2 * (igs:parse_missing_per_response:rate1h offset 7d) + 0.05
-            or (igs:parse_missing_per_response:rate1h > 0.25
-                  unless on (query, field) sum by (query, field) (rate(igs_parse_missing_field_total[1h] offset 7d)))
+            tks:parse_missing_per_response:rate1h > 2 * (tks:parse_missing_per_response:rate1h offset 7d) + 0.05
+            or (tks:parse_missing_per_response:rate1h > 0.25
+                  unless on (query, field) sum by (query, field) (rate(tks_parse_missing_field_total[1h] offset 7d)))
           )
-          and on (query) sum by (query) (rate(igs_parse_total[1h])) > 0.05
+          and on (query) sum by (query) (rate(tks_parse_total[1h])) > 0.05
         for: 2h
         labels: {severity: warning}
         annotations:
@@ -204,10 +204,10 @@ groups:
             --prefix raw with capture_raw: all, or the fixtures) and add the
             field's new path to the parser.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#schema-drift
-      - alert: IgsShadowParserDiffers
+      - alert: TksShadowParserDiffers
         expr: |
-          sum by (query) (rate(igs_parse_shadow_total{outcome!="same"}[1h]))
-            / clamp_min(sum by (query) (rate(igs_parse_shadow_total[1h])), 1e-9) > 0.01
+          sum by (query) (rate(tks_parse_shadow_total{outcome!="same"}[1h]))
+            / clamp_min(sum by (query) (rate(tks_parse_shadow_total[1h])), 1e-9) > 0.01
         for: 1h
         labels: {severity: info}
         annotations:
@@ -215,10 +215,10 @@ groups:
           description: The differing responses are captured under raw-failures/shadow-<query>/; replay them (fbctl replay --query shadow-<query>) before promoting the candidate.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#schema-drift
 
-  - name: igs.pipeline
+  - name: tks.pipeline
     rules:
-      - alert: IgsSchedulerNoLeader
-        expr: (max(igs_scheduler_leader) < 1) or absent(igs_scheduler_leader)
+      - alert: TksSchedulerNoLeader
+        expr: (max(tks_scheduler_leader) < 1) or absent(tks_scheduler_leader)
         for: 5m
         labels: {severity: critical}
         annotations:
@@ -227,8 +227,8 @@ groups:
             Nothing plans scheduled jobs, finalises jobs, runs AIMD or the
             budget. Check the scheduler pods and their Postgres connection.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#stuck-jobs
-      - alert: IgsOnDemandLag
-        expr: max by (group, topic) (igs:leader:kafka_consumer_lag{group=~"igs-crawler-.*-p0"}) > 500
+      - alert: TksOnDemandLag
+        expr: max by (group, topic) (tks:leader:kafka_consumer_lag{group=~"tks-crawler-.*-p0"}) > 500
         for: 10m
         labels: {severity: warning}
         annotations:
@@ -237,36 +237,36 @@ groups:
             On-demand work waits. KEDA should be scaling the stage; check its
             max replicas, the lane slots and the AIMD ceiling.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#kafka-lag
-      - alert: IgsPersisterLag
-        expr: max by (topic) (igs:leader:kafka_consumer_lag{group="igs-persister"}) > 50000
+      - alert: TksPersisterLag
+        expr: max by (topic) (tks:leader:kafka_consumer_lag{group="tks-persister"}) > 50000
         for: 15m
         labels: {severity: warning}
         annotations:
           summary: "The persister is {{ $value }} records behind on {{ $labels.topic }}"
-          description: Results reach Postgres late. Check igs_persist_batch_seconds and the database.
+          description: Results reach Postgres late. Check tks_persist_batch_seconds and the database.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#kafka-lag
-      - alert: IgsDLQGrowing
-        expr: sum by (stage, reason) (increase(igs_dlq_total[1h])) > 100
+      - alert: TksDLQGrowing
+        expr: sum by (stage, reason) (increase(tks_dlq_total[1h])) > 100
         for: 15m
         labels: {severity: warning}
         annotations:
           summary: "{{ $value }} {{ $labels.stage }} tasks dead-lettered in an hour ({{ $labels.reason }})"
           description: Fix the cause, then replay with fbctl dlq replay --reason <reason>.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#stuck-jobs
-      - alert: IgsJobsFailing
+      - alert: TksJobsFailing
         expr: |
-          sum(rate(igs_jobs_total{status="failed"}[30m]))
-            / clamp_min(sum(rate(igs_jobs_total[30m])), 1e-9) > 0.10
+          sum(rate(tks_jobs_total{status="failed"}[30m]))
+            / clamp_min(sum(rate(tks_jobs_total[30m])), 1e-9) > 0.10
         for: 30m
         labels: {severity: warning}
         annotations:
           summary: "{{ $value | humanizePercentage }} of jobs fail"
           description: Look at the failed jobs' error and the request classes of their queries.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#stuck-jobs
-      - alert: IgsAPIErrors
+      - alert: TksAPIErrors
         expr: |
-          sum(rate(igs_api_requests_total{code=~"5.."}[5m]))
-            / clamp_min(sum(rate(igs_api_requests_total[5m])), 1e-9) > 0.05
+          sum(rate(tks_api_requests_total{code=~"5.."}[5m]))
+            / clamp_min(sum(rate(tks_api_requests_total[5m])), 1e-9) > 0.05
         for: 10m
         labels: {severity: warning}
         annotations:
@@ -274,10 +274,10 @@ groups:
           description: Check the API logs and the read replica.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#key-signals
 
-  - name: igs.coverage
+  - name: tks.coverage
     rules:
-      - alert: IgsScheduleLag
-        expr: max by (tier) (igs:leader:schedule_lag_seconds) > 6 * 3600
+      - alert: TksScheduleLag
+        expr: max by (tier) (tks:leader:schedule_lag_seconds) > 6 * 3600
         for: 30m
         labels: {severity: warning}
         annotations:
@@ -287,8 +287,8 @@ groups:
             budget stretches it). Add crawler capacity or move pages to slower
             tiers.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#schedule-and-tiers
-      - alert: IgsCommentCompletenessLow
-        expr: igs:comment_completeness:p50_1h < 0.8
+      - alert: TksCommentCompletenessLow
+        expr: tks:comment_completeness:p50_1h < 0.8
         for: 2h
         labels: {severity: warning}
         annotations:
@@ -297,11 +297,11 @@ groups:
             Posts end with fewer comments than Facebook reports. Compare
             orderings, look for login walls (timelines_truncated) and drift.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#key-signals
-      - alert: IgsDeletionChecksSkipped
+      - alert: TksDeletionChecksSkipped
         expr: |
-          sum(rate(igs_deletion_checks_total{outcome=~"skipped_.*"}[6h]))
-            / clamp_min(sum(rate(igs_deletion_checks_total[6h])), 1e-9) > 0.25
-          and sum(increase(igs_deletion_checks_total[6h])) > 20
+          sum(rate(tks_deletion_checks_total{outcome=~"skipped_.*"}[6h]))
+            / clamp_min(sum(rate(tks_deletion_checks_total[6h])), 1e-9) > 0.25
+          and sum(increase(tks_deletion_checks_total[6h])) > 20
         for: 1h
         labels: {severity: warning}
         annotations:
@@ -311,11 +311,11 @@ groups:
             Facebook gives, so their posts are not checked for deleted
             comments. Facebook is likely serving partial comment lists.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#comment-edits-and-deletions
-      - alert: IgsBudgetOverrun
+      - alert: TksBudgetOverrun
         expr: |
-          max by (kind) (igs:leader:budget_projected)
-            > 1.1 * max by (kind) (igs:leader:budget_limit)
-          and max by (kind) (igs:leader:budget_limit) > 0
+          max by (kind) (tks:leader:budget_projected)
+            > 1.1 * max by (kind) (tks:leader:budget_limit)
+          and max by (kind) (tks:leader:budget_limit) > 0
         for: 30m
         labels: {severity: warning}
         annotations:
@@ -324,16 +324,16 @@ groups:
             On-demand and scheduled traffic alone overrun the budget, even with
             backfill paused and slow tiers stretched.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#daily-budget
-      - alert: IgsBackfillPausedLong
-        expr: igs:leader:budget_backfill_paused == 1
+      - alert: TksBackfillPausedLong
+        expr: tks:leader:budget_backfill_paused == 1
         for: 12h
         labels: {severity: info}
         annotations:
           summary: The budget has held backfill back for 12 hours
           description: Backfills of new pages make no progress. Raise the budget or reduce scheduled work.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#daily-budget
-      - alert: IgsMediaTTLExpiries
-        expr: sum(increase(igs_media_deleted_total{reason="ttl_expired"}[1h])) > 0
+      - alert: TksMediaTTLExpiries
+        expr: sum(increase(tks_media_deleted_total{reason="ttl_expired"}[1h])) > 0
         for: 1h
         labels: {severity: warning}
         annotations:

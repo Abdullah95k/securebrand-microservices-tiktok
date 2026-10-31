@@ -130,7 +130,7 @@ make phase0 PHASE0_TIERS=isp,residential PHASE0_ARGS="--from run"
 
 ## 3. HAR fallback, when doc_ids are missing
 
-First try `fbs-spike render --config phase0/proxies.yaml --tier <tier> --page <page> --write-registry phase0/out/registry.yaml`. It needs Chromium (`fb.browser.binary`, `$IGS_BROWSER_BINARY` or one on PATH). It loads the page in headless Chromium through the tier and takes the doc_ids from the GraphQL requests the page makes itself. A page load only requests the first timeline page, so the comment and reply queries usually still need the HAR below.
+First try `fbs-spike render --config phase0/proxies.yaml --tier <tier> --page <page> --write-registry phase0/out/registry.yaml`. It needs Chromium (`fb.browser.binary`, `$TKS_BROWSER_BINARY` or one on PATH). It loads the page in headless Chromium through the tier and takes the doc_ids from the GraphQL requests the page makes itself. A page load only requests the first timeline page, so the comment and reply queries usually still need the HAR below.
 
 The bundle scan can miss queries that Facebook loads lazily. A browser
 recording of a logged-out session has them all:

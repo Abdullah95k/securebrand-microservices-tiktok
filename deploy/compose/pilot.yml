@@ -12,8 +12,8 @@
 x-pilot: &pilot
   user: "0:0"
   environment:
-    IGS_CONFIG: /etc/fbs/proxies.yaml,/etc/fbs/pilot.yaml,/etc/fbs/pilot-canary.yaml
-    IGS_FB__BASE_URL: https://www.facebook.com
+    TKS_CONFIG: /etc/fbs/proxies.yaml,/etc/fbs/pilot.yaml,/etc/fbs/pilot-canary.yaml
+    TKS_FB__BASE_URL: https://www.facebook.com
   volumes:
     - ../../phase0/proxies.yaml:/etc/fbs/proxies.yaml:ro
     - ./pilot.yaml:/etc/fbs/pilot.yaml:ro
@@ -37,11 +37,11 @@ services:
 
   # The Phase 0 doc_ids become the active registry entries.
   pilot-registry:
-    image: ${IGS_IMAGE:-fbs:dev}
+    image: ${TKS_IMAGE:-fbs:dev}
     <<: *pilot
     environment:
-      IGS_CONFIG: /etc/fbs/proxies.yaml,/etc/fbs/pilot.yaml,/etc/fbs/pilot-canary.yaml
-      IGS_POSTGRES__DSN: postgres://fbs:fbs@postgres:5432/fbs?sslmode=disable
+      TKS_CONFIG: /etc/fbs/proxies.yaml,/etc/fbs/pilot.yaml,/etc/fbs/pilot-canary.yaml
+      TKS_POSTGRES__DSN: postgres://fbs:fbs@postgres:5432/fbs?sslmode=disable
     volumes:
       - ../../phase0/proxies.yaml:/etc/fbs/proxies.yaml:ro
       - ./pilot.yaml:/etc/fbs/pilot.yaml:ro

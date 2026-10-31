@@ -1,11 +1,11 @@
 # Load testing
 
-`make loadtest` runs two opt-in tests (`internal/e2e/load_test.go`) against the local infrastructure (`make infra-up`). Each prints a report; set `IGS_LOADTEST_OUT=file.md` to append it to a file. Everything runs in one process against fakefb. The tests therefore find the pipeline's own ceilings (stages, Kafka, Postgres, persister), not Facebook's: in production the fleet is paced far below them by the per-identity and per-page limits and AIMD.
+`make loadtest` runs two opt-in tests (`internal/e2e/load_test.go`) against the local infrastructure (`make infra-up`). Each prints a report; set `TKS_LOADTEST_OUT=file.md` to append it to a file. Everything runs in one process against fakefb. The tests therefore find the pipeline's own ceilings (stages, Kafka, Postgres, persister), not Facebook's: in production the fleet is paced far below them by the per-identity and per-page limits and AIMD.
 
 | Test | What it does | Knobs |
 |---|---|---|
-| `TestLoadPipeline` | Registers nothing. It submits a full backfill job for every fakefb page at once through the API, then waits for every job. Each job passes the page, post and thread stages, the persister and the finalizer. The test fails unless every job completes and every post and comment of fakefb's ground truth is stored. Every 2 seconds it samples each stage's consumer-group backlog (records not yet committed); the report gives the peak and mean. | `IGS_LOADTEST_PAGES` (30), `IGS_LOADTEST_POSTS` (25 per page), `IGS_LOADTEST_COMMENTS` (150, the heavy-tailed maximum per post), `IGS_LOADTEST_LATENCY` (fakefb response latency, 0), `IGS_LOADTEST_TIMEOUT` (20m), `IGS_LOADTEST_CPUPROFILE=file` (a CPU profile of the run, for `go tool pprof`) |
-| `TestLoadPersister` | Produces synthetic comments to `fb.comment.v1` as fast as Kafka takes them, and measures until the persister has stored them all. It then produces the same records again: the no-op upsert path every re-scrape takes. | `IGS_LOADTEST_ROWS` (200000) |
+| `TestLoadPipeline` | Registers nothing. It submits a full backfill job for every fakefb page at once through the API, then waits for every job. Each job passes the page, post and thread stages, the persister and the finalizer. The test fails unless every job completes and every post and comment of fakefb's ground truth is stored. Every 2 seconds it samples each stage's consumer-group backlog (records not yet committed); the report gives the peak and mean. | `TKS_LOADTEST_PAGES` (30), `TKS_LOADTEST_POSTS` (25 per page), `TKS_LOADTEST_COMMENTS` (150, the heavy-tailed maximum per post), `TKS_LOADTEST_LATENCY` (fakefb response latency, 0), `TKS_LOADTEST_TIMEOUT` (20m), `TKS_LOADTEST_CPUPROFILE=file` (a CPU profile of the run, for `go tool pprof`) |
+| `TestLoadPersister` | Produces synthetic comments to `fb.comment.v1` as fast as Kafka takes them, and measures until the persister has stored them all. It then produces the same records again: the no-op upsert path every re-scrape takes. | `TKS_LOADTEST_ROWS` (200000) |
 
 ## Results (development container, 4 CPUs)
 
@@ -58,7 +58,7 @@ Where the CPU went in the 200-page run, from its profile (573 CPU-seconds over 3
 
 ## Running larger tests
 
-- Use a bigger world: for example `IGS_LOADTEST_PAGES=300 IGS_LOADTEST_POSTS=40 make loadtest`. The 200-page run above took 5 minutes.
+- Use a bigger world: for example `TKS_LOADTEST_PAGES=300 TKS_LOADTEST_POSTS=40 make loadtest`. The 200-page run above took 5 minutes.
 - For production-like numbers, run the services as separate processes against compose or a staging cluster, pointed at fakefb (`deploy/compose`). Watch the "fbs / Overview" dashboard while it runs: lane slots, consumer lag and persister batch time show which stage saturates first.
 
 ## Soak and chaos tests
@@ -77,19 +77,19 @@ Both check that restarts lose nothing and that the store ends up exactly like th
   - the job counters undercount nothing.
 - **Second round:** full jobs over the same pages, also under restarts, find nothing deleted or edited.
 
-**`make soak`** (`TestSoak`) is opt-in and runs for `IGS_SOAK_DURATION` (20m).
-- **Setup:** `IGS_SOAK_PAGES` (6) pages are scheduled every 30 seconds. Short refresh windows and recrawl ages make post refreshes and recrawls run along the way.
+**`make soak`** (`TestSoak`) is opt-in and runs for `TKS_SOAK_DURATION` (20m).
+- **Setup:** `TKS_SOAK_PAGES` (6) pages are scheduled every 30 seconds. Short refresh windows and recrawl ages make post refreshes and recrawls run along the way.
 - **Changes and restarts:**
   - every few seconds the world changes: new posts and comments, comments on older posts, edits and deletions;
-  - every `IGS_SOAK_RESTART_EVERY` (90s; 0 = never), a component restarts.
+  - every `TKS_SOAK_RESTART_EVERY` (90s; 0 = never), a component restarts.
 - **Every 30 seconds it records** goroutines, heap, Redis keys and jobs. It fails on a failed, partial or stuck job.
 - **At the end:**
   1. A full job per page.
   2. Every comment on Facebook must be stored, visible and with its current text. Every comment the test deleted must be marked deleted.
   3. No job may be left in the finalize set, no seen list in Redis, and goroutines must not have grown.
-- **Report:** `IGS_SOAK_OUT=file.md` writes the report.
+- **Report:** `TKS_SOAK_OUT=file.md` writes the report.
 
-A 6-minute run on this container (4 pages, a restart every 40s), from `IGS_SOAK_DURATION=6m IGS_SOAK_PAGES=4 IGS_SOAK_RESTART_EVERY=40s make soak`:
+A 6-minute run on this container (4 pages, a restart every 40s), from `TKS_SOAK_DURATION=6m TKS_SOAK_PAGES=4 TKS_SOAK_RESTART_EVERY=40s make soak`:
 - 48 jobs; 133 changes, including 27 deletions and 25 edits; 8 restarts;
 - 59 comments marked deleted: the 27 deletions and their replies;
 - edits counted on 19 of the 22 edited comments that are still up. The other edits came before the comment was first stored;
@@ -107,7 +107,7 @@ A 90-minute run there ([run 40882655887](https://github.com/Abdullah95k/securebr
 
 An earlier run with the same settings on the development container got through its 90 minutes (2,844 jobs, all completed, none partial or failed), but the container's Docker daemon stopped during the final checks.
 
-**Memory.** Every component runs in the test's one process, together with fakefb and an in-memory S3, so the heap in use covers all of them. The report gives the heap left after a full collection after 2 minutes and at the end, and `IGS_SOAK_HEAPPROFILE` writes a heap profile at both points (the workflow prints the difference). In a 30-minute run with the same settings ([run 40905417646](https://github.com/Abdullah95k/securebrand-microservices/actions/runs/40905417646)):
+**Memory.** Every component runs in the test's one process, together with fakefb and an in-memory S3, so the heap in use covers all of them. The report gives the heap left after a full collection after 2 minutes and at the end, and `TKS_SOAK_HEAPPROFILE` writes a heap profile at both points (the workflow prints the difference). In a 30-minute run with the same settings ([run 40905417646](https://github.com/Abdullah95k/securebrand-microservices/actions/runs/40905417646)):
 - the live heap went from 64 MB after 2 minutes to 114 MB at the end;
 - 47.6 MB of the 50 MB growth is the in-memory S3 holding the downloaded media. Nothing in the test acknowledges media, so it stays until `media.ttl` (72h). In production, media goes to the S3 bucket;
 - the other 2–3 MB is spread over entries of half a megabyte or less, up and down: connection buffers, fakefb's growing world. Nothing in fbs's own code grew with the run.

@@ -1,7 +1,7 @@
 // Package shadow runs a candidate parser next to the active one on a sample
 // of live responses, so a new parser version is proven on production
 // traffic before it becomes active. Outcomes are counted per query
-// (igs_parse_shadow_total: same, differs, drift, error); a response the two
+// (tks_parse_shadow_total: same, differs, drift, error); a response the two
 // parse differently is captured raw under raw-failures/shadow-<query>/,
 // apart from real drift, for `fbctl replay --query shadow-<query>` and
 // fixtures. The active parser's result is what the stage emits either way,

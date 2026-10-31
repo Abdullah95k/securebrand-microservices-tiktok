@@ -164,7 +164,7 @@ func (d *Dispatcher) Create(ctx context.Context, r Request, maxRunning int) (*Jo
 			if r.MaxRunningInLane > 0 {
 				var running int
 				if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
-					"igs:lane:"+topics.LaneName(r.Lane)); err != nil {
+					"tks:lane:"+topics.LaneName(r.Lane)); err != nil {
 					return err
 				}
 				if err := tx.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE lane = $1 AND status IN ('running','finalizing')`,
@@ -178,7 +178,7 @@ func (d *Dispatcher) Create(ctx context.Context, r Request, maxRunning int) (*Jo
 			if clientCap {
 				var running int
 				if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
-					"igs:client:"+r.ClientID.String()); err != nil {
+					"tks:client:"+r.ClientID.String()); err != nil {
 					return err
 				}
 				if err := tx.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE api_client_id = $1 AND status IN ('running','finalizing')`,

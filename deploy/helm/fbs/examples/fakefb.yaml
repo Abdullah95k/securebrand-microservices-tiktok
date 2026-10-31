@@ -6,8 +6,8 @@
 # Expects, in the release namespace: Services postgres:5432, redpanda:9092,
 # valkey:6379, s3:9000 (any S3; the image's /usr/local/bin/devs3 is an
 # in-memory one) and fakefb:8090 (the image's /usr/local/bin/fakefb), and a
-# Secret fbs-env with IGS_POSTGRES__DSN, IGS_S3__ACCESS_KEY,
-# IGS_S3__SECRET_KEY and IGS_PRIVACY__AUTHOR_HMAC_KEY.
+# Secret fbs-env with TKS_POSTGRES__DSN, TKS_S3__ACCESS_KEY,
+# TKS_S3__SECRET_KEY and TKS_PRIVACY__AUTHOR_HMAC_KEY.
 # scripts/chart-smoke.py runs exactly these values in Docker.
 config:
   service: {env: staging}
@@ -19,8 +19,8 @@ config:
     endpoint: "s3:9000"
     use_ssl: false
     region: "us-east-1"
-    media_bucket: "igs-media"
-    raw_bucket: "igs-raw"
+    media_bucket: "tks-media"
+    raw_bucket: "tks-raw"
   fb:
     base_url: "http://fakefb:8090"
     identity_rps: 20

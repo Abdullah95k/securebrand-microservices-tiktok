@@ -178,7 +178,7 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 		s = strings.TrimSpace(s)
 		if s == "retry" {
 			relay := &stage.RetryRelay{Producer: producer}
-			cons, err := kafka.NewConsumer(kafka.ConsumerConfig{ClientConfig: kcfg, Group: "igs-retry-relay",
+			cons, err := kafka.NewConsumer(kafka.ConsumerConfig{ClientConfig: kcfg, Group: "tks-retry-relay",
 				Topics: topics.RetryTopics, MaxInflight: 64, MaxInflightPerPartition: 1, DrainTimeout: 5 * time.Second}, relay.Handle)
 			if err != nil {
 				return nil, err
@@ -211,7 +211,7 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 				shared = lanes.Slots{S: own, Lane: 0}
 			}
 			cons, err := kafka.NewConsumer(kafka.ConsumerConfig{
-				ClientConfig: kcfg, Group: "igs-crawler-" + s + "-" + topics.LaneName(lane), Topics: []string{topics.Task(kind, lane)},
+				ClientConfig: kcfg, Group: "tks-crawler-" + s + "-" + topics.LaneName(lane), Topics: []string{topics.Task(kind, lane)},
 				MaxInflight: n, MaxInflightPerPartition: cfg.Crawler.MaxInflightPerPartition, DrainTimeout: drain,
 				Slots: shared,
 			}, worker.Handle)

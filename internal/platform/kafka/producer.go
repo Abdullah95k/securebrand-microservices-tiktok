@@ -21,7 +21,7 @@ import (
 
 // Header names used on every record.
 const (
-	HeaderType        = "igs-type"
+	HeaderType        = "tks-type"
 	HeaderContentType = "content-type"
 	HeaderOrigTopic   = "x-orig-topic"
 	HeaderNotBefore   = "x-not-before"

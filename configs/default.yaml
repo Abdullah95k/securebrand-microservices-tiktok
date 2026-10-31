@@ -1,6 +1,6 @@
 # Default configuration for every fbs binary. Values can be overridden by a
 # file passed with --config and by environment variables:
-#   IGS_<SECTION>__<KEY>=value   e.g. IGS_POSTGRES__DSN, IGS_CRAWLER__STAGES
+#   TKS_<SECTION>__<KEY>=value   e.g. TKS_POSTGRES__DSN, TKS_CRAWLER__STAGES
 service:
   name: fbs
   env: dev
@@ -41,13 +41,13 @@ kafka:
     key_file: ""
     server_name: ""
   # SASL: plain, scram-sha-256 or scram-sha-512 ("" = none). Put the
-  # password in IGS_KAFKA__SASL__PASSWORD, not here.
+  # password in TKS_KAFKA__SASL__PASSWORD, not here.
   sasl:
     mechanism: ""
     username: ""
     password: ""
   # Schema Registry for the public fb.v1 contract (`fbctl schemas apply`).
-  # Records stay plain protobuf with the type in the igs-type header; the
+  # Records stay plain protobuf with the type in the tks-type header; the
   # registry documents the schemas and rejects incompatible changes.
   schema_registry:
     url: ""                # e.g. http://localhost:18081 (Redpanda dev)
@@ -60,8 +60,8 @@ s3:
   secret_key: "fbs-secret"
   use_ssl: false
   region: "us-east-1"
-  media_bucket: "igs-media"
-  raw_bucket: "igs-raw"
+  media_bucket: "tks-media"
+  raw_bucket: "tks-raw"
 
 fb:
   # Base URL of the Facebook web surface. Tests and local dev point this at fakefb.

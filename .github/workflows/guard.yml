@@ -1,8 +1,8 @@
 name: guard
 
 # Fails when a recording, probe output or credentials file is committed, or
-# when a relative link in docs/ points at a missing file. The seed (M1a)
-# brings igs's full CI next to this.
+# when a relative link in the docs points at a missing file. igs's CI
+# (ci.yml, soak.yml) runs beside it since the seed (M1a).
 on:
   pull_request:
   push:

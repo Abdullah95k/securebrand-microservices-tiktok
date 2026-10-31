@@ -27,9 +27,9 @@ func TestImports(t *testing.T) {
 
 func registry(t *testing.T) *Client {
 	t.Helper()
-	u := os.Getenv("IGS_TEST_SCHEMA_REGISTRY")
+	u := os.Getenv("TKS_TEST_SCHEMA_REGISTRY")
 	if u == "" {
-		t.Skip("IGS_TEST_SCHEMA_REGISTRY not set")
+		t.Skip("TKS_TEST_SCHEMA_REGISTRY not set")
 	}
 	return &Client{URL: u}
 }
@@ -201,7 +201,7 @@ func TestApplyGatesIncompatibleChanges(t *testing.T) {
 	// The checks' temporary subjects are gone.
 	subjects, _ := c.Subjects(ctx)
 	for _, s := range subjects {
-		if strings.HasPrefix(s, prefix+"igs-check-") {
+		if strings.HasPrefix(s, prefix+"tks-check-") {
 			t.Fatalf("temporary subject left: %s", s)
 		}
 	}

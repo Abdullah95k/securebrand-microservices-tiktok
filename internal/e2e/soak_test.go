@@ -19,24 +19,24 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/redisx"
 )
 
-// TestSoak runs the scheduled pipeline for IGS_SOAK_DURATION (default 20m)
+// TestSoak runs the scheduled pipeline for TKS_SOAK_DURATION (default 20m)
 // while the fakefb world keeps changing (new posts and comments, edits,
-// deletions) and a component restarts every IGS_SOAK_RESTART_EVERY (default
+// deletions) and a component restarts every TKS_SOAK_RESTART_EVERY (default
 // 90s; 0 = never). Short refresh windows and recrawl ages make post
 // refreshes and recrawls run along the way. It fails on a stuck or failed
 // job and on goroutine growth. At the end, a full job per page must leave
 // the store exactly like the world: every comment visible with its current
-// text, and every deleted one marked deleted. Opt-in: IGS_SOAK=1
-// (make soak); IGS_SOAK_PAGES (default 6); IGS_SOAK_OUT writes the report;
-// IGS_SOAK_HEAPPROFILE=prefix writes heap profiles after 2 minutes and at
+// text, and every deleted one marked deleted. Opt-in: TKS_SOAK=1
+// (make soak); TKS_SOAK_PAGES (default 6); TKS_SOAK_OUT writes the report;
+// TKS_SOAK_HEAPPROFILE=prefix writes heap profiles after 2 minutes and at
 // the end (prefix-base.pprof, prefix-end.pprof).
 func TestSoak(t *testing.T) {
-	if os.Getenv("IGS_SOAK") == "" {
-		t.Skip("set IGS_SOAK=1 (make soak)")
+	if os.Getenv("TKS_SOAK") == "" {
+		t.Skip("set TKS_SOAK=1 (make soak)")
 	}
-	duration := envDuration("IGS_SOAK_DURATION", 20*time.Minute)
-	restartEvery := envDuration("IGS_SOAK_RESTART_EVERY", 90*time.Second)
-	nPages := envInt("IGS_SOAK_PAGES", 6)
+	duration := envDuration("TKS_SOAK_DURATION", 20*time.Minute)
+	restartEvery := envDuration("TKS_SOAK_RESTART_EVERY", 90*time.Second)
+	nPages := envInt("TKS_SOAK_PAGES", 6)
 	s := Start(t, Options{
 		Spec: fakefb.Spec{Seed: 41, Pages: nPages, PostsPerPage: 10, PostSpacing: 20 * time.Hour, MaxComments: 40,
 			ReplyProbability: 0.25, MaxReplies: 6, Depth2Prob: 0.15, AttachmentProb: 0.1},
@@ -78,7 +78,7 @@ func TestSoak(t *testing.T) {
 		runtime.GC()
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
-		if prefix := os.Getenv("IGS_SOAK_HEAPPROFILE"); prefix != "" {
+		if prefix := os.Getenv("TKS_SOAK_HEAPPROFILE"); prefix != "" {
 			f, err := os.Create(prefix + "-" + profile + ".pprof")
 			if err != nil {
 				t.Fatal(err)
@@ -309,7 +309,7 @@ func TestSoak(t *testing.T) {
 		jobsRun, stored, visible, markedDeleted, mutations, restarts, len(edited), counted, baseGoroutines, maxGoroutines, g, float64(maxHeap)/1e6,
 		float64(baseLive)/1e6, float64(endLive)/1e6)
 	t.Log("\n" + report.String())
-	if out := os.Getenv("IGS_SOAK_OUT"); out != "" {
+	if out := os.Getenv("TKS_SOAK_OUT"); out != "" {
 		if err := os.WriteFile(out, []byte(report.String()), 0o644); err != nil {
 			t.Fatal(err)
 		}

@@ -27,15 +27,15 @@ import (
 )
 
 // Load tests run the in-process pipeline at volume. They are opt-in
-// (IGS_LOADTEST=1, `make loadtest`) and print a report; IGS_LOADTEST_OUT
+// (TKS_LOADTEST=1, `make loadtest`) and print a report; TKS_LOADTEST_OUT
 // also writes it to a file. They measure this machine, one process for
 // every component, so they find the pipeline's own ceilings (Kafka,
 // Postgres, the persister, the stages) rather than Facebook's.
 
 func loadEnabled(t *testing.T) {
 	t.Helper()
-	if os.Getenv("IGS_LOADTEST") == "" {
-		t.Skip("load test: set IGS_LOADTEST=1 (make loadtest)")
+	if os.Getenv("TKS_LOADTEST") == "" {
+		t.Skip("load test: set TKS_LOADTEST=1 (make loadtest)")
 	}
 }
 
@@ -70,7 +70,7 @@ func (r *report) write(t *testing.T) {
 		fmt.Fprintf(&b, "| %s | %s |\n", row[0], row[1])
 	}
 	t.Log("\n" + b.String())
-	if p := os.Getenv("IGS_LOADTEST_OUT"); p != "" {
+	if p := os.Getenv("TKS_LOADTEST_OUT"); p != "" {
 		f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 		if err != nil {
 			t.Fatal(err)
@@ -130,15 +130,15 @@ func pct(xs []float64, p float64) float64 {
 // TestLoadPipeline backfills many pages at once through the API, crawler
 // stages, persister and finalizer, and checks every comment arrived.
 //
-//	IGS_LOADTEST_PAGES (30), IGS_LOADTEST_POSTS (25 per page),
-//	IGS_LOADTEST_COMMENTS (150 max per post), IGS_LOADTEST_LATENCY (fakefb, 0)
+//	TKS_LOADTEST_PAGES (30), TKS_LOADTEST_POSTS (25 per page),
+//	TKS_LOADTEST_COMMENTS (150 max per post), TKS_LOADTEST_LATENCY (fakefb, 0)
 func TestLoadPipeline(t *testing.T) {
 	loadEnabled(t)
-	pages, posts := envInt("IGS_LOADTEST_PAGES", 30), envInt("IGS_LOADTEST_POSTS", 25)
+	pages, posts := envInt("TKS_LOADTEST_PAGES", 30), envInt("TKS_LOADTEST_POSTS", 25)
 	s := Start(t, Options{
 		Spec: fakefb.Spec{Seed: 77, Pages: pages, PostsPerPage: posts, PostSpacing: 10 * time.Hour,
-			MaxComments: envInt("IGS_LOADTEST_COMMENTS", 150), ReplyProbability: 0.3, MaxReplies: 10, Depth2Prob: 0.15, AttachmentProb: 0.05},
-		Faults: fakefb.Faults{Latency: envDuration("IGS_LOADTEST_LATENCY", 0)},
+			MaxComments: envInt("TKS_LOADTEST_COMMENTS", 150), ReplyProbability: 0.3, MaxReplies: 10, Depth2Prob: 0.15, AttachmentProb: 0.05},
+		Faults: fakefb.Faults{Latency: envDuration("TKS_LOADTEST_LATENCY", 0)},
 		Config: func(c *config.Config) {
 			c.Crawler.Slots, c.Crawler.LaneMin = 96, 4
 			c.Crawler.Lanes = map[string]int{"p0": 96, "p1": 32, "p2": 32}
@@ -163,8 +163,8 @@ func TestLoadPipeline(t *testing.T) {
 	}
 
 	before := s.Fake.Stats()
-	_, bc0, bs0 := sample("igs_persist_batch_seconds", map[string]string{"entity": "comment"})
-	if path := os.Getenv("IGS_LOADTEST_CPUPROFILE"); path != "" {
+	_, bc0, bs0 := sample("tks_persist_batch_seconds", map[string]string{"entity": "comment"})
+	if path := os.Getenv("TKS_LOADTEST_CPUPROFILE"); path != "" {
 		f, err := os.Create(path)
 		if err != nil {
 			t.Fatal(err)
@@ -186,7 +186,7 @@ func TestLoadPipeline(t *testing.T) {
 		j := decodeBody[jobView](t, s.Do(t, key, "POST", "/v1/jobs", []byte(fmt.Sprintf(`{"page":%q,"mode":"full"}`, "https://www.facebook.com/"+p.Vanity))), http.StatusAccepted)
 		ids[i] = j.ID
 	}
-	deadline := time.Now().Add(envDuration("IGS_LOADTEST_TIMEOUT", 20*time.Minute))
+	deadline := time.Now().Add(envDuration("TKS_LOADTEST_TIMEOUT", 20*time.Minute))
 	for time.Now().Before(deadline) {
 		if count(t, s, `SELECT count(*) FROM jobs WHERE status IN ('completed','partial','failed','cancelled')`) == len(ids) {
 			break
@@ -220,7 +220,7 @@ func TestLoadPipeline(t *testing.T) {
 	for q, n := range after.ByQuery {
 		requests += n - before.ByQuery[q]
 	}
-	_, bc, bs := sample("igs_persist_batch_seconds", map[string]string{"entity": "comment"})
+	_, bc, bs := sample("tks_persist_batch_seconds", map[string]string{"entity": "comment"})
 	bc, bs = bc-bc0, bs-bs0
 
 	r := &report{title: fmt.Sprintf("Pipeline: %d pages × %d posts, all backfilled at once", pages, posts)}
@@ -238,7 +238,7 @@ func TestLoadPipeline(t *testing.T) {
 		b := backlog[st]
 		r.add("Backlog: "+st, "peak %d, mean %.0f records", b.peak, b.mean)
 	}
-	r.add("fakefb latency", "%s", envDuration("IGS_LOADTEST_LATENCY", 0))
+	r.add("fakefb latency", "%s", envDuration("TKS_LOADTEST_LATENCY", 0))
 	r.write(t)
 	if statuses["completed"] != len(ids) || gotComments != want || gotPosts != wantPosts {
 		t.Fatalf("incomplete: jobs %v, posts %d/%d, comments %d/%d", statuses, gotPosts, wantPosts, gotComments, want)
@@ -258,7 +258,7 @@ func watchBacklog(s *Stack, every time.Duration) func() map[string]backlogStat {
 	label := map[string]string{s.Producer.Topic(persist.Group): "persister"}
 	for _, st := range []string{"page", "post", "thread"} {
 		for _, l := range []string{"p0", "p1", "p2"} {
-			label[s.Producer.Topic("igs-crawler-"+st+"-"+l)] = st
+			label[s.Producer.Topic("tks-crawler-"+st+"-"+l)] = st
 		}
 	}
 	groups := make([]string, 0, len(label))
@@ -311,10 +311,10 @@ func watchBacklog(s *Stack, every time.Duration) func() map[string]backlogStat {
 // produced to fb.comment.v1 as fast as Kafka takes them, then the same
 // records again (the no-op upsert path every re-scrape takes).
 //
-//	IGS_LOADTEST_ROWS (200000)
+//	TKS_LOADTEST_ROWS (200000)
 func TestLoadPersister(t *testing.T) {
 	loadEnabled(t)
-	n := envInt("IGS_LOADTEST_ROWS", 200_000)
+	n := envInt("TKS_LOADTEST_ROWS", 200_000)
 	s := Start(t, Options{Spec: fakefb.Spec{Seed: 1, Pages: 1, PostsPerPage: 1, PostSpacing: time.Hour, MaxComments: 1}})
 	ctx := context.Background()
 	postCreated := time.Now().Add(-48 * time.Hour)
@@ -342,7 +342,7 @@ func TestLoadPersister(t *testing.T) {
 	// processed counts comment rows the persister handled (written or
 	// unchanged).
 	processed := func() float64 {
-		v, _, _ := sample("igs_persist_rows_total", map[string]string{"entity": "comment"})
+		v, _, _ := sample("tks_persist_rows_total", map[string]string{"entity": "comment"})
 		return v
 	}
 	wait := func(target float64) time.Duration {
@@ -358,7 +358,7 @@ func TestLoadPersister(t *testing.T) {
 	}
 
 	base := processed()
-	_, bc0, bs0 := sample("igs_persist_batch_seconds", map[string]string{"entity": "comment"})
+	_, bc0, bs0 := sample("tks_persist_batch_seconds", map[string]string{"entity": "comment"})
 	start := time.Now()
 	prodNew := produce()
 	wait(base + float64(n))
@@ -370,7 +370,7 @@ func TestLoadPersister(t *testing.T) {
 	prodAgain := produce()
 	wait(base + 2*float64(n))
 	again := time.Since(start)
-	_, bc, bs := sample("igs_persist_batch_seconds", map[string]string{"entity": "comment"})
+	_, bc, bs := sample("tks_persist_batch_seconds", map[string]string{"entity": "comment"})
 	bc, bs = bc-bc0, bs-bs0
 
 	r := &report{title: fmt.Sprintf("Persister: %d comments", n)}

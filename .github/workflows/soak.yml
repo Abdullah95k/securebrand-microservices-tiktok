@@ -7,13 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       duration:
-        description: How long the world changes (IGS_SOAK_DURATION)
+        description: How long the world changes (TKS_SOAK_DURATION)
         default: 90m
       pages:
-        description: Pages crawled (IGS_SOAK_PAGES)
+        description: Pages crawled (TKS_SOAK_PAGES)
         default: "20"
       restart_every:
-        description: A component restart this often; 0 = never (IGS_SOAK_RESTART_EVERY)
+        description: A component restart this often; 0 = never (TKS_SOAK_RESTART_EVERY)
         default: 2m
 
 permissions:
@@ -34,11 +34,11 @@ jobs:
           for i in $(seq 1 60); do docker exec fbs-redpanda-1 rpk cluster health --exit-when-healthy && break; sleep 2; done
       - name: Soak
         env:
-          IGS_SOAK_DURATION: ${{ inputs.duration }}
-          IGS_SOAK_PAGES: ${{ inputs.pages }}
-          IGS_SOAK_RESTART_EVERY: ${{ inputs.restart_every }}
-          IGS_SOAK_OUT: ${{ github.workspace }}/soak.md
-          IGS_SOAK_HEAPPROFILE: ${{ github.workspace }}/heap
+          TKS_SOAK_DURATION: ${{ inputs.duration }}
+          TKS_SOAK_PAGES: ${{ inputs.pages }}
+          TKS_SOAK_RESTART_EVERY: ${{ inputs.restart_every }}
+          TKS_SOAK_OUT: ${{ github.workspace }}/soak.md
+          TKS_SOAK_HEAPPROFILE: ${{ github.workspace }}/heap
         run: make soak > soak.log 2>&1
       - name: Report
         if: always()

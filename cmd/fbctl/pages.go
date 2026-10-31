@@ -24,8 +24,8 @@ import (
 // interrupted import is simply run again.
 func pagesImport(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("pages import", flag.ExitOnError)
-	apiURL := fs.String("api", os.Getenv("IGS_API_URL"), "fbs API base URL (default $IGS_API_URL)")
-	key := fs.String("key", os.Getenv("IGS_API_KEY"), "API key with pages:write (default $IGS_API_KEY)")
+	apiURL := fs.String("api", os.Getenv("TKS_API_URL"), "fbs API base URL (default $TKS_API_URL)")
+	key := fs.String("key", os.Getenv("TKS_API_KEY"), "API key with pages:write (default $TKS_API_KEY)")
 	interval := fs.Int("interval-hours", 0, "fixed re-scrape interval in hours (0 = adaptive tiers)")
 	rps := fs.Float64("rps", 5, "registrations per second")
 	backfill := fs.Bool("backfill", true, "backfill pages not registered before")
