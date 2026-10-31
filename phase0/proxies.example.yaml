@@ -20,6 +20,16 @@ fb:
           - "http://USER:PASS@203.0.113.10:8000"
           - "http://USER:PASS@203.0.113.11:8000"
 
+      # A second ISP tier in another country, to compare what each country
+      # sees (tks probe, T23 and T30): for example European ISP IPs.
+      - name: isp_eu
+        kind: static_list
+        country: de
+        cost_per_gb_usd: 0
+        endpoints:
+          - "http://USER:PASS@198.51.100.10:8000"
+          - "http://USER:PASS@198.51.100.11:8000"
+
       # Rotating residential gateway, billed per GB. The exit IP is chosen
       # by the session id in the user name and stays the same for
       # sticky_ttl. Common user name formats (check your provider's docs):

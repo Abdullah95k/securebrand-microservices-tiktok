@@ -75,18 +75,22 @@ and `phase0/out-tt/<tier>.tar.gz` packs the folder for downloading.
 ```
 tks-spike probe --accounts FILE [--config FILE] [--tier NAME] [--out-dir DIR]
                 [--rps 0.3] [--max-list-pages 40] [--max-age-days 0]
-                [--max-comment-pages 5] [--covers 12] [--videos 0]
+                [--max-comment-pages 5] [--count-checks 5] [--covers 12] [--videos 0]
                 [--signer none|browser] [--oembed] [--max-captchas 10]
-                [--fingerprint chrome_152]
+                [--fingerprint chrome_152] [--alt-fingerprint chrome_146] [--raw]
 tks-spike probe --dry-run
+tks-spike browser-check
 ```
 
 | Target | What it runs |
 |---|---|
-| `make tks-probe-dryrun` | The whole probe against the built-in `fakett`, no traffic. Its summary must say `bootstrapped 3/3` |
-| `make tks-probe` | The test pass: `phase0/tt-accounts.txt`, ISP tier, `--videos 1 --signer browser --oembed`, output `phase0/out-tt/` |
-| `make tks-probe-all` | The full pass: `phase0/tt-accounts-all.txt`, ISP tier, `--max-age-days 365 --max-list-pages 100 --covers 3 --videos 0`, signer as the test pass showed it is needed, output `phase0/out-tt-all/` |
-| `make tks-browser-check` | Checks that Chromium is installed for `--signer browser` and prints the one command to install it if not |
+| `make tks-probe-dryrun` | The whole probe against the built-in `fakett` (whose app list needs a signature, as in the recordings), no traffic. Its summary must say `bootstrapped 3/3` |
+| `make tks-probe` | The test pass: `phase0/tt-accounts.txt`, one run per tier in `TKS_PROBE_TIERS`, with `--videos 1 --signer browser --oembed`, output `phase0/out-tt/` |
+| `make tks-probe-all` | The full pass: `phase0/tt-accounts-all.txt`, `--max-age-days 365 --max-list-pages 100 --covers 3 --videos 0 --count-checks 0`, output `phase0/out-tt-all/` |
+| `make tks-browser-check` | Checks that a Chromium is installed for `--signer browser` and prints the two commands that install Google Chrome if not |
+| `make tks-spike-bin` | Static binaries, to run the probe without a Go toolchain |
+
+The runbook is [`docs/runbooks/tks-probe.md`](../runbooks/tks-probe.md).
 
 The accounts file holds one account per line: `username`, `@username` or a profile link; `#` starts a comment. The owner prepares it on the Mac and copies it to the droplet with `scp` (the runbook gives the exact command); no editing on the droplet.
 

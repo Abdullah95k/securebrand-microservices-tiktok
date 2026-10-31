@@ -5,7 +5,7 @@ PG_DSN ?= postgres://fbs:fbs@localhost:5432/fbs?sslmode=disable
 TEST_ENV = TKS_TEST_PG_DSN="$(PG_DSN)" TKS_TEST_REDIS_ADDR=localhost:6379 TKS_TEST_KAFKA_BROKERS=localhost:19092 TKS_TEST_SCHEMA_REGISTRY=http://localhost:18081
 COMPOSE = docker compose -f deploy/compose/docker-compose.yml
 
-.PHONY: all build test lint vet generate golden fixtures infra-up infra-down test-integration e2e loadtest soak docker docker-prebuilt compose-up compose-down spike-report phase0 phase0-dryrun phase0-trim phase0-rate pilot-up pilot-register pilot-registry pilot-report pilot-down pilot-clean spike-bin chart-check chart-smoke clean
+.PHONY: all build test lint vet generate golden fixtures infra-up infra-down test-integration e2e loadtest soak docker docker-prebuilt compose-up compose-down spike-report phase0 phase0-dryrun phase0-trim phase0-rate pilot-up pilot-register pilot-registry pilot-report pilot-down pilot-clean spike-bin tks-probe tks-probe-all tks-probe-dryrun tks-browser-check tks-spike-bin chart-check chart-smoke clean
 
 all: generate build test
 
@@ -189,6 +189,50 @@ pilot-clean:
 ## Rehearse Phase 0 against a local fakefb (no proxies, no Facebook, about a minute).
 phase0-dryrun:
 	GO=$(GO) phase0/dryrun.sh
+
+TKS_PROBE_ACCOUNTS ?= phase0/tt-accounts.txt
+TKS_PROBE_ACCOUNTS_ALL ?= phase0/tt-accounts-all.txt
+TKS_PROBE_TIERS ?= isp
+TKS_PROBE_OUT ?= phase0/out-tt
+TKS_PROBE_ARGS ?=
+
+## tks probe against real TikTok, test pass (checkpoint C2, docs/runbooks/tks-probe.md):
+## 3 to 5 accounts, one run per tier in TKS_PROBE_TIERS (the owner's ISP tiers;
+## "direct" = this machine's own IP), with a video sample, the browser signer
+## and the embeds. Each writes $(TKS_PROBE_OUT)/<tier>/ and <tier>.tar.gz.
+tks-probe:
+	@test -f $(TKS_PROBE_ACCOUNTS) || { echo "missing $(TKS_PROBE_ACCOUNTS): copy your accounts file there (docs/runbooks/tks-probe.md)"; exit 2; }
+	@for t in $$(echo $(TKS_PROBE_TIERS) | tr , ' '); do \
+	  if [ $$t != direct ] && [ ! -f $(PHASE0_CONFIG) ]; then echo "missing $(PHASE0_CONFIG) for tier $$t (docs/runbooks/tks-probe.md)"; exit 2; fi; \
+	  $(GO) run ./cmd/tks-spike probe --accounts $(TKS_PROBE_ACCOUNTS) $(if $(wildcard $(PHASE0_CONFIG)),--config $(PHASE0_CONFIG)) \
+	    --tier $$t --out-dir $(TKS_PROBE_OUT)/$$t --videos 1 --signer browser --oembed $(TKS_PROBE_ARGS) || exit 1; \
+	done
+
+## tks probe, full pass (checkpoint C3): the whole list, back a year, few covers, no videos.
+tks-probe-all:
+	@test -f $(TKS_PROBE_ACCOUNTS_ALL) || { echo "missing $(TKS_PROBE_ACCOUNTS_ALL): copy your full accounts file there (docs/runbooks/tks-probe.md)"; exit 2; }
+	@for t in $$(echo $(TKS_PROBE_TIERS) | tr , ' '); do \
+	  $(GO) run ./cmd/tks-spike probe --accounts $(TKS_PROBE_ACCOUNTS_ALL) $(if $(wildcard $(PHASE0_CONFIG)),--config $(PHASE0_CONFIG)) \
+	    --tier $$t --out-dir $(TKS_PROBE_OUT)-all/$$t --max-age-days 365 --max-list-pages 100 --covers 3 --videos 0 --count-checks 0 $(TKS_PROBE_ARGS) || exit 1; \
+	done
+
+## Rehearse the probe against a built-in fake TikTok: no traffic, no proxies.
+tks-probe-dryrun:
+	$(GO) run ./cmd/tks-spike probe --dry-run --out-dir $(TKS_PROBE_OUT)-dryrun
+
+## Is a Chromium installed for the probe's browser signer? Prints how to install one if not.
+tks-browser-check:
+	$(GO) run ./cmd/tks-spike browser-check
+
+## tks probe: static binaries the owner can run without a Go toolchain.
+tks-spike-bin:
+	@for t in linux/amd64 linux/arm64 darwin/arm64 darwin/amd64; do \
+	  os=$${t%/*}; arch=$${t#*/}; \
+	  echo "bin/tks-spike-$$os-$$arch"; \
+	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath \
+	    -ldflags="-s -w -X main.version=$$(git describe --always --dirty 2>/dev/null || echo dev)" \
+	    -o bin/tks-spike-$$os-$$arch ./cmd/tks-spike || exit 1; \
+	done
 
 ## Static fbs-spike binaries in bin/, to run Phase 0 on a machine without Go or Docker.
 spike-bin:

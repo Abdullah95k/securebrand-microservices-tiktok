@@ -1,0 +1,6 @@
+# One public TikTok account per line: a username, @username or the profile
+# link. Lines starting with # are skipped. Keep the real file
+# (phase0/tt-accounts.txt) private: git ignores it.
+example_account_1
+@example_account_2
+https://www.tiktok.com/@example_account_3
