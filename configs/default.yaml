@@ -1,0 +1,304 @@
+# Default configuration for every fbs binary. Values can be overridden by a
+# file passed with --config and by environment variables:
+#   IGS_<SECTION>__<KEY>=value   e.g. IGS_POSTGRES__DSN, IGS_CRAWLER__STAGES
+service:
+  name: fbs
+  env: dev
+
+log:
+  level: info        # debug | info | warn | error
+  format: json       # json | text
+
+http:
+  addr: ":8080"            # API listener (fbs-api)
+  ops_addr: ":9090"        # /metrics, /healthz, /readyz on every binary
+  read_timeout: 15s
+  write_timeout: 60s
+
+postgres:
+  dsn: "postgres://fbs:fbs@localhost:5432/fbs?sslmode=disable"
+  read_dsn: ""             # optional read replica for API reads
+  max_conns: 20
+
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+  tls: {enabled: false}   # see kafka.tls
+
+kafka:
+  brokers: ["localhost:19092"]
+  client_id: fbs
+  topic_prefix: ""        # prepended to every topic name (useful for shared clusters)
+  produce_linger: 5ms
+  compression: zstd
+  # TLS to the brokers: the system roots, plus ca_file when set; cert_file
+  # and key_file for mutual TLS; server_name to override the verified name.
+  tls:
+    enabled: false
+    ca_file: ""
+    cert_file: ""
+    key_file: ""
+    server_name: ""
+  # SASL: plain, scram-sha-256 or scram-sha-512 ("" = none). Put the
+  # password in IGS_KAFKA__SASL__PASSWORD, not here.
+  sasl:
+    mechanism: ""
+    username: ""
+    password: ""
+  # Schema Registry for the public fb.v1 contract (`fbctl schemas apply`).
+  # Records stay plain protobuf with the type in the igs-type header; the
+  # registry documents the schemas and rejects incompatible changes.
+  schema_registry:
+    url: ""                # e.g. http://localhost:18081 (Redpanda dev)
+    username: ""
+    password: ""
+
+s3:
+  endpoint: "localhost:9000"
+  access_key: "fbs"
+  secret_key: "fbs-secret"
+  use_ssl: false
+  region: "us-east-1"
+  media_bucket: "igs-media"
+  raw_bucket: "igs-raw"
+
+fb:
+  # Base URL of the Facebook web surface. Tests and local dev point this at fakefb.
+  base_url: "https://www.facebook.com"
+  # Logical query registry; seeded into Postgres by `fbctl migrate`.
+  registry_seed: "queries.seed.yaml"
+  registry_refresh: 30s
+  fingerprint_profile: chrome_146
+  locale: en_US
+  accept_language: "en-US,en;q=0.9"
+  request_timeout: 30s
+  # Cap applied to every identity (requests per second) and burst.
+  identity_rps: 0.33
+  identity_burst: 2
+  identity_max_requests_min: 150
+  identity_max_requests_max: 400
+  # Per page, fleet wide (Redis GCRA).
+  page_rps: 3
+  page_rps_p0: 6
+  # Global ceiling across the fleet, and AIMD's starting point.
+  global_rps: 50
+  # AIMD: every 10s the leader scheduler looks at the fleet's block rate
+  # (rate limits, login walls, checkpoints) over the last window. Above
+  # high_block_rate the ceiling is multiplied by `decrease`; below
+  # low_block_rate, while the fleet uses at least min_utilization of the
+  # ceiling, it grows by `increase`. Crawlers re-read it every 5s.
+  # Headless-Chromium fallback. When a page's HTML carries no tokens (it
+  # needs JavaScript first), the identity is bootstrapped in a browser
+  # through its own proxy, for at most max_share of HTML loads and
+  # max_concurrent browsers per process. fbs-registry-sync also renders a
+  # canary page to read doc_ids from the requests the page makes when the
+  # bundles do not declare a query. Needs a Chromium in the image.
+  browser:
+    enabled: false
+    binary: ""
+    max_concurrent: 2
+    max_share: 0.02
+    timeout: 45s
+    no_sandbox: false
+  aimd:
+    enabled: true
+    interval: 10s
+    min_rps: 5
+    max_rps: 500
+    increase: 0.02
+    decrease: 0.7
+    low_block_rate: 0.02
+    high_block_rate: 0.06
+    min_samples: 100
+    min_utilization: 0.8
+  bootstrap_attempts: 3
+  capture_raw: failures    # all | failures | none
+  # Share of responses a candidate parser (internal/crawl/shadow) also
+  # parses, to prove a new parser version on live traffic before it becomes
+  # active. Nothing runs unless a candidate is compiled in.
+  shadow_rate: 0.05
+  proxy:
+    tiers: []
+    # - name: isp
+    #   kind: static_list
+    #   endpoints: ["http://user:pass@1.2.3.4:8000"]
+    # - name: residential
+    #   kind: gateway
+    #   gateway: "http://gw.provider.example:7777"
+    #   username: "user"
+    #   password: "pass"
+    #   username_template: "{user}-country-{country}-session-{session}-sesstime-{ttl_min}"
+    #   sticky_ttl: 10m
+    #   country: us
+    routing:
+      default: [direct]
+    # Circuit breaker per exit bucket (a static endpoint's /24, or a gateway
+    # and country): one blocked or failing too often gets no new identities
+    # until its cooldown ends, then a single probe identity.
+    breaker:
+      window: 1m
+      min_events: 20
+      open_rate: 0.15
+      cooldown: 2m
+      max_cooldown: 30m
+      probe_successes: 3
+  # Circuit breaker per (query, doc_id): when responses keep failing to parse
+  # (schema drift) or the doc_id is rejected, stop sending that query (tasks
+  # retry later) instead of spending requests until a registry or parser
+  # update lands.
+  query_breaker:
+    window: 5m
+    min_events: 20
+    open_rate: 0.5
+    cooldown: 2m
+    max_cooldown: 30m
+    probe_successes: 3
+
+crawler:
+  stages: [page, post, thread]
+  # In-flight tasks per pod and stage, shared by the lanes in priority order:
+  # p0 on-demand > p1 scheduled > p2 backfill. Idle capacity of one lane is
+  # used by the others and handed back as their tasks finish (tasks yield
+  # within yield_after). Set slots to 0 to give each lane fixed slots.
+  slots: 240
+  lanes:      # most slots each lane may use
+    p0: 240
+    p1: 240
+    p2: 96    # backfill: at most 40% of the slots
+  lane_min: 12  # slots a waiting lane always gets, however busy the others are (5%)
+  max_inflight_per_partition: 64
+  yield_pages: 20
+  yield_after: 60s
+  timeline_page_size: 10
+  comments_page_size: 50
+  consecutive_old_stop: 3
+  # Retries a task gets without its stream moving forward (a stream that
+  # saves new pages between rate limits starts counting again), and in all.
+  # Exhausted tasks go to the DLQ with reason max_attempts or
+  # max_total_attempts.
+  max_attempts: 5
+  max_total_attempts: 50
+  lease_ttl: 120s
+  freshness_p0: 15m
+  freshness_p1: 6h
+  suppression_refresh: 60s
+
+limits:            # defaults applied to jobs that do not override them
+  max_age_days: 365
+  max_age_cap_days: 1095
+  max_posts: 0       # 0 = unlimited
+  max_depth: 3
+  include_comments: true
+  include_replies: true
+  include_media: true
+  include_comment_media: true
+  video_policy: sd   # none | thumbnail | sd | hd
+  backfill_video_policy: thumbnail
+
+scheduler:
+  planner_interval: 30s
+  planner_batch: 500
+  default_interval: 3h
+  jitter: 0.1
+  finalizer_interval: 2s
+  finalize_timeout: 10m
+  reaper_after: 30m
+  partition_months_ahead: 3
+  incremental_overlap: 24h
+  # Adaptive tiers for pages registered without schedule.interval_hours:
+  # after each job the page's posting rate over rate_window picks the first
+  # tier whose min_posts_per_day it reaches. No post for dormant_after puts
+  # it on dormant_interval (T4). Every tier crawls for new posts every 3h:
+  # a run that finds nothing new costs a request or two. The tiers still
+  # choose which posts' comments are refreshed (post_refresh) and which
+  # pages a budget slows down first.
+  rate_window: 336h          # 14 days
+  tiers:
+    - {name: T0, min_posts_per_day: 10, interval: 3h}
+    - {name: T1, min_posts_per_day: 1, interval: 3h}
+    - {name: T2, min_posts_per_day: 0.142857, interval: 3h}    # weekly or more
+    - {name: T3, min_posts_per_day: 0, interval: 3h}
+  dormant_after: 2160h       # 90 days
+  dormant_interval: 3h
+  # Comments on posts older than incremental_overlap are refreshed on the
+  # page's scheduled jobs (up to max_per_job posts each): a newest-first read
+  # that stops at the first comment already stored, so an unchanged post
+  # costs one request. Each refresh that finds nothing new doubles that
+  # post's interval (up to 2^max_backoff). Busy posts get a full recrawl at
+  # each recrawl_at age to pick up edits and deletions.
+  post_refresh:
+    enabled: true
+    max_per_job: 50
+    max_backoff: 3
+    windows:
+      - {max_age: 168h, interval: 24h}                   # up to 7 days old
+      - {max_age: 336h, interval: 72h}                   # 7-14 days
+      - {max_age: 720h, interval: 168h, tiers: [T0, T1]} # 14-30 days, active pages only
+    recrawl_at: [168h, 720h]
+    recrawl_min_comments: 20
+    # Mark known top-level comments (and their replies) deleted when a full
+    # read of their post no longer returns them. Only a complete read counts:
+    # what it returned (comments plus their reply counts) must match the
+    # post's comment count, within deletion_count_slack (a share; 0 = exact).
+    detect_deletions: true
+    deletion_count_slack: 0
+  # Daily Facebook traffic budget, fleet-wide (0 = unlimited). Every interval
+  # the leader projects the day's use from the last projection_span; when it
+  # would exceed the budget, backfill (p2) pauses; if p0 + p1 alone would,
+  # the stretch_tiers' intervals are multiplied by stretch. p0 is never held.
+  # With a budget set, that is the one case where pages wait longer than 3h;
+  # stretch_tiers: [] keeps them at 3h and lets the budget pause backfill only.
+  budget:
+    enabled: true
+    requests_per_day: 0
+    bytes_per_day: 0
+    interval: 1m
+    stretch: 2
+    stretch_tiers: [T4, T3, T2]
+    projection_span: 1h
+
+media:
+  concurrency: 50
+  ttl: 72h
+  required_consumers: ["analysis"]
+  max_retryable_failures: 3
+  sweep_interval: 1h
+  orphan_interval: 24h
+  presign: false
+  presign_ttl: 24h
+  max_bytes: 524288000   # 500 MiB per object
+
+api:
+  max_running_p0_jobs_per_client: 50
+  max_running_p0_jobs: 0       # on-demand jobs running fleet-wide; 0 = no cap
+  default_rate_per_minute: 600
+
+privacy:
+  pii_mode: full        # full | pseudonymized
+  author_hmac_key: "dev-only-change-me"
+  download_author_avatars: false
+  retention:
+    comments_days: 365
+    authors_inactive_days: 365
+    metrics_days: 180
+    raw_payload_days: 7
+    media_rows_days: 30
+    jobs_days: 90
+
+# fbs-registry-sync: every interval it loads the canary pages, scans them and
+# their JS bundles for Relay doc_ids, records new ones as candidates, checks
+# each candidate and the active entry with a real request on a canary page
+# (timeline -> comments -> replies), and promotes a candidate that parses.
+# The former active entry stays as a fallback.
+registry_sync:
+  interval: 30m
+  canary_pages: []       # vanity names or URLs; set at least three in production
+  tier: ""
+  max_bundles: 60
+  bundles_via_proxy: false
+  promote: true
+  keep_fallbacks: 2
+  retire_after: 3
+  recheck_retired: 24h
+  timeout: 10m

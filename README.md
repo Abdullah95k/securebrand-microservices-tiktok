@@ -6,7 +6,7 @@ It joins two scrapers built the same way:
 - **fbs**, logged-out Facebook pages: [`Abdullah95k/securebrand-microservices`](https://github.com/Abdullah95k/securebrand-microservices);
 - **igs**, logged-out Instagram profiles: [`Abdullah95k/securebrand-microservices-igs`](https://github.com/Abdullah95k/securebrand-microservices-igs).
 
-**Status:** planning. The plan, the evidence behind it, and the prompt that starts every build session are in [`docs/tiktok/`](docs/tiktok/build-brief.md):
+**Status:** building the probe (milestone M1). The code is a copy of igs's (and through it fbs's), seeded on 2026-10-31: see [`UPSTREAM.md`](UPSTREAM.md). The copied pipeline's own README is [`docs/fbs-readme.md`](docs/fbs-readme.md). The plan, the evidence behind it, and the prompt that starts every build session are in [`docs/tiktok/`](docs/tiktok/build-brief.md):
 
 | Document | What it holds |
 |---|---|

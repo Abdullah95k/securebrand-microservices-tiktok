@@ -1,0 +1,69 @@
+# Pilot overlay for docker-compose.yml: the real pipeline against real
+# Facebook on one machine (docs/runbooks/pilot.md). `make pilot-up` runs:
+#   docker compose -f docker-compose.yml -f pilot.yml up -d
+# Differences from the local stack:
+# - config: phase0/proxies.yaml + pilot.yaml (+ pilot-canary.yaml), never
+#   local.yaml, whose fakefb pacing must not reach Facebook;
+# - every port is bound to 127.0.0.1 (the stack's Postgres password is "fbs");
+# - no fakefb; the Phase 0 registry is imported before the crawler starts;
+# - the fbs services run as root in their containers, to read proxies.yaml
+#   (mode 600, owned by root).
+
+x-pilot: &pilot
+  user: "0:0"
+  environment:
+    IGS_CONFIG: /etc/fbs/proxies.yaml,/etc/fbs/pilot.yaml,/etc/fbs/pilot-canary.yaml
+    IGS_FB__BASE_URL: https://www.facebook.com
+  volumes:
+    - ../../phase0/proxies.yaml:/etc/fbs/proxies.yaml:ro
+    - ./pilot.yaml:/etc/fbs/pilot.yaml:ro
+    - ../../phase0/out/pilot-canary.yaml:/etc/fbs/pilot-canary.yaml:ro
+
+services:
+  postgres:
+    ports: !override ["127.0.0.1:5432:5432"]
+  redpanda:
+    ports: !override ["127.0.0.1:19092:19092", "127.0.0.1:18081:8081"]
+  valkey:
+    ports: !override ["127.0.0.1:6379:6379"]
+  s3:
+    ports: !override ["127.0.0.1:9000:9000"]
+  fakefb:
+    profiles: ["fakefb"] # not started
+
+  init: *pilot
+  topics: *pilot
+  schemas: *pilot
+
+  # The Phase 0 doc_ids become the active registry entries.
+  pilot-registry:
+    image: ${IGS_IMAGE:-fbs:dev}
+    <<: *pilot
+    environment:
+      IGS_CONFIG: /etc/fbs/proxies.yaml,/etc/fbs/pilot.yaml,/etc/fbs/pilot-canary.yaml
+      IGS_POSTGRES__DSN: postgres://fbs:fbs@postgres:5432/fbs?sslmode=disable
+    volumes:
+      - ../../phase0/proxies.yaml:/etc/fbs/proxies.yaml:ro
+      - ./pilot.yaml:/etc/fbs/pilot.yaml:ro
+      - ../../phase0/out/pilot-canary.yaml:/etc/fbs/pilot-canary.yaml:ro
+      - ../../phase0/out/registry.yaml:/etc/fbs/registry.yaml:ro
+    # Only over the seed's placeholders: a restart keeps what registry-sync promoted.
+    entrypoint: ["/usr/local/bin/fbctl", "registry", "import", "--keep-promoted", "--file", "/etc/fbs/registry.yaml"]
+    depends_on:
+      init: {condition: service_completed_successfully}
+
+  api:
+    <<: *pilot
+    ports: !override ["127.0.0.1:8080:8080"]
+  scheduler: *pilot
+  crawler:
+    <<: *pilot
+    depends_on:
+      pilot-registry: {condition: service_completed_successfully}
+  persister: *pilot
+  media-downloader: *pilot
+  media-janitor: *pilot
+  registry-sync:
+    <<: *pilot
+    depends_on:
+      pilot-registry: {condition: service_completed_successfully}

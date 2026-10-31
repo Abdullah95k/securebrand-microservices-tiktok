@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package securebrand.fb.v1;
+
+import "google/protobuf/timestamp.proto";
+import "securebrand/fb/v1/common.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1;fbv1";
+
+enum PostType {
+  POST_TYPE_UNSPECIFIED = 0;
+  POST_TYPE_STATUS = 1;
+  POST_TYPE_PHOTO = 2;
+  POST_TYPE_ALBUM = 3;
+  POST_TYPE_VIDEO = 4;
+  POST_TYPE_REEL = 5;
+  POST_TYPE_LINK = 6;
+  POST_TYPE_SHARE = 7;
+  POST_TYPE_EVENT = 8;
+  POST_TYPE_LIVE = 9;
+}
+
+enum PostStatus {
+  POST_STATUS_UNSPECIFIED = 0;
+  POST_STATUS_VISIBLE = 1;
+  POST_STATUS_UNAVAILABLE = 2;
+}
+
+message LinkAttachment {
+  string url = 1;
+  string title = 2;
+  string description = 3;
+  string source = 4;
+  string image_url = 5;
+}
+
+// Post is published on fb.post.v1, keyed by post_id.
+message Post {
+  Observation obs = 1;
+  int64 post_id = 2;
+  int64 page_id = 3;
+  google.protobuf.Timestamp created_at = 4;
+  // Facebook graph id of the Story node.
+  string story_id = 5;
+  string permalink = 6;
+  PostType type = 7;
+  string text = 8;
+  repeated TextRange text_ranges = 9;
+  repeated string hashtags = 10;
+  repeated LinkAttachment links = 11;
+  optional int64 shared_post_id = 12;
+  string shared_post_url = 13;
+  optional bool is_pinned = 14;
+  // True only when Facebook labels the post as a paid partnership.
+  optional bool is_paid_partnership = 15;
+  string author_id = 16;
+  string author_name = 17;
+  Reactions reactions = 18;
+  // Total comments including replies, as reported by Facebook.
+  optional int64 comment_count = 19;
+  optional int64 share_count = 20;
+  optional int64 view_count = 21;
+  // Feedback id used to paginate comments.
+  string feedback_id = 22;
+  // Deterministic media ids (see Media.media_id) attached to the post.
+  repeated string media_ids = 23;
+  string extra_json = 24;
+  PostStatus status = 25;
+}
+
+// PostMetrics is a point-in-time engagement sample, on fb.post_metrics.v1.
+message PostMetrics {
+  Observation obs = 1;
+  int64 post_id = 2;
+  int64 page_id = 3;
+  google.protobuf.Timestamp post_created_at = 4;
+  google.protobuf.Timestamp captured_at = 5;
+  Reactions reactions = 6;
+  optional int64 comment_count = 7;
+  optional int64 share_count = 8;
+  optional int64 view_count = 9;
+}

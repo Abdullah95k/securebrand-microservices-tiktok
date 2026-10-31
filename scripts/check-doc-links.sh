@@ -1,23 +1,21 @@
 #!/usr/bin/env bash
-# Checks that every relative Markdown link in docs/ and the README points at
-# an existing file (anchors and external links are not checked).
-set -euo pipefail
+# Checks that every relative Markdown link in the repository's tracked .md
+# files points at an existing file (anchors and external links are not
+# checked).
+set -uo pipefail
 cd "$(dirname "$0")/.."
-status=0
+broken=0
 while IFS= read -r f; do
   dir=$(dirname "$f")
-  # Link targets: ](target) with no scheme, not a pure anchor.
-  grep -oE '\]\([^)#][^)]*\)' "$f" | sed -E 's/^\]\((.*)\)$/\1/' | while IFS= read -r t; do
+  while IFS= read -r t; do
     case "$t" in
-      http://*|https://*|mailto:*) continue ;;
+      ''|http://*|https://*|mailto:*|\#*) continue ;;
     esac
     path=${t%%#*}
-    [ -z "$path" ] && continue
     if [ ! -e "$dir/$path" ]; then
       echo "$f: broken link: $t"
-      echo broken >> /tmp/doc-links.$$
+      broken=1
     fi
-  done
+  done < <(grep -oE '\]\([^)]+\)' "$f" | sed -E 's/^\]\((.*)\)$/\1/' | sed -E 's/ +"[^"]*"$//')
 done < <(git ls-files '*.md')
-if [ -f /tmp/doc-links.$$ ]; then rm -f /tmp/doc-links.$$; status=1; fi
-exit $status
+exit $broken

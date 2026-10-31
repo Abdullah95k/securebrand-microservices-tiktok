@@ -1,0 +1,33 @@
+{{- $root := . -}}
+{{- $jobs := list -}}
+{{- if .Values.hooks.migrate }}{{ $jobs = append $jobs (dict "name" "migrate" "args" (list "migrate" "up")) }}{{ end -}}
+{{- if .Values.hooks.topics }}{{ $jobs = append $jobs (dict "name" "topics" "args" (list "kafka" "apply" "--replicas" (toString .Values.hooks.topicReplicas))) }}{{ end -}}
+{{- if .Values.hooks.schemas }}{{ $jobs = append $jobs (dict "name" "schemas" "args" (list "schemas" "apply")) }}{{ end -}}
+{{- range $jobs }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "fbs.fullname" $root }}-{{ .name }}
+  labels: {{- include "fbs.labels" $root | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext: {{- toYaml $root.Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .name }}
+          image: "{{ $root.Values.image.repository }}:{{ $root.Values.image.tag | default $root.Chart.AppVersion }}"
+          command: ["/usr/local/bin/fbctl"]
+          args: {{- toYaml .args | nindent 12 }}
+          env: {{- include "fbs.env" $root | nindent 12 }}
+          {{- include "fbs.envFrom" $root | nindent 10 }}
+          securityContext: {{- toYaml $root.Values.securityContext | nindent 12 }}
+          volumeMounts: {{- include "fbs.volumeMounts" $root | nindent 12 }}
+      volumes: {{- include "fbs.hookVolumes" $root | nindent 8 }}
+{{- end }}

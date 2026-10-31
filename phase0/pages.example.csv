@@ -1,0 +1,28 @@
+# Phase 0 page sample.
+#
+#   cp phase0/pages.example.csv phase0/pages.csv
+#
+# One public page per row: a URL (https://www.facebook.com/<vanity>), a
+# vanity, or profile.php?id=<id>. The other columns are labels: the report
+# breaks bootstrap success, block rate, timeline depth and comment
+# completeness down by each of them. Use your own values if these don't fit.
+#
+# Aim for about 150 pages, roughly:
+#
+#   size      small (<10k followers) 40, medium (10k-500k) 50, large (500k-5M) 40, mega (>5M) 20
+#   category  brand 60, news 30, creator 30, government 15, other 15
+#   region    us 60, eu 50 (cookie consent wall), apac 40
+#   language  whatever the pages post in (en, de, fr, ar, ja, ...)
+#
+# Include the pages you will actually monitor: the measurement is only as
+# good as the sample. The first rows also feed the docids, capture and
+# smoke steps, so put a few busy pages (many posts and comments) first.
+#
+# Examples (replace with real pages and remove the leading #):
+page,size,category,region,language
+# https://www.facebook.com/<busy-brand-page>,large,brand,us,en
+# https://www.facebook.com/<news-outlet>,mega,news,eu,de
+# https://www.facebook.com/<local-shop>,small,brand,us,en
+# https://www.facebook.com/<creator>,medium,creator,apac,ja
+# https://www.facebook.com/<city-council>,medium,government,eu,fr
+# profile.php?id=<numeric-page-id>,small,other,apac,en

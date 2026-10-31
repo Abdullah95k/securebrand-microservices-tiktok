@@ -1,0 +1,44 @@
+# Phase 0 proxy configuration.
+#
+#   cp phase0/proxies.example.yaml phase0/proxies.yaml
+#   chmod 600 phase0/proxies.yaml          # it holds credentials
+#
+# phase0/proxies.yaml is git-ignored and never copied into the results
+# bundle. Keep only the tiers you have; run each through `make phase0`
+# (PHASE0_TIERS=isp,residential) so their block rates and costs can be
+# compared side by side.
+fb:
+  proxy:
+    tiers:
+      # Static ISP (or datacenter) IPs, billed per IP. Each endpoint is one
+      # exit; identities rotate through the list.
+      - name: isp
+        kind: static_list
+        country: us
+        cost_per_gb_usd: 0          # per-IP plans: leave 0, or your effective $/GB
+        endpoints:
+          - "http://USER:PASS@203.0.113.10:8000"
+          - "http://USER:PASS@203.0.113.11:8000"
+
+      # Rotating residential gateway, billed per GB. The exit IP is chosen
+      # by the session id in the user name and stays the same for
+      # sticky_ttl. Common user name formats (check your provider's docs):
+      #   {user}-country-{country}-session-{session}-sesstime-{ttl_min}
+      #   {user}-cc-{country}-sessid-{session}-sesstime-{ttl_min}
+      #   {user}_session-{session}_life-{ttl_min}
+      # Placeholders: {user} {country} {session} {ttl_min}.
+      - name: residential
+        kind: gateway
+        gateway: "http://gw.provider.example:7777"
+        username: "USER"
+        password: "PASS"
+        username_template: "{user}-country-{country}-session-{session}-sesstime-{ttl_min}"
+        sticky_ttl: 10m
+        country: us
+        cost_per_gb_usd: 4.0
+
+# Optional. Defaults are in configs/default.yaml.
+# fb:
+#   fingerprint_profile: chrome_146
+#   accept_language: "en-US,en;q=0.9"
+#   locale: en_US

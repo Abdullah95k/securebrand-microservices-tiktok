@@ -1,0 +1,240 @@
+image:
+  repository: ghcr.io/abdullah95k/fbs
+  # Defaults to the chart's appVersion (the release workflow publishes both).
+  tag: ""
+  # Image built with `--target browser` (Chromium included). When set, the
+  # components marked `browser: true` (crawlers, registry-sync) use it; set
+  # it together with config.fb.browser.enabled.
+  browserTag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Rendered into a ConfigMap and mounted as /etc/fbs/config.yaml. Every key of
+# configs/default.yaml can be set here. Secrets go in secretEnv / secretFiles.
+config:
+  service: {env: prod}
+  log: {level: info, format: json}
+  kafka:
+    brokers: ["kafka-bootstrap.kafka:9092"]
+  redis:
+    addr: "valkey-master.fbs:6379"
+  s3:
+    endpoint: "s3.amazonaws.com"
+    use_ssl: true
+    region: "eu-west-1"
+    media_bucket: "securebrand-igs-media"
+    raw_bucket: "securebrand-igs-raw"
+  fb:
+    base_url: "https://www.facebook.com"
+    identity_rps: 0.33
+    page_rps: 3
+    global_rps: 200     # AIMD's starting ceiling; fb.aimd.max_rps (500) caps how far it grows
+    capture_raw: failures
+    proxy:
+      routing:
+        default: [isp, residential]
+        bootstrap_html: [residential]
+    # The browser fallback needs image.browserTag. Pods drop every
+    # capability, which leaves Chromium's sandbox unusable, hence no_sandbox.
+    browser:
+      enabled: false
+      no_sandbox: true
+  media:
+    ttl: 72h
+    required_consumers: ["analysis"]
+  # fbs-registry-sync follows doc_id rotations on these pages. Pick at least
+  # three public pages that post daily and get comments with reply threads.
+  registry_sync:
+    canary_pages: []
+
+# Existing Secret whose keys become environment variables, e.g.
+#   IGS_POSTGRES__DSN, IGS_POSTGRES__READ_DSN, IGS_REDIS__PASSWORD,
+#   IGS_S3__ACCESS_KEY, IGS_S3__SECRET_KEY, IGS_PRIVACY__AUTHOR_HMAC_KEY
+secretEnv:
+  existingSecret: fbs-env
+# Existing Secret with a "proxies.yaml" key holding fb.proxy.tiers (proxy
+# endpoints and credentials). Mounted and layered over config.yaml.
+secretFiles:
+  existingSecret: fbs-proxies
+  key: proxies.yaml
+# Existing Secret with certificate files (CA, client certificate and key)
+# for config.kafka.tls / config.redis.tls, mounted at mountPath: point
+# ca_file, cert_file and key_file at e.g. /etc/fbs-tls/ca.pem.
+tlsFiles:
+  existingSecret: ""
+  mountPath: /etc/fbs-tls
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  fsGroup: 65532
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: {drop: ["ALL"]}
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+
+# Alerting and recording rules (files/alerts.yaml) as a PrometheusRule.
+# Requires the Prometheus Operator CRDs. Labels let the Prometheus
+# ruleSelector pick the rule up.
+alerts:
+  enabled: false
+  labels: {}
+
+# Grafana dashboards (files/dashboards/*.json) as ConfigMaps, for the
+# Grafana sidecar that loads ConfigMaps labelled grafana_dashboard.
+dashboards:
+  enabled: false
+  labels:
+    grafana_dashboard: "1"
+  annotations: {}
+
+# KEDA scales Kafka consumers on consumer-group lag. Requires KEDA installed.
+keda:
+  enabled: true
+  kafkaBootstrap: "kafka-bootstrap.kafka:9092"
+  pollingInterval: 15
+  cooldownPeriod: 120
+  # When the brokers need SASL and/or TLS: an existing Secret (in the
+  # release namespace) whose keys are KEDA's Kafka authentication parameters
+  # (sasl: plaintext|scram_sha256|scram_sha512, username, password,
+  # tls: enable, ca, cert, key). authParams must list exactly the keys it
+  # holds: KEDA rejects an empty tls. For TLS brokers add tls and ca.
+  authSecret: ""
+  authParams: [sasl, username, password]
+
+# Hooks run `fbctl migrate up`, `fbctl kafka apply` and, when enabled,
+# `fbctl schemas apply` before installs and upgrades.
+hooks:
+  migrate: true
+  topics: true
+  topicReplicas: 3
+  # `fbctl schemas apply`: registers the fb.v1 schemas with
+  # config.kafka.schema_registry.url (BACKWARD_TRANSITIVE). An incompatible
+  # contract change fails the hook, and with it the upgrade.
+  schemas: false
+
+api:
+  service:
+    type: ClusterIP
+    port: 80
+  ingress:
+    enabled: false
+    className: ""
+    host: fbs.example.com
+    tls: []
+
+# One Deployment per component. "lag" lists consumer groups/topics KEDA
+# watches (group and topic names get config.kafka.topic_prefix prepended).
+components:
+  api:
+    enabled: true
+    command: ["/usr/local/bin/fbs-api"]
+    replicas: 2
+    port: 8080
+    resources: {requests: {cpu: 250m, memory: 256Mi}, limits: {memory: 512Mi}}
+    pdb: {minAvailable: 1}
+  scheduler:
+    enabled: true
+    command: ["/usr/local/bin/fbs-scheduler"]
+    replicas: 2 # leader-elected; one active
+    resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 256Mi}}
+    pdb: {minAvailable: 1}
+  crawler-page:
+    enabled: true
+    browser: true
+    command: ["/usr/local/bin/fbs-crawler", "--stages", "page"]
+    replicas: 2
+    terminationGracePeriodSeconds: 90
+    resources: {requests: {cpu: "1", memory: 1Gi}, limits: {memory: 2Gi}}
+    pdb: {maxUnavailable: 1}
+    autoscale:
+      min: 2
+      max: 8
+      lag:
+        - {group: igs-crawler-page-p0, topic: fbs.task.page.p0, threshold: 20}
+        - {group: igs-crawler-page-p1, topic: fbs.task.page.p1, threshold: 200}
+        - {group: igs-crawler-page-p2, topic: fbs.task.page.p2, threshold: 500}
+  crawler-post:
+    enabled: true
+    browser: true
+    command: ["/usr/local/bin/fbs-crawler", "--stages", "post"]
+    replicas: 3
+    terminationGracePeriodSeconds: 90
+    resources: {requests: {cpu: "1", memory: 1Gi}, limits: {memory: 2Gi}}
+    pdb: {maxUnavailable: 1}
+    autoscale:
+      min: 3
+      max: 12
+      lag:
+        - {group: igs-crawler-post-p0, topic: fbs.task.post.p0, threshold: 50}
+        - {group: igs-crawler-post-p1, topic: fbs.task.post.p1, threshold: 500}
+        - {group: igs-crawler-post-p2, topic: fbs.task.post.p2, threshold: 1000}
+  crawler-thread:
+    enabled: true
+    browser: true
+    command: ["/usr/local/bin/fbs-crawler", "--stages", "thread"]
+    replicas: 4
+    terminationGracePeriodSeconds: 90
+    resources: {requests: {cpu: "1", memory: 1Gi}, limits: {memory: 2Gi}}
+    pdb: {maxUnavailable: 1}
+    autoscale:
+      min: 4
+      max: 16
+      lag:
+        - {group: igs-crawler-thread-p0, topic: fbs.task.thread.p0, threshold: 100}
+        - {group: igs-crawler-thread-p1, topic: fbs.task.thread.p1, threshold: 1000}
+        - {group: igs-crawler-thread-p2, topic: fbs.task.thread.p2, threshold: 2000}
+  crawler-retry:
+    enabled: true
+    command: ["/usr/local/bin/fbs-crawler", "--stages", "retry"]
+    replicas: 1
+    resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 256Mi}}
+  persister:
+    enabled: true
+    command: ["/usr/local/bin/fbs-persister"]
+    replicas: 2
+    resources: {requests: {cpu: 500m, memory: 512Mi}, limits: {memory: 1Gi}}
+    pdb: {maxUnavailable: 1}
+    autoscale:
+      min: 2
+      max: 6
+      lag:
+        - {group: igs-persister, topic: fb.comment.v1, threshold: 20000}
+        - {group: igs-persister, topic: fb.post.v1, threshold: 5000}
+  media-downloader:
+    enabled: true
+    command: ["/usr/local/bin/fbs-media-downloader"]
+    replicas: 4
+    resources: {requests: {cpu: 500m, memory: 512Mi}, limits: {memory: 1Gi}}
+    pdb: {maxUnavailable: 1}
+    autoscale:
+      min: 4
+      max: 12
+      lag:
+        - {group: igs-media-downloader, topic: fbs.task.media, threshold: 1000}
+  media-janitor:
+    enabled: true
+    command: ["/usr/local/bin/fbs-media-janitor"]
+    replicas: 1
+    resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 256Mi}}
+  # Discovers, checks and promotes rotated doc_ids. Needs the crawlers'
+  # egress (proxies, and Facebook's CDN for bundles). One replica; runs are
+  # serialised by a Postgres advisory lock anyway.
+  registry-sync:
+    enabled: true
+    browser: true
+    command: ["/usr/local/bin/fbs-registry-sync"]
+    replicas: 1
+    # Room for a headless Chromium when fb.browser is enabled.
+    resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 1Gi}}
+
+networkPolicy:
+  # Restricts ingress to the API port and the metrics port. Egress rules are
+  # environment specific (proxy endpoints for crawlers, CDN for the
+  # downloader) and are left to the cluster operator.
+  enabled: false
+  metricsFromNamespace: monitoring

@@ -1,0 +1,383 @@
+{
+  "optional_missing": null,
+  "page_info": {
+    "HasNext": true,
+    "EndCursor": "eyJrIjoidCIsIm8iOjUsInMiOjEwMDA2NDAwMDAwMDAwMH0",
+    "Found": true
+  },
+  "posts": [
+    {
+      "media": [
+        {
+          "media_id": "554aa8d5-bef7-54e4-bdb8-fda9241c97a7",
+          "fb_media_id": "1200001009071",
+          "kind": "MEDIA_KIND_PHOTO",
+          "variant": "original",
+          "owner_type": "post",
+          "owner_id": "1200001008975",
+          "post_id": "1200001008975",
+          "page_id": "100064000000000",
+          "source_url": "https://www.facebook.com/media/1200001009071_orig.jpg?oe=6ac785c0\u0026oh=b94bd2bdd684b0bc8de5b64b",
+          "source_expires_at": "2026-10-08T12:00:00Z",
+          "width": 1265,
+          "height": 940,
+          "alt_text": "May be an image of legit restock price"
+        },
+        {
+          "media_id": "3ceaec38-47d7-5b23-8cf4-f71a1072b528",
+          "fb_media_id": "1200001009099",
+          "kind": "MEDIA_KIND_PHOTO",
+          "variant": "original",
+          "owner_type": "post",
+          "owner_id": "1200001008975",
+          "post_id": "1200001008975",
+          "page_id": "100064000000000",
+          "source_url": "https://www.facebook.com/media/1200001009099_orig.jpg?oe=6ac785c0\u0026oh=199211b24f54d4d1ec83e9a3",
+          "source_expires_at": "2026-10-08T12:00:00Z",
+          "width": 1482,
+          "height": 821,
+          "alt_text": "May be an image of launch bad live"
+        }
+      ],
+      "post": {
+        "post_id": "1200001008975",
+        "page_id": "100064000000000",
+        "created_at": "2026-09-26T11:04:21Z",
+        "story_id": "UzpfSTEwMDA2NDAwMDAwMDAwMDoxMjAwMDAxMDA4OTc1OjEyMDAwMDEwMDg5NzU=",
+        "permalink": "https://www.facebook.com/brand0/posts/1200001008975",
+        "type": "POST_TYPE_ALBUM",
+        "text": "scam original launch help size fake official when new review when #tonight #brand",
+        "text_ranges": [
+          {
+            "offset": 66,
+            "length": 8,
+            "entity_type": "Hashtag",
+            "entity_id": "ht_tonight",
+            "url": "https://www.facebook.com/hashtag/tonight"
+          },
+          {
+            "offset": 75,
+            "length": 6,
+            "entity_type": "Hashtag",
+            "entity_id": "ht_brand",
+            "url": "https://www.facebook.com/hashtag/brand"
+          }
+        ],
+        "hashtags": [
+          "tonight",
+          "brand"
+        ],
+        "is_pinned": true,
+        "author_id": "100064000000000",
+        "author_name": "Brand 0 Official",
+        "reactions": {
+          "total": "561",
+          "by_type": {
+            "haha": "63",
+            "like": "340",
+            "love": "60"
+          }
+        },
+        "comment_count": "219",
+        "share_count": "77",
+        "feedback_id": "ZmVlZGJhY2s6MTIwMDAwMTAwODk3NQ==",
+        "media_ids": [
+          "554aa8d5-bef7-54e4-bdb8-fda9241c97a7",
+          "3ceaec38-47d7-5b23-8cf4-f71a1072b528"
+        ],
+        "status": "POST_STATUS_VISIBLE"
+      }
+    },
+    {
+      "media": [
+        {
+          "media_id": "c7dd89fa-b74d-5ccf-b779-a75926d8722a",
+          "fb_media_id": "1200001000093",
+          "kind": "MEDIA_KIND_PHOTO",
+          "variant": "original",
+          "owner_type": "post",
+          "owner_id": "1200001000070",
+          "post_id": "1200001000070",
+          "page_id": "100064000000000",
+          "source_url": "https://www.facebook.com/media/1200001000093_orig.jpg?oe=6ac785c0\u0026oh=601812eb60e6020828159651",
+          "source_expires_at": "2026-10-08T12:00:00Z",
+          "width": 1905,
+          "height": 825,
+          "alt_text": "May be an image of scam order launch"
+        }
+      ],
+      "post": {
+        "post_id": "1200001000070",
+        "page_id": "100064000000000",
+        "created_at": "2026-09-30T15:01:39Z",
+        "story_id": "UzpfSTEwMDA2NDAwMDAwMDAwMDoxMjAwMDAxMDAwMDcwOjEyMDAwMDEwMDAwNzA=",
+        "permalink": "https://www.facebook.com/brand0/posts/1200001000070",
+        "type": "POST_TYPE_PHOTO",
+        "text": "fake when fake this delivery fake bad tonight season community question how store review why amazing fake team this #new #brand",
+        "text_ranges": [
+          {
+            "offset": 116,
+            "length": 4,
+            "entity_type": "Hashtag",
+            "entity_id": "ht_new",
+            "url": "https://www.facebook.com/hashtag/new"
+          },
+          {
+            "offset": 121,
+            "length": 6,
+            "entity_type": "Hashtag",
+            "entity_id": "ht_brand",
+            "url": "https://www.facebook.com/hashtag/brand"
+          }
+        ],
+        "hashtags": [
+          "new",
+          "brand"
+        ],
+        "author_id": "100064000000000",
+        "author_name": "Brand 0 Official",
+        "reactions": {
+          "total": "4192",
+          "by_type": {
+            "like": "2518",
+            "love": "1585",
+            "sad": "27"
+          }
+        },
+        "comment_count": "11",
+        "share_count": "234",
+        "feedback_id": "ZmVlZGJhY2s6MTIwMDAwMTAwMDA3MA==",
+        "media_ids": [
+          "c7dd89fa-b74d-5ccf-b779-a75926d8722a"
+        ],
+        "status": "POST_STATUS_VISIBLE"
+      }
+    },
+    {
+      "media": null,
+      "post": {
+        "post_id": "1200001000821",
+        "page_id": "100064000000000",
+        "created_at": "2026-09-29T19:31:15Z",
+        "story_id": "UzpfSTEwMDA2NDAwMDAwMDAwMDoxMjAwMDAxMDAwODIxOjEyMDAwMDEwMDA4MjE=",
+        "permalink": "https://www.facebook.com/brand0/posts/1200001000821",
+        "type": "POST_TYPE_SHARE",
+        "text": "scam restock great delivery love restock shipping love #awesome #brand",
+        "text_ranges": [
+          {
+            "offset": 55,
+            "length": 8,
+            "entity_type": "Hashtag",
+            "entity_id": "ht_awesome",
+            "url": "https://www.facebook.com/hashtag/awesome"
+          },
+          {
+            "offset": 64,
+            "length": 6,
+            "entity_type": "Hashtag",
+            "entity_id": "ht_brand",
+            "url": "https://www.facebook.com/hashtag/brand"
+          }
+        ],
+        "hashtags": [
+          "awesome",
+          "brand"
+        ],
+        "shared_post_id": "1200001000070",
+        "shared_post_url": "https://www.facebook.com/brand0/posts/1200001000070",
+        "author_id": "100064000000000",
+        "author_name": "Brand 0 Official",
+        "reactions": {
+          "total": "2646",
+          "by_type": {
+            "care": "152",
+            "like": "1589",
+            "love": "872"
+          }
+        },
+        "comment_count": "132",
+        "share_count": "154",
+        "feedback_id": "ZmVlZGJhY2s6MTIwMDAwMTAwMDgyMQ==",
+        "status": "POST_STATUS_VISIBLE"
+      }
+    },
+    {
+      "media": [
+        {
+          "media_id": "48e79a2f-ae1d-5ce7-a375-6d67410dbe7b",
+          "fb_media_id": "1200001008343",
+          "kind": "MEDIA_KIND_PHOTO",
+          "variant": "original",
+          "owner_type": "post",
+          "owner_id": "1200001008257",
+          "post_id": "1200001008257",
+          "page_id": "100064000000000",
+          "source_url": "https://www.facebook.com/media/1200001008343_orig.jpg?oe=6ac785c0\u0026oh=327ee4603ded30f26175178e",
+          "source_expires_at": "2026-10-08T12:00:00Z",
+          "width": 969,
+          "height": 987,
+          "alt_text": "May be an image of color counterfeit brand"
+        },
+        {
+          "media_id": "1ac9b79d-6849-5679-a04a-4f6540f392ab",
+          "fb_media_id": "1200001008412",
+          "kind": "MEDIA_KIND_PHOTO",
+          "variant": "original",
+          "owner_type": "post",
+          "owner_id": "1200001008257",
+          "post_id": "1200001008257",
+          "page_id": "100064000000000",
+          "source_url": "https://www.facebook.com/media/1200001008412_orig.jpg?oe=6ac785c0\u0026oh=8aaabec6faa36827f27cae25",
+          "source_expires_at": "2026-10-08T12:00:00Z",
+          "width": 1736,
+          "height": 1339,
+          "alt_text": "May be an image of order team brand"
+        }
+      ],
+      "post": {
+        "post_id": "1200001008257",
+        "page_id": "100064000000000",
+        "created_at": "2026-09-28T23:15:08Z",
+        "story_id": "UzpfSTEwMDA2NDAwMDAwMDAwMDoxMjAwMDAxMDA4MjU3OjEyMDAwMDEwMDgyNTc=",
+        "permalink": "https://www.facebook.com/brand0/posts/1200001008257",
+        "type": "POST_TYPE_ALBUM",
+        "text": "amazing quality why tonight scam when help tonight size scam shipping price original store brand launch delivery restock team when legit drop #size #brand",
+        "text_ranges": [
+          {
+            "offset": 142,
+            "length": 5,
+            "entity_type": "Hashtag",
+            "entity_id": "ht_size",
+            "url": "https://www.facebook.com/hashtag/size"
+          },
+          {
+            "offset": 148,
+            "length": 6,
+            "entity_type": "Hashtag",
+            "entity_id": "ht_brand",
+            "url": "https://www.facebook.com/hashtag/brand"
+          }
+        ],
+        "hashtags": [
+          "size",
+          "brand"
+        ],
+        "author_id": "100064000000000",
+        "author_name": "Brand 0 Official",
+        "reactions": {
+          "total": "649",
+          "by_type": {
+            "care": "184",
+            "like": "394",
+            "love": "22"
+          }
+        },
+        "comment_count": "0",
+        "share_count": "159",
+        "feedback_id": "ZmVlZGJhY2s6MTIwMDAwMTAwODI1Nw==",
+        "media_ids": [
+          "48e79a2f-ae1d-5ce7-a375-6d67410dbe7b",
+          "1ac9b79d-6849-5679-a04a-4f6540f392ab"
+        ],
+        "status": "POST_STATUS_VISIBLE"
+      }
+    },
+    {
+      "media": [
+        {
+          "media_id": "bb74bd45-bf38-5cc7-87ea-0049a646a25c",
+          "fb_media_id": "1200001008557",
+          "kind": "MEDIA_KIND_VIDEO",
+          "variant": "sd",
+          "owner_type": "post",
+          "owner_id": "1200001008480",
+          "post_id": "1200001008480",
+          "page_id": "100064000000000",
+          "source_url": "https://www.facebook.com/media/1200001008557_sd.mp4?oe=6ac785c0\u0026oh=4222c3315ef0d77838f92f54",
+          "source_expires_at": "2026-10-08T12:00:00Z",
+          "width": 1625,
+          "height": 1488,
+          "duration_ms": "20000",
+          "mime": "video/mp4",
+          "thumbnail_url": "https://www.facebook.com/media/1200001008557_thumb.jpg?oe=6ac785c0\u0026oh=ca73f962e3daa11f8229a673"
+        },
+        {
+          "media_id": "4b332f70-b232-5f7c-bc43-1b1f0b32409e",
+          "fb_media_id": "1200001008557",
+          "kind": "MEDIA_KIND_VIDEO",
+          "variant": "hd",
+          "owner_type": "post",
+          "owner_id": "1200001008480",
+          "post_id": "1200001008480",
+          "page_id": "100064000000000",
+          "source_url": "https://www.facebook.com/media/1200001008557_hd.mp4?oe=6ac785c0\u0026oh=b19f447297da614c6fe406f2",
+          "source_expires_at": "2026-10-08T12:00:00Z",
+          "width": 1625,
+          "height": 1488,
+          "duration_ms": "20000",
+          "mime": "video/mp4",
+          "thumbnail_url": "https://www.facebook.com/media/1200001008557_thumb.jpg?oe=6ac785c0\u0026oh=ca73f962e3daa11f8229a673"
+        },
+        {
+          "media_id": "95488600-37fd-540e-9be7-ccf5e1b7bb28",
+          "fb_media_id": "1200001008557",
+          "kind": "MEDIA_KIND_THUMBNAIL",
+          "variant": "thumbnail",
+          "owner_type": "post",
+          "owner_id": "1200001008480",
+          "post_id": "1200001008480",
+          "page_id": "100064000000000",
+          "source_url": "https://www.facebook.com/media/1200001008557_thumb.jpg?oe=6ac785c0\u0026oh=ca73f962e3daa11f8229a673",
+          "source_expires_at": "2026-10-08T12:00:00Z"
+        }
+      ],
+      "post": {
+        "post_id": "1200001008480",
+        "page_id": "100064000000000",
+        "created_at": "2026-09-28T03:21:56Z",
+        "story_id": "UzpfSTEwMDA2NDAwMDAwMDAwMDoxMjAwMDAxMDA4NDgwOjEyMDAwMDEwMDg0ODA=",
+        "permalink": "https://www.facebook.com/brand0/posts/1200001008480",
+        "type": "POST_TYPE_VIDEO",
+        "text": "price please bad drop support sale thanks crew order #please #brand",
+        "text_ranges": [
+          {
+            "offset": 53,
+            "length": 7,
+            "entity_type": "Hashtag",
+            "entity_id": "ht_please",
+            "url": "https://www.facebook.com/hashtag/please"
+          },
+          {
+            "offset": 61,
+            "length": 6,
+            "entity_type": "Hashtag",
+            "entity_id": "ht_brand",
+            "url": "https://www.facebook.com/hashtag/brand"
+          }
+        ],
+        "hashtags": [
+          "please",
+          "brand"
+        ],
+        "author_id": "100064000000000",
+        "author_name": "Brand 0 Official",
+        "reactions": {
+          "total": "3185",
+          "by_type": {
+            "care": "49",
+            "like": "1911",
+            "love": "1209"
+          }
+        },
+        "comment_count": "0",
+        "share_count": "250",
+        "view_count": "125027",
+        "feedback_id": "ZmVlZGJhY2s6MTIwMDAwMTAwODQ4MA==",
+        "media_ids": [
+          "bb74bd45-bf38-5cc7-87ea-0049a646a25c"
+        ],
+        "status": "POST_STATUS_VISIBLE"
+      }
+    }
+  ]
+}

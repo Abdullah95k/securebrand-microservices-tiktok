@@ -1,0 +1,70 @@
+{
+  "comments": [
+    {
+      "comment_id": "8880002",
+      "post_id": "5550001112223334",
+      "page_id": "100064999000001",
+      "graph_id": "Y29tbWVudDo1NTUwMDAxMTEyMjIzMzM0Xzg4ODAwMDI=",
+      "author": {
+        "id": "100064999000001",
+        "name": "Brand X",
+        "avatar_url": "https://scontent.xx.fbcdn.net/v/av.jpg?oe=6A1B2C3D\u0026oh=y",
+        "type": "Page"
+      },
+      "text": "Is this the official store?",
+      "attachments": [
+        {
+          "type": "sticker",
+          "media_id": "e9e7321b-608f-5440-8f74-34dedca52130",
+          "url": "https://scontent.xx.fbcdn.net/v/st.png?oe=6A1B2C3D\u0026oh=z",
+          "width": 120,
+          "height": 120
+        }
+      ],
+      "created_at": "2025-10-01T13:00:00Z",
+      "reactions": {
+        "total": "4"
+      },
+      "reply_count": "3",
+      "feedback_id": "ZmVlZGJhY2s6NTU1MDAwMTExMjIyMzMzNF84ODgwMDAy"
+    },
+    {
+      "comment_id": "8880003",
+      "post_id": "5550001112223334",
+      "page_id": "100064999000001",
+      "graph_id": "Y29tbWVudDo1NTUwMDAxMTEyMjIzMzM0Xzg4ODAwMDM=",
+      "parent_comment_id": "8880002",
+      "root_comment_id": "8880002",
+      "depth": 1,
+      "author": {
+        "id": "1000123",
+        "name": "Ana Silva",
+        "type": "User"
+      },
+      "text": "Yes it is",
+      "created_at": "2025-10-01T14:00:00Z",
+      "reactions": {
+        "total": "1"
+      },
+      "feedback_id": "ZmVlZGJhY2s6NTU1MDAwMTExMjIyMzMzNF84ODgwMDAz"
+    }
+  ],
+  "optional_missing": null,
+  "page_info": {
+    "HasNext": false,
+    "EndCursor": "",
+    "Found": true
+  },
+  "threads": [
+    {
+      "CommentID": 8880002,
+      "RootCommentID": 8880002,
+      "Depth": 0,
+      "FeedbackID": "ZmVlZGJhY2s6NTU1MDAwMTExMjIyMzMzNF84ODgwMDAy",
+      "ExpansionToken": "EXP2",
+      "ReplyCount": 3,
+      "InlineReplies": 1
+    }
+  ],
+  "total_count": 87
+}

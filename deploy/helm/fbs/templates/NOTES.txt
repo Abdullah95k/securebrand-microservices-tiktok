@@ -1,0 +1,7 @@
+fbs {{ .Chart.AppVersion }} installed as {{ .Release.Name }}.
+
+Create an API key:
+  kubectl exec deploy/{{ include "fbs.fullname" . }}-api -- /usr/local/bin/fbctl apikey create --name <client> --scopes jobs:write,pages:write,data:read
+
+Before scraping real Facebook at volume, run the Phase 0 spike (docs/runbooks/phase0-spike.md)
+and update the query registry with current doc_ids (PUT /v1/admin/queries/{name}).

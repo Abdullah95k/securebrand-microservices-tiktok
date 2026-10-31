@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package securebrand.fb.v1;
+
+import "securebrand/fb/v1/common.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1;fbv1";
+
+enum PageStatus {
+  PAGE_STATUS_UNSPECIFIED = 0;
+  PAGE_STATUS_ACTIVE = 1;
+  PAGE_STATUS_UNAVAILABLE = 2;
+  PAGE_STATUS_RESTRICTED = 3;
+}
+
+// Page is published on fb.page.v1, keyed by page_id.
+message Page {
+  Observation obs = 1;
+  int64 page_id = 2;
+  // Normalised reference the page was requested with ("v:nike", "id:123").
+  string requested_ref = 3;
+  string vanity = 4;
+  string url = 5;
+  string name = 6;
+  repeated string categories = 7;
+  string intro = 8;
+  optional int64 followers_count = 9;
+  optional int64 likes_count = 10;
+  optional bool verified = 11;
+  ImageRef profile_picture = 12;
+  ImageRef cover_photo = 13;
+  // email, phone, website, address when the page exposes them publicly.
+  map<string, string> contact = 14;
+  // Fields Facebook returned that are not modelled yet, as a JSON object.
+  string extra_json = 15;
+  PageStatus status = 16;
+}

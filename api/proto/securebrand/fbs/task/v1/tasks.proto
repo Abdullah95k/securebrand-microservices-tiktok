@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+package securebrand.fbs.task.v1;
+
+import "google/protobuf/timestamp.proto";
+import "securebrand/fb/v1/common.proto";
+import "securebrand/fb/v1/media.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fbs/task/v1;taskv1";
+
+enum Lane {
+  LANE_UNSPECIFIED = 0;
+  // On-demand API jobs.
+  LANE_P0 = 1;
+  // Scheduled re-scrapes.
+  LANE_P1 = 2;
+  // Backfill.
+  LANE_P2 = 3;
+}
+
+enum Kind {
+  KIND_UNSPECIFIED = 0;
+  KIND_PAGE = 1;
+  KIND_POST = 2;
+  KIND_THREAD = 3;
+  KIND_MEDIA = 4;
+}
+
+enum VideoPolicy {
+  VIDEO_POLICY_UNSPECIFIED = 0;
+  VIDEO_POLICY_NONE = 1;
+  VIDEO_POLICY_THUMBNAIL = 2;
+  VIDEO_POLICY_SD = 3;
+  VIDEO_POLICY_HD = 4;
+}
+
+message Limits {
+  int64 max_age_seconds = 1;
+  int64 max_posts = 2;
+  int64 max_comments_per_post = 3;
+  int32 max_depth = 4;
+  bool include_comments = 5;
+  bool include_replies = 6;
+  bool include_media = 7;
+  VideoPolicy video_policy = 8;
+  bool include_comment_media = 9;
+}
+
+message PageScope {
+  string page_ref = 1;
+  int64 page_id = 2;
+  string url = 3;
+  // INCREMENTAL: stop once posts are older than this.
+  google.protobuf.Timestamp watermark = 4;
+  int64 posts_seen = 5;
+  int32 consecutive_old = 6;
+  google.protobuf.Timestamp newest_seen_at = 7;
+}
+
+message PostScope {
+  int64 post_id = 1;
+  int64 page_id = 2;
+  google.protobuf.Timestamp post_created_at = 3;
+  string feedback_id = 4;
+  int64 reported_comment_count = 5;
+  string permalink = 6;
+  // INCREMENTAL: newest comment time already stored.
+  google.protobuf.Timestamp comments_watermark = 7;
+  int64 comments_seen = 8;
+}
+
+message ThreadScope {
+  int64 post_id = 1;
+  int64 page_id = 2;
+  google.protobuf.Timestamp post_created_at = 3;
+  int64 comment_id = 4;
+  int64 root_comment_id = 5;
+  // Depth of the replies being fetched (1 = direct replies to a top-level comment).
+  int32 depth = 6;
+  string feedback_id = 7;
+  string expansion_token = 8;
+  int64 reported_reply_count = 9;
+}
+
+message MediaScope {
+  securebrand.fb.v1.Media media = 1;
+}
+
+// SessionSnapshot carries a serialised identity when cursors turn out to be
+// bound to a session (decided in Phase 0).
+message SessionSnapshot {
+  bytes data = 1;
+}
+
+// Task is the envelope on every fbs.task.* topic.
+message Task {
+  // Deterministic: sha256(job|kind|scope|mode|lineage|seq).
+  string task_id = 1;
+  // Shared by every continuation of one pagination stream.
+  string lineage_id = 2;
+  uint32 seq = 3;
+  string job_id = 4;
+  Lane lane = 5;
+  Kind kind = 6;
+  securebrand.fb.v1.CrawlMode mode = 7;
+  // Resume point; empty means start of stream.
+  string cursor = 8;
+  Limits limits = 9;
+  oneof scope {
+    PageScope page = 10;
+    PostScope post = 11;
+    ThreadScope thread = 12;
+    MediaScope media = 13;
+  }
+  SessionSnapshot affinity = 14;
+  uint32 attempt = 15;
+  google.protobuf.Timestamp not_before = 16;
+  google.protobuf.Timestamp enqueued_at = 17;
+  map<string, string> trace = 18;
+  // Retries since the task last advanced its checkpoint. crawler.max_attempts
+  // applies to these; attempt (which picks the proxy tier) counts every retry.
+  uint32 stalls = 19;
+}

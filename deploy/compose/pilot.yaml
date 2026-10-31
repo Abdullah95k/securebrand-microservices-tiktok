@@ -1,0 +1,33 @@
+# Pilot configuration: the real pipeline against real Facebook on one
+# machine (docs/runbooks/pilot.md). Loaded after phase0/proxies.yaml and
+# INSTEAD of local.yaml, whose fakefb pacing must never reach Facebook: the
+# production pacing of configs/default.yaml applies (fb.identity_rps 0.33).
+service: {env: pilot}
+log: {level: info, format: json}
+fb:
+  base_url: "https://www.facebook.com"
+  capture_raw: failures
+  proxy:
+    # Every Facebook request through the Phase 0 tiers: ISP first,
+    # residential when ISP is blocked. Without this the default is direct,
+    # the machine's own IP. The names must match phase0/proxies.yaml (the
+    # services refuse to start on a tier it does not define).
+    routing:
+      default: [isp, residential]
+limits:
+  # Backfill a week of history only, so the steady state (every page every
+  # 3 hours) starts within hours and the backfill costs little.
+  max_age_days: 7
+  # Media comes from Facebook's CDN without the proxies; the pilot measures
+  # proxy traffic, and the in-memory S3 of the compose stack has no disk.
+  include_media: false
+  include_comment_media: false
+crawler:
+  # One small machine: a fraction of the production slots.
+  slots: 48
+  lanes: {p0: 48, p1: 48, p2: 20}
+  lane_min: 4
+registry_sync:
+  # Discovers rotated doc_ids on these pages; set by `make pilot-up` from the
+  # first pages of phase0/pages.csv (pilot-canary.yaml).
+  interval: 30m

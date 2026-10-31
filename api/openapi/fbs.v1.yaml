@@ -1,0 +1,500 @@
+openapi: 3.1.0
+info:
+  title: fbs - Facebook public page scraper API
+  version: "1.0.0"
+  description: |
+    On-demand and scheduled scraping of public Facebook pages (logged out).
+    All endpoints require `Authorization: Bearer fbs_<prefix>_<secret>`.
+    Scopes: `jobs:write`, `pages:write`, `data:read`, `pii:read`, `admin` (implies all).
+    Errors use RFC 9457 problem documents (`application/problem+json`).
+servers:
+  - url: /v1
+security:
+  - apiKey: []
+paths:
+  /jobs:
+    post:
+      summary: Scrape a page now (on-demand, priority lane p0)
+      description: Requires `jobs:write`. Repeating a request with the same `Idempotency-Key` returns the original job (200).
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateJob'}
+            example: {page: "https://www.facebook.com/nike", mode: auto, max_age_days: 90, video_policy: sd}
+      responses:
+        "202": {description: Job accepted, content: {application/json: {schema: {$ref: '#/components/schemas/Job'}}}}
+        "200": {description: Existing job for this Idempotency-Key, content: {application/json: {schema: {$ref: '#/components/schemas/Job'}}}}
+        "400": {$ref: '#/components/responses/Problem'}
+        "429":
+          description: >-
+            Too many running jobs for this client (api.max_running_p0_jobs_per_client), the fleet's
+            on-demand capacity is reached (api.max_running_p0_jobs), or rate limited. Retry after the
+            Retry-After seconds.
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    get:
+      summary: List jobs (own jobs; all jobs with admin)
+      parameters:
+        - {in: query, name: page, schema: {type: string}, description: Filter by page (URL, vanity or id)}
+        - {in: query, name: status, schema: {$ref: '#/components/schemas/JobStatus'}}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        "200":
+          description: Jobs, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobs: {type: array, items: {$ref: '#/components/schemas/Job'}}
+                  next_cursor: {type: string}
+  /jobs/{id}:
+    get:
+      summary: Job status, live counters while running, completeness when done
+      parameters: [{$ref: '#/components/parameters/JobID'}]
+      responses:
+        "200": {description: Job, content: {application/json: {schema: {$ref: '#/components/schemas/Job'}}}}
+        "404": {$ref: '#/components/responses/Problem'}
+  /jobs/{id}/cancel:
+    post:
+      summary: Cancel a running job
+      parameters: [{$ref: '#/components/parameters/JobID'}]
+      responses:
+        "202": {description: Cancelling}
+        "404": {$ref: '#/components/responses/Problem'}
+  /jobs/{id}/results:
+    get:
+      summary: Stream the job's data as NDJSON
+      description: One `{"type":"page"}` line, then one `{"type":"post"}` line per post seen during the job, each followed by its `{"type":"comment"}` lines when `include=comments`.
+      parameters:
+        - {$ref: '#/components/parameters/JobID'}
+        - {in: query, name: include, schema: {type: string, enum: [comments]}}
+      responses:
+        "200": {description: NDJSON stream, content: {application/x-ndjson: {schema: {type: string}}}}
+  /pages:
+    post:
+      summary: Register a page for scheduled re-scrapes and start its backfill (lane p2)
+      description: >-
+        Requires `pages:write`. Registering a page again is safe: it keeps the schedule (an explicit
+        interval only shortens it) and starts no second backfill unless `backfill: true` asks for one.
+        A page that has had no job yet, such as one whose first registration failed to start its
+        backfill, is backfilled again. The crawl options of the first registration stay.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RegisterPage'}
+      responses:
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  page_ref: {type: string}
+                  created: {type: boolean, description: The page was not registered before}
+                  schedule: {type: object, description: The stored schedule after this registration}
+                  backfill_job: {$ref: '#/components/schemas/Job'}
+    get:
+      summary: List registered pages and their schedules
+      parameters: [{$ref: '#/components/parameters/Limit'}]
+      responses:
+        "200": {description: Pages}
+  /pages/{page}:
+    parameters: [{$ref: '#/components/parameters/Page'}]
+    get:
+      summary: Page profile and schedule
+      responses:
+        "200":
+          description: Page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  page: {$ref: '#/components/schemas/Page'}
+                  page_ref: {type: string}
+                  schedule: {type: object, description: The stored schedule after this registration}
+        "404": {$ref: '#/components/responses/Problem'}
+    patch:
+      summary: Change the schedule
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: {type: boolean}
+                interval_hours:
+                  type: integer
+                  minimum: 1
+                  maximum: 720
+                  description: Fixed interval; turns adaptive scheduling off for the page
+                adaptive:
+                  type: boolean
+                  description: true hands the interval back to the adaptive tiers (by posting rate)
+      responses:
+        "204": {description: Updated}
+    delete:
+      summary: Unregister; `?purge=true` (admin) also erases the page's data
+      parameters:
+        - {in: query, name: purge, schema: {type: boolean}}
+      responses:
+        "204": {description: Unregistered}
+        "202": {description: Erasure queued, content: {application/json: {schema: {$ref: '#/components/schemas/Erasure'}}}}
+  /pages/{page}/posts:
+    get:
+      summary: Posts, newest first, with metrics and comment coverage
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {in: query, name: since, schema: {type: string, format: date-time}}
+        - {in: query, name: type, schema: {type: string, enum: [status, photo, album, video, reel, link, share, event, live]}}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        "200":
+          description: Posts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  posts: {type: array, items: {$ref: '#/components/schemas/Post'}}
+                  next_cursor: {type: string}
+  /pages/{page}/snapshots:
+    get:
+      summary: Follower/like history
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/Limit'}]
+      responses:
+        "200": {description: Snapshots}
+  /posts/{post}:
+    get:
+      summary: One post
+      parameters: [{$ref: '#/components/parameters/Post'}]
+      responses:
+        "200": {description: Post, content: {application/json: {schema: {$ref: '#/components/schemas/Post'}}}}
+  /posts/{post}/comments:
+    get:
+      summary: Comments and replies in thread order
+      description: Author identity (`author.id`, `author.name`, ...) is only returned with the `pii:read` scope; `author_key` (pseudonymous) is always present.
+      parameters:
+        - {$ref: '#/components/parameters/Post'}
+        - {in: query, name: parent_id, schema: {type: integer, format: int64}, description: Only direct replies to this comment}
+        - {in: query, name: depth, schema: {type: integer}, description: "0 = top-level comments"}
+        - {in: query, name: status, schema: {type: string, enum: [visible, deleted]}, description: Only comments in this status}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        "200":
+          description: Comments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  comments: {type: array, items: {$ref: '#/components/schemas/Comment'}}
+                  next_cursor: {type: string}
+  /posts/{post}/metrics:
+    get:
+      summary: Engagement time series (a sample whenever values changed)
+      parameters: [{$ref: '#/components/parameters/Post'}, {$ref: '#/components/parameters/Limit'}]
+      responses:
+        "200": {description: Samples}
+  /posts/{post}/media:
+    get:
+      summary: Media of a post and its download lifecycle
+      parameters: [{$ref: '#/components/parameters/Post'}, {$ref: '#/components/parameters/Limit'}]
+      responses:
+        "200": {description: Media, content: {application/json: {schema: {type: object, properties: {media: {type: array, items: {$ref: '#/components/schemas/Media'}}}}}}}
+  /media/{media}:
+    get:
+      summary: One media item
+      parameters:
+        - {in: path, name: media, required: true, schema: {type: string, format: uuid}}
+      responses:
+        "200": {description: Media, content: {application/json: {schema: {$ref: '#/components/schemas/Media'}}}}
+  /erasure-requests:
+    post:
+      summary: GDPR erasure of an author or a page (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subject_type]
+              properties:
+                subject_type: {type: string, enum: [author, page]}
+                author_id: {type: string}
+                profile_url: {type: string}
+                page_id: {type: integer, format: int64}
+      responses:
+        "202": {description: Queued, content: {application/json: {schema: {$ref: '#/components/schemas/Erasure'}}}}
+  /erasure-requests/{id}:
+    get:
+      summary: Erasure status
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+      responses:
+        "200": {description: Erasure, content: {application/json: {schema: {$ref: '#/components/schemas/Erasure'}}}}
+  /admin/queries:
+    get:
+      summary: Facebook query registry (admin)
+      description: >-
+        Every entry with its status and, when fbs-registry-sync checked it,
+        last_check (ok | stale | drift | inconclusive, with the reason),
+        last_checked_at and last_ok_at.
+      responses:
+        "200": {description: Registry entries}
+  /admin/queries/{name}:
+    put:
+      summary: Set a registry entry (current doc_id / variables); crawlers reload within 30s
+      parameters:
+        - {in: path, name: name, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [doc_id, friendly_name, parser, variables]
+              properties:
+                doc_id: {type: string}
+                friendly_name: {type: string}
+                parser: {type: string, enum: [timeline, comments, replies]}
+                parser_version: {type: integer}
+                status: {type: string, enum: [active, fallback, candidate, retired]}
+                priority: {type: integer}
+                variables: {type: object, description: 'JSON template; "{{name}}" placeholders are filled at request time'}
+                endpoint: {type: string, description: 'Request path on the platform host (e.g. /graphql/query); empty = the client default'}
+                headers:
+                  type: array
+                  description: Extra request headers for this query, in send order; a header the client already sends takes this value in place
+                  items:
+                    type: object
+                    required: [name, value]
+                    properties:
+                      name: {type: string}
+                      value: {type: string}
+      responses:
+        "200": {description: Saved}
+  /admin/registry-sync/runs:
+    get:
+      summary: Latest fbs-registry-sync runs, newest first (admin)
+      description: >-
+        Each run's report lists the canary page loads, the doc_ids found in
+        the bundles, new candidates, every check and its verdict, promotions,
+        retired entries, failing queries (active doc_id stale or drifted with
+        no replacement) and unchecked ones.
+      parameters:
+        - {in: query, name: limit, schema: {type: integer, minimum: 1, maximum: 200, default: 20}}
+      responses:
+        "200": {description: Runs}
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+  parameters:
+    JobID: {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+    Page: {in: path, name: page, required: true, schema: {type: string}, description: Page id or vanity}
+    Post: {in: path, name: post, required: true, schema: {type: integer, format: int64}}
+    Limit: {in: query, name: limit, schema: {type: integer, default: 50, maximum: 500}}
+    Cursor: {in: query, name: cursor, schema: {type: string}, description: Opaque keyset cursor from next_cursor}
+  responses:
+    Problem:
+      description: Error
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+  schemas:
+    Problem:
+      type: object
+      properties:
+        type: {type: string}
+        title: {type: string}
+        status: {type: integer}
+        detail: {type: string}
+    CrawlOptions:
+      type: object
+      properties:
+        max_age_days: {type: integer, description: "Oldest post age (default 365, capped by limits.max_age_cap_days)"}
+        max_posts: {type: integer, format: int64}
+        max_comments_per_post: {type: integer, format: int64}
+        max_depth: {type: integer, minimum: 1, maximum: 5, description: "Comment nesting depth (default 3: comments, replies, replies to replies)"}
+        include_comments: {type: boolean}
+        include_replies: {type: boolean}
+        include_media: {type: boolean}
+        include_comment_media: {type: boolean}
+        video_policy: {type: string, enum: [none, thumbnail, sd, hd]}
+    CreateJob:
+      allOf:
+        - $ref: '#/components/schemas/CrawlOptions'
+        - type: object
+          required: [page]
+          properties:
+            page: {type: string, description: Page URL, vanity or numeric id}
+            mode: {type: string, enum: [auto, full, incremental], default: auto}
+    RegisterPage:
+      allOf:
+        - $ref: '#/components/schemas/CrawlOptions'
+        - type: object
+          required: [page]
+          properties:
+            page: {type: string}
+            schedule:
+              type: object
+              properties:
+                enabled: {type: boolean, default: true}
+                interval_hours:
+                  type: integer
+                  description: >-
+                    Fixed re-scrape interval. Without it the page is scheduled adaptively: its tier
+                    (T0 3h ... T4 7d) follows its posting rate after every job.
+            backfill: {type: boolean, description: "Full crawl now. Default: only for a page that has had no job yet."}
+    JobStatus:
+      type: string
+      enum: [running, cancelling, completed, partial, failed, cancelled]
+    Job:
+      type: object
+      properties:
+        job_id: {type: string, format: uuid}
+        kind: {type: string, enum: [on_demand, scheduled, backfill]}
+        lane: {type: string, enum: [p0, p1, p2]}
+        mode: {type: string, enum: [full, incremental]}
+        page_ref: {type: string, example: "v:nike"}
+        page_id: {type: integer, format: int64}
+        status: {$ref: '#/components/schemas/JobStatus'}
+        params: {type: object}
+        counters:
+          type: object
+          additionalProperties: {type: integer}
+          description: posts, comments, replies, requests, media_queued, pages_fetched, threads_spawned, tasks_failed, ...
+        completeness:
+          type: object
+          description: Collected vs reported comments. "partial" jobs had truncated or failed posts.
+          properties:
+            posts: {type: integer}
+            posts_complete: {type: integer}
+            posts_truncated: {type: integer}
+            posts_failed: {type: integer}
+            median_ratio: {type: number}
+            min_ratio: {type: number}
+            comments_reported: {type: integer}
+            comments_collected: {type: integer}
+        pending_tasks: {type: integer}
+        created_at: {type: string, format: date-time}
+        finished_at: {type: string, format: date-time}
+    Page:
+      type: object
+      properties:
+        page_id: {type: integer, format: int64}
+        vanity: {type: string}
+        url: {type: string}
+        name: {type: string}
+        categories: {type: array, items: {type: string}}
+        intro: {type: string}
+        followers_count: {type: integer, format: int64}
+        likes_count: {type: integer, format: int64}
+        verified: {type: boolean}
+        profile_pic_url: {type: string}
+        cover_url: {type: string}
+        contact: {type: object}
+        status: {type: string, enum: [active, unavailable, restricted, suppressed]}
+        first_seen_at: {type: string, format: date-time}
+        last_scraped_at: {type: string, format: date-time}
+    Post:
+      type: object
+      properties:
+        post_id: {type: integer, format: int64}
+        page_id: {type: integer, format: int64}
+        created_at: {type: string, format: date-time}
+        type: {type: string}
+        permalink: {type: string}
+        text: {type: string}
+        text_ranges: {type: array, items: {type: object}}
+        hashtags: {type: array, items: {type: string}}
+        links: {type: array, items: {type: object}}
+        shared_post_id: {type: integer, format: int64}
+        is_pinned: {type: boolean}
+        is_paid_partnership: {type: boolean}
+        reaction_count: {type: integer, format: int64}
+        reactions: {type: object, additionalProperties: {type: integer}}
+        reactions_complete: {type: boolean, description: false when Facebook exposed only the top reaction types}
+        comment_count: {type: integer, format: int64, description: Total incl. replies, as reported by Facebook}
+        share_count: {type: integer, format: int64}
+        view_count: {type: integer, format: int64}
+        media_ids: {type: array, items: {type: string}}
+        comments_collected: {type: integer, format: int64}
+        replies_collected: {type: integer, format: int64}
+        completeness: {type: number}
+        comments_state: {type: string, enum: [none, partial, complete, truncated]}
+        status: {type: string}
+        first_seen_at: {type: string, format: date-time}
+        last_seen_at: {type: string, format: date-time}
+    Comment:
+      type: object
+      properties:
+        comment_id: {type: integer, format: int64}
+        post_id: {type: integer, format: int64}
+        parent_comment_id: {type: integer, format: int64}
+        root_comment_id: {type: integer, format: int64}
+        depth: {type: integer}
+        author_key: {type: string, description: Hex HMAC of the author id (pseudonymous)}
+        author:
+          type: object
+          properties:
+            id: {type: string}
+            name: {type: string}
+            profile_url: {type: string}
+            avatar_url: {type: string}
+            type: {type: string}
+            verified: {type: boolean}
+        text: {type: string}
+        attachments: {type: array, items: {type: object}}
+        created_at: {type: string, format: date-time}
+        edited: {type: boolean}
+        is_op: {type: boolean}
+        reaction_count: {type: integer, format: int64}
+        reactions: {type: object}
+        reply_count: {type: integer, format: int64}
+        status:
+          type: string
+          enum: [visible, deleted]
+          description: >-
+            deleted: a full read of the post no longer returned this top-level comment (deleted by its
+            author, removed or hidden by the page, or filtered by Facebook). The last content seen is kept.
+            A later sighting makes it visible again.
+        deleted_at: {type: string, format: date-time}
+        edit_count: {type: integer, description: Text changes seen across scrapes}
+        edited_at: {type: string, format: date-time, description: When the last text change was seen}
+        redacted: {type: boolean}
+    Media:
+      type: object
+      properties:
+        media_id: {type: string, format: uuid}
+        fb_media_id: {type: string}
+        kind: {type: string}
+        variant: {type: string, enum: [original, sd, hd, thumbnail, link_preview]}
+        status: {type: string, enum: [discovered, ready, deleted, expired, failed, skipped]}
+        s3_key: {type: string}
+        size_bytes: {type: integer, format: int64}
+        sha256: {type: string}
+        delete_after: {type: string, format: date-time}
+    Erasure:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        subject_type: {type: string}
+        status: {type: string, enum: [pending, done, failed]}
+        stats: {type: object}
+        created_at: {type: string, format: date-time}
+        completed_at: {type: string, format: date-time}

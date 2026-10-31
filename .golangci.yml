@@ -1,0 +1,28 @@
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gosec
+    - misspell
+    - noctx
+    - unconvert
+  settings:
+    gosec:
+      excludes:
+        - G115 # integer conversions are bounded by the data model
+        - G404 # math/rand is used for jitter and test data only
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [gosec, noctx, bodyclose, errcheck]
+      - path: internal/(fakefb|fakett|e2e|testenv)/
+        linters: [gosec]
+      # CLI tools read and write files the operator names; fixtures are
+      # committed to git and must be world readable.
+      - path: (cmd/fbs-spike|cmd/tks-spike|cmd/fbctl|internal/fixtures|internal/spike)/
+        linters: [gosec]
+        text: "G(301|302|304|306|703)"

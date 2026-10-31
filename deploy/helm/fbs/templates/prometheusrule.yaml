@@ -1,0 +1,14 @@
+{{- if .Values.alerts.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "fbs.fullname" . }}
+  labels:
+    {{- include "fbs.labels" . | nindent 4 }}
+    {{- with .Values.alerts.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- /* files/alerts.yaml holds Prometheus annotation templates, so it is included verbatim, not rendered. */}}
+  {{- .Files.Get "files/alerts.yaml" | nindent 2 }}
+{{- end }}

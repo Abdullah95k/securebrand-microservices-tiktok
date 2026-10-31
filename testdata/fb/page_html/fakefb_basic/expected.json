@@ -1,0 +1,22 @@
+{
+  "optional_missing": null,
+  "page": {
+    "page_id": "100064000000000",
+    "url": "https://www.facebook.com/brand0",
+    "name": "Brand 0 Official",
+    "categories": [
+      "Clothing (Brand)"
+    ],
+    "intro": "Official page. Questions? Message us.",
+    "followers_count": "2300000",
+    "likes_count": "1800000",
+    "verified": true,
+    "profile_picture": {
+      "url": "https://www.facebook.com/media/profile_100064000000000.jpg"
+    },
+    "cover_photo": {
+      "url": "https://www.facebook.com/media/cover_100064000000000.jpg"
+    },
+    "status": "PAGE_STATUS_ACTIVE"
+  }
+}

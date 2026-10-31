@@ -1,0 +1,7 @@
+# Pages served by `fakefb --pages 5` (make phase0-dryrun).
+page,size,category,region,language
+brand0,large,brand,us,en
+brand1,small,brand,eu,de
+brand2,medium,news,us,en
+brand3,small,creator,apac,ja
+brand4,medium,government,eu,fr

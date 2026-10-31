@@ -1,0 +1,104 @@
+{{- $root := . -}}
+{{- range $name, $c := .Values.components }}
+{{- if $c.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fbs.fullname" $root }}-{{ $name }}
+  labels:
+    {{- include "fbs.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  {{- if not (and $root.Values.keda.enabled $c.autoscale) }}
+  replicas: {{ $c.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels: {{- include "fbs.selector" (dict "root" $root "name" $name) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "fbs.selector" (dict "root" $root "name" $name) | nindent 8 }}
+      annotations:
+        checksum/config: {{ toYaml $root.Values.config | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      {{- with $root.Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {{- toYaml $root.Values.podSecurityContext | nindent 8 }}
+      {{- if and $c.browser $root.Values.image.browserTag }}
+      # The pod's pause process becomes PID 1 and reaps Chromium's orphans.
+      shareProcessNamespace: true
+      {{- end }}
+      terminationGracePeriodSeconds: {{ $c.terminationGracePeriodSeconds | default 30 }}
+      containers:
+        - name: {{ $name }}
+          {{- $tag := $root.Values.image.tag | default $root.Chart.AppVersion }}
+          {{- if and $c.browser $root.Values.image.browserTag }}{{ $tag = $root.Values.image.browserTag }}{{ end }}
+          image: "{{ $root.Values.image.repository }}:{{ $tag }}"
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          command: {{- toYaml $c.command | nindent 12 }}
+          env: {{- include "fbs.env" $root | nindent 12 }}
+          {{- include "fbs.envFrom" $root | nindent 10 }}
+          ports:
+            - {name: metrics, containerPort: 9090}
+            {{- if $c.port }}
+            - {name: http, containerPort: {{ $c.port }}}
+            {{- end }}
+          readinessProbe:
+            httpGet: {path: /readyz, port: metrics}
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: metrics}
+            periodSeconds: 20
+            failureThreshold: 3
+          resources: {{- toYaml $c.resources | nindent 12 }}
+          securityContext: {{- toYaml $root.Values.securityContext | nindent 12 }}
+          volumeMounts: {{- include "fbs.volumeMounts" $root | nindent 12 }}
+      volumes: {{- include "fbs.volumes" $root | nindent 8 }}
+{{- if $c.pdb }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "fbs.fullname" $root }}-{{ $name }}
+  labels: {{- include "fbs.labels" $root | nindent 4 }}
+spec:
+  {{- toYaml $c.pdb | nindent 2 }}
+  selector:
+    matchLabels: {{- include "fbs.selector" (dict "root" $root "name" $name) | nindent 6 }}
+{{- end }}
+{{- if and $root.Values.keda.enabled $c.autoscale }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "fbs.fullname" $root }}-{{ $name }}
+  labels: {{- include "fbs.labels" $root | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ include "fbs.fullname" $root }}-{{ $name }}
+  minReplicaCount: {{ $c.autoscale.min }}
+  maxReplicaCount: {{ $c.autoscale.max }}
+  pollingInterval: {{ $root.Values.keda.pollingInterval }}
+  cooldownPeriod: {{ $root.Values.keda.cooldownPeriod }}
+  triggers:
+    {{- range $c.autoscale.lag }}
+    - type: kafka
+      metadata:
+        bootstrapServers: {{ $root.Values.keda.kafkaBootstrap | quote }}
+        consumerGroup: {{ printf "%s%s" ($root.Values.config.kafka.topic_prefix | default "") .group | quote }}
+        topic: {{ printf "%s%s" ($root.Values.config.kafka.topic_prefix | default "") .topic | quote }}
+        lagThreshold: {{ .threshold | quote }}
+        offsetResetPolicy: earliest
+      {{- if $root.Values.keda.authSecret }}
+      authenticationRef:
+        name: {{ include "fbs.fullname" $root }}-kafka
+      {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
