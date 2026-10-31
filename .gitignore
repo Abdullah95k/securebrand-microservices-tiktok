@@ -1,0 +1,17 @@
+/bin/
+*.test
+*.out
+/coverage*
+.env
+__pycache__/
+# Recordings and raw TikTok answers stay local (docs/tiktok/build-brief.md §7).
+# HARs go only under .local/har/.
+/.local/
+*.har
+*.har.gz
+*.har.zip
+# Probe and Phase 0: credentials, the account list and results stay local.
+# Everything in phase0/ is ignored except the kit's own files (added with them).
+/phase0/*
+!/phase0/proxies.example.yaml
+!/phase0/tt-accounts.example.txt
