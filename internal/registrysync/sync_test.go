@@ -413,6 +413,7 @@ func TestSyncKeepsEndpointAndHeaders(t *testing.T) {
 	}
 	q.Endpoint = "/api/graphql/"
 	q.Headers = []registry.Header{{Name: "X-Route-Test", Value: "1"}, {Name: "x-other", Value: "2"}}
+	q.Method = "post" // stored upper case, and carried to candidates like the route
 	q.Source = "seed" // still the seed row, so the sync treats it as before
 	if err := registry.Upsert(ctx, f.s.DB, q); err != nil {
 		t.Fatal(err)
@@ -422,11 +423,16 @@ func TestSyncKeepsEndpointAndHeaders(t *testing.T) {
 	if err := registry.Upsert(ctx, f.s.DB, bad); err == nil {
 		t.Fatal("an endpoint on another host was saved")
 	}
+	badMethod := q
+	badMethod.Method = "DELETE"
+	if err := registry.Upsert(ctx, f.s.DB, badMethod); err == nil {
+		t.Fatal("method DELETE was saved")
+	}
 	want := `[{x-route-test 1} {x-other 2}]`
 	check := func(label string, got registry.Query) {
 		t.Helper()
-		if got.Endpoint != "/api/graphql/" || fmt.Sprint(got.Headers) != want {
-			t.Fatalf("%s: %q %v", label, got.Endpoint, got.Headers)
+		if got.Endpoint != "/api/graphql/" || fmt.Sprint(got.Headers) != want || got.Method != "POST" {
+			t.Fatalf("%s: %q %q %v", label, got.Method, got.Endpoint, got.Headers)
 		}
 	}
 	if err := f.reg.Reload(ctx); err != nil {

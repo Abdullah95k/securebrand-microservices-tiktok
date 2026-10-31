@@ -179,3 +179,18 @@ queries:
 		}
 	}
 }
+
+// A seed query may name its HTTP method; GET and POST are accepted in any
+// case and stored upper case, anything else is refused.
+func TestSeedMethod(t *testing.T) {
+	s, err := ParseSeed([]byte("queries:\n  - name: posts\n    doc_id: web\n    method: get\n    endpoint: /api/post/item_list/\n    variables: {secUid: \"{{sec}}\"}\n  - name: timeline\n    doc_id: \"1\"\n    variables: {}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Queries[0].Method != "GET" || s.Queries[1].Method != "" {
+		t.Fatalf("methods: %q %q", s.Queries[0].Method, s.Queries[1].Method)
+	}
+	if _, err := ParseSeed([]byte("queries:\n  - name: posts\n    doc_id: web\n    method: DELETE\n    variables: {}\n")); err == nil {
+		t.Fatal("DELETE accepted")
+	}
+}

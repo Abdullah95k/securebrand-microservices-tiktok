@@ -4,6 +4,13 @@
 # implements (see profiles.MappedTLSClients). Verify the GREASE brand strings
 # against a real Chrome of the same major version before production.
 profiles:
+  # The Chromium of the owner's TikTok recordings (2026-10-31): Chromium 152
+  # sends this GREASE brand (docs/tiktok/har-findings-2026-10-31.md).
+  chrome_152:
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    sec_ch_ua: '"Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"'
+    sec_ch_ua_mobile: "?0"
+    sec_ch_ua_platform: '"Windows"'
   chrome_146:
     user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
     sec_ch_ua: '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"'

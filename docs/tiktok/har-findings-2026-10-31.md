@@ -41,8 +41,9 @@ Other hosts: `mssdk-sg.tiktok.com` (`/web/resource`, `/web/report`: TikTok's scr
 - **The parameters are alphabetical** (case-sensitive, capitals first), with the four signature parameters appended at the end.
 - **`X-Bogus` was the constant `1`** on every call; `X-Gnarly` was 332 characters, `X-Dynosaur` 412–508 characters. This matches one public source's report of September 2026 ([methods.md](methods.md) §2.3).
 - **`msToken`** was empty on the first list call of a session, then 152–172 characters. It arrives in `x-ms-token` response headers (the profile page's and the script's own calls).
-- **`device_id` and `odinId`** are 19-digit numbers, **`WebIdLastTime`** a 10-digit Unix time. The page's `webapp.app-context` carries `wid`, `webIdCreatedTime` and `odinId` (§3), which look like their source.
+- **`device_id` and `odinId`** are 19-digit numbers, **`WebIdLastTime`** a 10-digit Unix time. **They are the profile page's `wid`, `odinId` and `webIdCreatedTime`** (checked on both profile sessions, the same on every call of a session), and the calls' `region` and `language` are the page's too: one page load gives an identity every value an unsigned call needs. The page also reports `botType: "others"` for this browser; the probe records what a crawler gets.
 - **Later list pages add** `clientABVersions`, `enable_cache`, `from_page`, `needPinnedItemIds` and `post_item_list_request_type`.
+- **The recording browser** was Opera on macOS (Chromium 152: `sec-ch-ua` has `"Chromium";v="152", "Not?A_Brand";v="24"`), sending `browser_platform=MacIntel`, `os=mac`, `screen_width=1440`, `screen_height=932`, `tz_name=Asia/Baghdad`, `video_encoding=dash`.
 - **Headers** on API calls are only Chrome's standard ones (`accept`, `accept-encoding`, `accept-language`, `priority`, `referer`, the three `sec-ch-ua*`, three `sec-fetch-*`, `user-agent`): no custom `x-` header. TikTok's page responses carry `x-akamai-request-id`, so Akamai fronts the site (T5).
 
 ## 3. The account

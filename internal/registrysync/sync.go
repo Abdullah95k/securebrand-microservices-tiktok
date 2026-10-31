@@ -401,7 +401,7 @@ func (s *Sync) fetcher(id *session.Identity) docids.Fetcher {
 // entries reads fb_queries with the check state.
 func (s *Sync) entries(ctx context.Context) ([]*entry, error) {
 	rows, err := s.DB.Query(ctx, `SELECT name, doc_id, friendly_name, variables_template, parser, parser_version,
-			status, priority, source, endpoint, headers, check_failures, promoted_at, last_checked_at
+			status, priority, source, method, endpoint, headers, check_failures, promoted_at, last_checked_at
 		FROM fb_queries ORDER BY name, doc_id`)
 	if err != nil {
 		return nil, fmt.Errorf("registry-sync: entries: %w", err)
@@ -410,7 +410,7 @@ func (s *Sync) entries(ctx context.Context) ([]*entry, error) {
 		e := &entry{}
 		var hdr []byte
 		err := row.Scan(&e.Name, &e.DocID, &e.FriendlyName, &e.Variables, &e.Parser, &e.ParserVersion,
-			&e.Status, &e.Priority, &e.Source, &e.Endpoint, &hdr, &e.failures, &e.promotedAt, &e.checked)
+			&e.Status, &e.Priority, &e.Source, &e.Method, &e.Endpoint, &hdr, &e.failures, &e.promotedAt, &e.checked)
 		if err == nil {
 			e.Headers, err = registry.ScanHeaders(hdr)
 		}
@@ -501,9 +501,9 @@ func (s *Sync) recordCandidates(ctx context.Context, entries []*entry, found map
 		var added bool
 		err := s.DB.QueryRow(ctx, `
 			INSERT INTO fb_queries (name, doc_id, friendly_name, variables_template, parser, parser_version,
-				status, priority, endpoint, headers, source)
+				status, priority, method, endpoint, headers, source)
 			SELECT name, $2, friendly_name, variables_template, parser, parser_version, 'candidate', priority,
-				endpoint, headers, 'bundle'
+				method, endpoint, headers, 'bundle'
 			FROM fb_queries WHERE name = $1 AND doc_id = $3
 			ON CONFLICT (name, doc_id) DO UPDATE SET status = 'candidate', check_failures = 0, updated_at = now()
 				WHERE fb_queries.status = 'retired' AND fb_queries.source = 'bundle'

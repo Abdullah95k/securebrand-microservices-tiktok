@@ -164,93 +164,12 @@ func Render(ctx context.Context, binary string, opts Options) (*Result, error) {
 	if opts.MaxSettle <= 0 {
 		opts.MaxSettle = 5 * time.Second
 	}
-	var args []string
-	if opts.UserAgent != "" {
-		args = append(args, "--user-agent="+opts.UserAgent)
-	}
-	if opts.AcceptLanguage != "" {
-		args = append(args, "--lang="+strings.SplitN(opts.AcceptLanguage, ",", 2)[0])
-	}
-	var proxyUser, proxyPass string
-	if opts.Proxy != nil {
-		p := *opts.Proxy
-		if strings.HasPrefix(p.Scheme, "socks") && p.User != nil {
-			// Chromium cannot authenticate to SOCKS proxies.
-			return nil, errors.New("browser: Chromium does not support SOCKS proxies with credentials; use an HTTP exit for this tier")
-		}
-		if p.User != nil {
-			proxyUser = p.User.Username()
-			proxyPass, _ = p.User.Password()
-			p.User = nil
-		}
-		// Chromium takes the proxy without credentials; they are answered
-		// on the authentication challenge.
-		args = append(args, "--proxy-server="+p.Scheme+"://"+p.Host, "--proxy-bypass-list=<-loopback>")
-	} else {
-		// Direct means direct: not a proxy from the environment.
-		args = append(args, "--no-proxy-server")
-	}
-	proc, err := launch(ctx, binary, opts.NoSandbox, args)
+	r, stop, err := launchPage(ctx, binary, opts)
 	if err != nil {
 		return nil, err
 	}
-	defer proc.stop()
-	c, err := dial(ctx, proc.wsURL)
-	if err != nil {
-		return nil, err
-	}
-	defer c.close()
-
-	var target struct {
-		TargetID string `json:"targetId"`
-	}
-	if err := c.call(ctx, "", "Target.createTarget", map[string]any{"url": "about:blank"}, &target); err != nil {
-		return nil, err
-	}
-	var attached struct {
-		SessionID string `json:"sessionId"`
-	}
-	if err := c.call(ctx, "", "Target.attachToTarget", map[string]any{"targetId": target.TargetID, "flatten": true}, &attached); err != nil {
-		return nil, err
-	}
-	s := attached.SessionID
-	r := &renderer{c: c, s: s, opts: opts, proxyUser: proxyUser, proxyPass: proxyPass,
-		reqs: map[string]*Exchange{}, inflight: map[string]bool{}, docs: map[string]document{}, auth: map[string]int{}}
-	if proxyUser != "" || opts.BlockMedia {
-		// Requests pause here so media can be refused and proxy
-		// challenges answered.
-		if err := c.call(ctx, s, "Fetch.enable", map[string]any{"handleAuthRequests": proxyUser != "",
-			"patterns": []map[string]any{{"urlPattern": "*"}}}, nil); err != nil {
-			return nil, err
-		}
-	}
-	if opts.UserAgent != "" && opts.Hints != nil {
-		meta := map[string]any{"brands": opts.Hints.Brands, "platform": opts.Hints.Platform,
-			"platformVersion": "", "architecture": "x86", "model": "", "mobile": opts.Hints.Mobile}
-		if err := c.call(ctx, s, "Network.setUserAgentOverride", map[string]any{"userAgent": opts.UserAgent,
-			"acceptLanguage": opts.AcceptLanguage, "platform": navigatorPlatform(opts.Hints.Platform), "userAgentMetadata": meta}, nil); err != nil {
-			return nil, err
-		}
-	}
-	for _, m := range []string{"Network.enable", "Page.enable", "Runtime.enable"} {
-		if err := c.call(ctx, s, m, nil, nil); err != nil {
-			return nil, err
-		}
-	}
-	if opts.AcceptLanguage != "" {
-		if err := c.call(ctx, s, "Network.setExtraHTTPHeaders", map[string]any{"headers": map[string]string{"Accept-Language": opts.AcceptLanguage}}, nil); err != nil {
-			return nil, err
-		}
-	}
-	if len(opts.Cookies) > 0 {
-		var cs []map[string]any
-		for k, v := range opts.Cookies {
-			cs = append(cs, map[string]any{"name": k, "value": v, "url": opts.URL})
-		}
-		if err := c.call(ctx, s, "Network.setCookies", map[string]any{"cookies": cs}, nil); err != nil {
-			return nil, err
-		}
-	}
+	defer stop()
+	c, s := r.c, r.s
 	if err := r.navigate(ctx); err != nil {
 		return nil, err
 	}
@@ -308,6 +227,105 @@ func Render(ctx context.Context, binary string, opts Options) (*Result, error) {
 	_ = c.call(context.WithoutCancel(ctx), "", "Browser.close", nil, nil)
 	res.Elapsed = time.Since(start)
 	return res, nil
+}
+
+// launchPage launches Chromium with opts' identity (proxy, user agent and client
+// hints, language, cookies) and attaches to a blank page. stop ends the
+// process; Render and OpenSession share it.
+func launchPage(ctx context.Context, binary string, opts Options) (r *renderer, stop func(), err error) {
+	var args []string
+	if opts.UserAgent != "" {
+		args = append(args, "--user-agent="+opts.UserAgent)
+	}
+	if opts.AcceptLanguage != "" {
+		args = append(args, "--lang="+strings.SplitN(opts.AcceptLanguage, ",", 2)[0])
+	}
+	var proxyUser, proxyPass string
+	if opts.Proxy != nil {
+		p := *opts.Proxy
+		if strings.HasPrefix(p.Scheme, "socks") && p.User != nil {
+			// Chromium cannot authenticate to SOCKS proxies.
+			return nil, nil, errors.New("browser: Chromium does not support SOCKS proxies with credentials; use an HTTP exit for this tier")
+		}
+		if p.User != nil {
+			proxyUser = p.User.Username()
+			proxyPass, _ = p.User.Password()
+			p.User = nil
+		}
+		// Chromium takes the proxy without credentials; they are answered
+		// on the authentication challenge.
+		args = append(args, "--proxy-server="+p.Scheme+"://"+p.Host, "--proxy-bypass-list=<-loopback>")
+	} else {
+		// Direct means direct: not a proxy from the environment.
+		args = append(args, "--no-proxy-server")
+	}
+	proc, err := launch(ctx, binary, opts.NoSandbox, args)
+	if err != nil {
+		return nil, nil, err
+	}
+	c, err := dial(ctx, proc.wsURL)
+	if err != nil {
+		proc.stop()
+		return nil, nil, err
+	}
+	stop = func() { c.close(); proc.stop() }
+	defer func() {
+		if err != nil {
+			stop()
+		}
+	}()
+
+	var target struct {
+		TargetID string `json:"targetId"`
+	}
+	if err = c.call(ctx, "", "Target.createTarget", map[string]any{"url": "about:blank"}, &target); err != nil {
+		return nil, nil, err
+	}
+	var attached struct {
+		SessionID string `json:"sessionId"`
+	}
+	if err = c.call(ctx, "", "Target.attachToTarget", map[string]any{"targetId": target.TargetID, "flatten": true}, &attached); err != nil {
+		return nil, nil, err
+	}
+	s := attached.SessionID
+	r = &renderer{c: c, s: s, opts: opts, proxyUser: proxyUser, proxyPass: proxyPass,
+		reqs: map[string]*Exchange{}, inflight: map[string]bool{}, docs: map[string]document{}, auth: map[string]int{}}
+	if proxyUser != "" || opts.BlockMedia {
+		// Requests pause here so media can be refused and proxy
+		// challenges answered.
+		if err = c.call(ctx, s, "Fetch.enable", map[string]any{"handleAuthRequests": proxyUser != "",
+			"patterns": []map[string]any{{"urlPattern": "*"}}}, nil); err != nil {
+			return nil, nil, err
+		}
+	}
+	if opts.UserAgent != "" && opts.Hints != nil {
+		meta := map[string]any{"brands": opts.Hints.Brands, "platform": opts.Hints.Platform,
+			"platformVersion": "", "architecture": "x86", "model": "", "mobile": opts.Hints.Mobile}
+		if err = c.call(ctx, s, "Network.setUserAgentOverride", map[string]any{"userAgent": opts.UserAgent,
+			"acceptLanguage": opts.AcceptLanguage, "platform": navigatorPlatform(opts.Hints.Platform), "userAgentMetadata": meta}, nil); err != nil {
+			return nil, nil, err
+		}
+	}
+	for _, m := range []string{"Network.enable", "Page.enable", "Runtime.enable"} {
+		if err = c.call(ctx, s, m, nil, nil); err != nil {
+			return nil, nil, err
+		}
+	}
+	if opts.AcceptLanguage != "" {
+		if err = c.call(ctx, s, "Network.setExtraHTTPHeaders", map[string]any{"headers": map[string]string{"Accept-Language": opts.AcceptLanguage}}, nil); err != nil {
+			return nil, nil, err
+		}
+	}
+	if len(opts.Cookies) > 0 {
+		var cs []map[string]any
+		for k, v := range opts.Cookies {
+			cs = append(cs, map[string]any{"name": k, "value": v, "url": opts.URL})
+		}
+		if err = c.call(ctx, s, "Network.setCookies", map[string]any{"cookies": cs}, nil); err != nil {
+			return nil, nil, err
+		}
+	}
+	return r, stop, nil
 }
 
 // renderer follows the page session's events.
