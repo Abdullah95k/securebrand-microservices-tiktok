@@ -49,20 +49,20 @@ Made by the owner, carried over from fbs and igs, unless marked **proposed** (pr
 
 Everything in this section comes from public sources (`methods.md` §2) and is a hypothesis with its T-number.
 
-- **Pages carry data.** A profile page and a post page embed one JSON document (`<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__">`) with the account (id, `secUid`, username, nickname, bio, bio link, avatars, verified, private, counts) or the post (caption, time, video or photos, music, counts, hashtags, mentions), plus the values the web client sends with its calls (T1, T2). A plain HTTP load with a Chrome TLS fingerprint is expected to be enough (T3, T5).
-- **The web app calls JSON endpoints with GET**: the account (`/api/user/detail/`), its post list (`/api/post/item_list/`, or `/api/creator/item_list/`), comments (`/api/comment/list/`) and replies (`/api/comment/list/reply/`), with the client's standard parameters (`aid=1988`, `app_name=tiktok_web`, `device_platform=web_pc`, a device id, `msToken`, browser fields) and, on some calls, signatures (`X-Bogus`, `X-Gnarly`) computed by TikTok's script. Which calls need a signature is the most important open question (T4); an unsigned or badly signed call is reported to answer HTTP 200 with an empty body.
-- **List items are complete**: each carries its counts (plays, likes, comments, shares, saves), music, hashtags, mentions, duration, covers, a pinned flag and labels (T9, T10, T16). The list cursor is a time in milliseconds, pages hold up to about 30 to 35 posts, and pinned posts come first (T10, T11).
+- **Pages carry data.** A post page, and a server-rendered profile page, embed one JSON document (`<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__">`) with the post (caption, time, video or photos, music, counts, hashtags, mentions) or the account (id, `secUid`, username, nickname, bio, avatars, verified, private, counts), plus client values (T1, T2). Some profile loads return a client-rendered shell with no data (T1). Pages are large (~400–620 KB), so tks reads them to bootstrap and as a fallback, not per check.
+- **The web app calls JSON endpoints with GET**, with the client's standard parameters (`aid=1988`, `app_name=tiktok_web`, `device_platform=web_pc`, a random 19-digit `device_id`, browser fields) and, on some calls, signatures (`X-Gnarly`, `X-Bogus`, `X-Dynosaur`) and `msToken` from TikTok's script (T2, T4). **The post list through `/api/creator/item_list/` works unsigned** for yt-dlp and gallery-dl today; `/api/post/item_list/` needs `X-Gnarly`; the account call (`/api/user/detail/`) may need one; comments (`/api/comment/list/`) and replies (`/api/comment/list/reply/`) are unknown (T4, T24). A refused call answers **HTTP 200 with an empty body**, so an empty answer always counts as a failure.
+- **List items are complete**: each carries its counts (plays, likes, comments, shares, saves), music, hashtags, mentions, duration, covers and flags such as `isAd` (T9, T16). The `creator` list pages by time (next cursor = the last post's `createTime` × 1000), about 15 posts a page (T11). Whether and how pinned posts are flagged is unknown (T10).
 - **Ids carry time**: a post id's top 32 bits are its Unix time (T8), so a backfill can stop at 365 days without reading every post.
-- **Comments** are served logged out, about 20 per page, top level ordered by TikTok's ranking rather than time; replies through their own call (T12–T14).
-- **Blocking**: TikTok fingerprints TLS, scores IPs and shows a slide or rotate captcha ("Verify to continue") under suspicion (T5, T6). Per-IP tolerance on the ISP tier is unknown (T20) and is the main cost driver.
+- **Comments are the biggest risk**: public reports conflict on whether guests get them at all (T12). If served, about 20 per page with `total`, probably in TikTok's ranking order rather than by time (T13); replies through their own call (T14).
+- **Blocking**: TikTok checks TLS and header fingerprints (a missing `Referer` was enough to be blocked), shows a JavaScript proof-of-work page to some requests (region-dependent), scores IPs (datacenter worst) and shows slide, rotate or 3D captchas under suspicion; burnt identities and device ids get empty answers (T5, T6, T28, T29). Per-IP tolerance on the ISP tier is unknown (T20) and is the main cost driver.
 
 ### Open questions (summary; full table in [`open-questions.md`](open-questions.md))
 
 | Group | Questions | Answered by |
 |---|---|---|
-| Access and bootstrap | T1–T7, T24, T27 | HARs (C1), probe test pass (C2) |
+| Access and bootstrap | T1–T7, T24, T27, T28 | HARs (C1), probe test pass (C2) |
 | Data | T8–T19, T26 | HARs, probe (C2, C3) |
-| Scale and cost | T20–T23, T25 | probe full pass (C3), Phase 0 (C4), canary (M8) |
+| Scale and cost | T20–T23, T25, T29 | probe full pass (C3), Phase 0 (C4), canary (M8) |
 
 ---
 
@@ -82,8 +82,8 @@ tks-spike: the probe (M1) and the Phase 0 kit (M7)          fakett: synthetic Ti
 ```
 
 **The account stage** (one task per account per check):
-1. Take a bootstrapped identity (one page load per identity, reused for its tens of calls).
-2. Read the first list page. Every item yields the post, its metrics, music and media metadata. New posts go to `tt.post.v1`; changed counts to `tt.post_metrics.v1`.
+1. Take a bootstrapped identity (one page load per identity, reused for its tens of calls; its own random `device_id`).
+2. Read the first list page (the unsigned `creator` variant first, if T4 holds). Every item yields the post, its metrics, music and media metadata. New posts go to `tt.post.v1`; changed counts to `tt.post_metrics.v1`.
 3. Continue to the next page while posts are newer than the watermark (newest stored post; pinned posts exempt), or, in a backfill, until 365 days or the first post (by the id's time, T8).
 4. For each post whose comment count went up, spawn a post task.
 5. Once a day, refresh the account itself (user detail call if it works unsigned, T24; else the profile page).
@@ -111,8 +111,8 @@ A milestone is done only when CI is green, its acceptance criteria are met, its 
 | **M0** | Plan (kickoff session) | `docs/tiktok/`: methods, open questions, recording guide, probe spec, reuse plan, this brief, status, ADRs 0006 and 0007 | The owner approves the plan |
 | **C1** | *Owner:* recordings | Record R1–R7 of the [recording guide](recording-guide.md) and share the Drive folder by link | The session downloads the HARs into `.local/har/`, analyses them, and writes `docs/tiktok/har-findings-<date>.md` (shapes, field names and counts only), updating the T-table. Best before M1d |
 | **M1** | **The probe** (first build milestone) | **M1a** seed: igs's history merged into `main` (ADR 0006 §1), module renamed, Instagram-only code removed, `UPSTREAM.md`. **M1b** names: every shared-infrastructure name to tks's (ADR 0006 §5), igs's guard tests retargeted. **M1c** seams: GET and decoder in `graphql`, method and variants in `registry`, `browser.Session`, the boundary test extended. **M1d** TikTok client: `internal/tt/{htmlx,detect,client,sign}`, operation seed, `fakett` first slice, `tttest`. **M1e** probe: `internal/tt/probe`, `cmd/tks-spike probe`, Makefile targets, runbook `docs/runbooks/tks-probe.md` | [probe-spec.md §5](probe-spec.md#5-acceptance-criteria-for-m1). The copied fbs and igs suites green after each step (`make test`, `make test-integration`, `make e2e`, CI) |
-| **C2** | *Owner:* probe test pass | `make tks-probe` on the droplet, 3 to 5 accounts, ISP tier; send the bundle | The session records the answers (T1–T7, T9, T10, T12–T19, T22, T24, T26) in `build-status.md` and the HAR findings, fixes the probe if a step misread, and asks for a rerun if needed |
-| **C3** | *Owner:* probe full pass | `make tks-probe-all`, the whole list, back 365 days; send the bundle | T8, T11, T20 (first look), T21, T23 recorded; depth per account; captchas per thousand requests |
+| **C2** | *Owner:* probe test pass | `make tks-probe` on the droplet, 3 to 5 accounts, ISP tier; send the bundle | The session records the answers (T1–T7, T9, T10, T12–T19, T22, T24, T26–T28) in `build-status.md` and the HAR findings, fixes the probe if a step misread, and asks for a rerun if needed. **If comments are not served logged out (T12), it asks the owner how to treat objective §3 before M5** |
+| **C3** | *Owner:* probe full pass | `make tks-probe-all`, the whole list, back 365 days; send the bundle | T8, T11, T20 (first look), T21, T23, T29 recorded; depth per account; captchas and challenges per thousand requests |
 | **G1** | *Owner decision:* method | The session proposes, from C2 and C3: unsigned website, website plus browser signer, browser for everything, or (owner's call) a provider; with a cost estimate per account per day | The owner chooses (AskUserQuestion, with a recommendation). D11 updated |
 | **M2** | Inherited fixes | igs's M2 fixes ported (or made): DLQ replay, persister quarantine, job owner checks, suppression in the persister, `items_seen` across continuations, detect classes for 400/401/403, growing cooldown; the unknown-kind crash | A regression test each; `UPSTREAM.md` updated; copied suites green |
 | **M3** | Contracts | `securebrand.tt.v1`, `securebrand.tks.task.v1`, `common.v1` (igs's file), `buf` setup, topics in `configs/tt/`, `migrations/tt` (schema `tt`, own goose table), the `tt:` config section with defaults and validation, metrics `tks_`. ADR 0007 finalised against the evidence | `buf breaking` clean; migrations up, down and up on Postgres 18; config tests; Schema Registry apply works |

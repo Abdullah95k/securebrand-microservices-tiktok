@@ -33,13 +33,16 @@ Each build session updates this file at the end of its work. The plan and rules 
 
 ## Open questions
 
-All 27 hypotheses (T1–T27) are **open**: see [`open-questions.md`](open-questions.md). The first to settle, because they choose the method: **T4** (which calls need a signature), **T3** (plain HTTP bootstrap), **T7** and **T27** (browser signing, and whether one page can sign for many identities), **T9** (list items complete), **T13** (comment order), **T14** (replies logged out), **T20** (calls per ISP IP per day).
+All 29 hypotheses (T1–T29) are **open**: see [`open-questions.md`](open-questions.md). The first to settle, because they choose the method: **T4** (which calls need a signature), **T3** (plain HTTP bootstrap), **T7** and **T27** (browser signing, and whether one page can sign for many identities), **T9** (list items complete), **T12** (comments served logged out at all: public reports conflict), **T13** (comment order), **T14** (replies logged out), **T28** (the JavaScript challenge), **T20** (calls per ISP IP per day).
 
 ## Findings
 
 From the kickoff research (public sources only; details and citations in [`methods.md`](methods.md)):
 - **No official TikTok API fits a commercial monitor of third-party accounts.** The Research API is for non-profit academic researchers in the US, EEA, UK and Switzerland, forbids commercial use, allows 1,000 requests a day, and lags up to 48 h for new videos and 10 days for counts. The Display and Business APIs cover only accounts that authorise the app. The Commercial Content API covers ads in Europe only.
 - **Third-party providers charging per call** are cheap at small scale (about $0.01 to $0.03 per account per day for this workload) but reach about $70k to $135k a month at 300,000 accounts; per-result pricing (Apify, Bright Data) costs 10 to 30 times more for this re-polling workload. Using one is the owner's decision (D4).
+- **The public evidence favours the simple method for the post list:** yt-dlp and gallery-dl read whole post lists through an unsigned call (`/api/creator/item_list/`) with a random device id and no browser, as of August 2026. The app's own list call needs `X-Gnarly`, and the account call may need a signature (T4).
+- **Comments are the biggest risk:** public reports conflict on whether TikTok serves them to logged-out visitors at all (T12). The recordings (R2) and the probe's test pass settle it before the crawler is built.
+- **TikTok blocks more than igs's target does:** TLS and header fingerprints, a region-dependent JavaScript challenge since late 2025, IP reputation, captchas, burnt identities and device ids (T5, T6, T28, T29). Empty 200 answers are the usual failure, so tks counts every empty answer as a failure.
 - **igs's scraping layer fits TikTok with three seams** (GET and a decoder, registry variants, a persistent browser page); its probe, fake site and isolation guards carry over (`reuse-plan.md`).
 
 ## What the owner needs to do
