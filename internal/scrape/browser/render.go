@@ -20,10 +20,10 @@ import (
 	"time"
 )
 
-// FindBinary returns the Chromium to use: configured, $IGS_BROWSER_BINARY,
+// FindBinary returns the Chromium to use: configured, $TKS_BROWSER_BINARY,
 // a browser on PATH, or the Playwright build in /opt/pw-browsers.
 func FindBinary(configured string) (string, error) {
-	for _, c := range []string{configured, os.Getenv("IGS_BROWSER_BINARY")} {
+	for _, c := range []string{configured, os.Getenv("TKS_BROWSER_BINARY")} {
 		if c != "" {
 			return c, nil
 		}
@@ -36,7 +36,7 @@ func FindBinary(configured string) (string, error) {
 	if _, err := os.Stat("/opt/pw-browsers/chromium"); err == nil {
 		return "/opt/pw-browsers/chromium", nil
 	}
-	return "", errors.New("browser: no Chromium found (set fb.browser.binary or IGS_BROWSER_BINARY)")
+	return "", errors.New("browser: no Chromium found (set fb.browser.binary or TKS_BROWSER_BINARY)")
 }
 
 // Options configures one render.

@@ -121,7 +121,7 @@ func TestConsumerLagGauges(t *testing.T) {
 		}
 	}
 	t.Logf("groups with lag series: %v", groups)
-	if !groups["igs-persister"] || !groups["igs-crawler-page-p0"] {
+	if !groups["tks-persister"] || !groups["tks-crawler-page-p0"] {
 		t.Fatalf("want the persister and on-demand page groups, got %v", groups)
 	}
 }

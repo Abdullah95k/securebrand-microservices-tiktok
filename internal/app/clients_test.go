@@ -71,12 +71,12 @@ func TestTLSConfigFiles(t *testing.T) {
 
 // TestSecureEndpoints produces and consumes through a Kafka that needs TLS
 // and SASL, and talks to a Valkey over TLS, when they are given:
-// IGS_TEST_SECURE_KAFKA (brokers), IGS_TEST_SECURE_SASL (mechanism:user:pass),
-// IGS_TEST_SECURE_REDIS (addr) and IGS_TEST_SECURE_CA (the CA of both).
+// TKS_TEST_SECURE_KAFKA (brokers), TKS_TEST_SECURE_SASL (mechanism:user:pass),
+// TKS_TEST_SECURE_REDIS (addr) and TKS_TEST_SECURE_CA (the CA of both).
 func TestSecureEndpoints(t *testing.T) {
-	brokers, ca := os.Getenv("IGS_TEST_SECURE_KAFKA"), os.Getenv("IGS_TEST_SECURE_CA")
+	brokers, ca := os.Getenv("TKS_TEST_SECURE_KAFKA"), os.Getenv("TKS_TEST_SECURE_CA")
 	if brokers == "" || ca == "" {
-		t.Skip("IGS_TEST_SECURE_KAFKA / IGS_TEST_SECURE_CA not set")
+		t.Skip("TKS_TEST_SECURE_KAFKA / TKS_TEST_SECURE_CA not set")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -86,9 +86,9 @@ func TestSecureEndpoints(t *testing.T) {
 	}
 	cfg.Kafka.Brokers = strings.Split(brokers, ",")
 	cfg.Kafka.TLS = config.TLS{Enabled: true, CAFile: ca}
-	parts := strings.SplitN(os.Getenv("IGS_TEST_SECURE_SASL"), ":", 3)
+	parts := strings.SplitN(os.Getenv("TKS_TEST_SECURE_SASL"), ":", 3)
 	if len(parts) != 3 {
-		t.Fatal("IGS_TEST_SECURE_SASL must be mechanism:user:pass")
+		t.Fatal("TKS_TEST_SECURE_SASL must be mechanism:user:pass")
 	}
 	cfg.Kafka.SASL = config.SASL{Mechanism: parts[0], Username: parts[1], Password: parts[2]}
 	kc, err := KafkaClient(cfg, "-securetest")
@@ -123,7 +123,7 @@ func TestSecureEndpoints(t *testing.T) {
 		t.Fatal("a client without SASL credentials produced")
 	}
 
-	if addr := os.Getenv("IGS_TEST_SECURE_REDIS"); addr != "" {
+	if addr := os.Getenv("TKS_TEST_SECURE_REDIS"); addr != "" {
 		cfg.Redis.Addr, cfg.Redis.TLS = addr, config.TLS{Enabled: true, CAFile: ca}
 		rdb, err := OpenRedis(ctx, cfg)
 		if err != nil {

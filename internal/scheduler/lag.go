@@ -10,7 +10,7 @@ import (
 )
 
 // LagGauges publishes the consumer lag of every fbs consumer group per
-// topic (igs_kafka_consumer_lag), so dashboards and alerts do not depend on
+// topic (tks_kafka_consumer_lag), so dashboards and alerts do not depend on
 // a separate Kafka exporter. Group and topic labels drop the topic prefix.
 type LagGauges struct {
 	Admin  *kadm.Client
@@ -27,7 +27,7 @@ func (l *LagGauges) Tick(ctx context.Context) error {
 	}
 	var groups []string
 	for _, g := range listed.Groups() {
-		if strings.HasPrefix(g, l.Prefix+"igs-") {
+		if strings.HasPrefix(g, l.Prefix+"tks-") {
 			groups = append(groups, g)
 		}
 	}

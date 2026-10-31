@@ -56,7 +56,7 @@ func GenerateKey() (key, prefix string, hash []byte) {
 	s := base64.RawURLEncoding.EncodeToString(b)
 	prefix, secret := strings.ToLower(strings.NewReplacer("-", "a", "_", "b").Replace(s[:8])), s[8:]
 	h := sha256.Sum256([]byte(secret))
-	return "igs_" + prefix + "_" + secret, prefix, h[:]
+	return "tks_" + prefix + "_" + secret, prefix, h[:]
 }
 
 // CreateClient stores a new API client and returns its key.
@@ -83,8 +83,8 @@ type authenticator struct {
 var errUnauthorized = errors.New("missing or invalid API key")
 
 func (a *authenticator) lookup(ctx context.Context, key string) (*Client, error) {
-	parts := strings.SplitN(strings.TrimPrefix(key, "igs_"), "_", 2)
-	if !strings.HasPrefix(key, "igs_") || len(parts) != 2 {
+	parts := strings.SplitN(strings.TrimPrefix(key, "tks_"), "_", 2)
+	if !strings.HasPrefix(key, "tks_") || len(parts) != 2 {
 		return nil, errUnauthorized
 	}
 	prefix, secret := parts[0], parts[1]

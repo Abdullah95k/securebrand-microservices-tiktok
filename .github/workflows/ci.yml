@@ -43,7 +43,7 @@ jobs:
             echo "fixtures with real fbcdn signatures: run fbctl fixtures scrub"; exit 1
           fi
       - name: Unit tests (parsers, fake Facebook client layer, accounting)
-        env: {IGS_BROWSER_NO_SANDBOX: "1"} # runners may not allow the Chromium sandbox
+        env: {TKS_BROWSER_NO_SANDBOX: "1"} # runners may not allow the Chromium sandbox
         run: go test -race -count=1 ./...
       - uses: golangci/golangci-lint-action@v8
         with:
@@ -74,11 +74,11 @@ jobs:
           for i in $(seq 1 60); do docker exec redpanda rpk cluster health --exit-when-healthy && break; sleep 2; done
       - name: Integration and end-to-end tests
         env:
-          IGS_TEST_PG_DSN: postgres://fbs:fbs@localhost:5432/fbs?sslmode=disable
-          IGS_TEST_REDIS_ADDR: localhost:6379
-          IGS_TEST_KAFKA_BROKERS: localhost:19092
-          IGS_TEST_SCHEMA_REGISTRY: http://localhost:18081
-          IGS_BROWSER_NO_SANDBOX: "1"
+          TKS_TEST_PG_DSN: postgres://fbs:fbs@localhost:5432/fbs?sslmode=disable
+          TKS_TEST_REDIS_ADDR: localhost:6379
+          TKS_TEST_KAFKA_BROKERS: localhost:19092
+          TKS_TEST_SCHEMA_REGISTRY: http://localhost:18081
+          TKS_BROWSER_NO_SANDBOX: "1"
         run: go test -count=1 -timeout 20m ./internal/persist/... ./internal/e2e/... ./internal/spike/... ./internal/registrysync/... ./internal/platform/schemareg/...
 
   deploy:

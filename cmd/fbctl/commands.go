@@ -200,7 +200,7 @@ func dlqReplay(ctx context.Context, cfg *config.Config, args []string) error {
 		return err
 	}
 	defer p.Close()
-	cl, err := kgo.NewClient(append(kcfg.Opts(), kgo.ConsumerGroup(cfg.Kafka.TopicPrefix+"igs-dlq-replay"),
+	cl, err := kgo.NewClient(append(kcfg.Opts(), kgo.ConsumerGroup(cfg.Kafka.TopicPrefix+"tks-dlq-replay"),
 		kgo.ConsumeTopics(cfg.Kafka.TopicPrefix+topics.DLQ), kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()), kgo.DisableAutoCommit())...)
 	if err != nil {
 		return err

@@ -53,7 +53,7 @@ func runDownloader(ctx context.Context, cfg *config.Config) error {
 	defer producer.Close()
 	d := &media.Downloader{DB: db, S3: s3, Bucket: cfg.S3.MediaBucket, Producer: producer, HTTP: media.NewHTTPClient(),
 		TTL: cfg.Media.TTL, MaxBytes: cfg.Media.MaxBytes, Presign: cfg.Media.Presign, PresignTTL: cfg.Media.PresignTTL}
-	c, err := kafka.NewConsumer(kafka.ConsumerConfig{ClientConfig: kcfg, Group: "igs-media-downloader",
+	c, err := kafka.NewConsumer(kafka.ConsumerConfig{ClientConfig: kcfg, Group: "tks-media-downloader",
 		Topics: []string{topics.TaskMedia}, MaxInflight: cfg.Media.Concurrency, DrainTimeout: 60 * time.Second}, d.Handle)
 	if err != nil {
 		return err

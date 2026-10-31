@@ -42,8 +42,8 @@ func known(t *testing.T) map[string]bool {
 			out[m[1]+suffix] = true
 		}
 	}
-	if !out["igs_ig_requests_total"] {
-		t.Fatal("registry description lacks igs_ig_requests_total")
+	if !out["tks_tt_requests_total"] {
+		t.Fatal("registry description lacks tks_tt_requests_total")
 	}
 	return out
 }
@@ -141,8 +141,8 @@ func TestAlertRules(t *testing.T) {
 		for _, r := range g.Rules {
 			switch {
 			case r.Record != "":
-				if !strings.HasPrefix(r.Record, "igs:") {
-					t.Errorf("recording rule %s must be named igs:...", r.Record)
+				if !strings.HasPrefix(r.Record, "tks:") {
+					t.Errorf("recording rule %s must be named tks:...", r.Record)
 				}
 				checkExpr(t, r.Record, r.Expr, ms, recs)
 			case r.Alert != "":
@@ -265,11 +265,11 @@ func TestDashboards(t *testing.T) {
 
 // TestNoFbsSeries guards ADR 0004 §5: fbs's alert rules select by metric
 // name alone and some of its gauges are always exported, so a single fbs_
-// series from an igs pod on a shared Prometheus would feed fbs's alerts.
+// series from a tks pod on a shared Prometheus would feed fbs's alerts.
 func TestNoFbsSeries(t *testing.T) {
 	for name := range known(t) {
-		if !strings.HasPrefix(name, "igs_") && !strings.HasPrefix(name, "go_") && !strings.HasPrefix(name, "process_") {
-			t.Errorf("series %s is not in the igs_ namespace", name)
+		if !strings.HasPrefix(name, "tks_") && !strings.HasPrefix(name, "go_") && !strings.HasPrefix(name, "process_") {
+			t.Errorf("series %s is not in the tks_ namespace", name)
 		}
 	}
 }

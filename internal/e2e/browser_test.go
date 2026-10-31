@@ -29,9 +29,9 @@ func TestBrowserBootstrapCrawl(t *testing.T) {
 	})
 	key := s.Key(t, api.ScopeJobsWrite, api.ScopeDataRead)
 	page := s.Fake.World.Pages()[0]
-	before, _, _ := sample("igs_bootstrap_total", map[string]string{"method": "browser", "outcome": "ok"})
+	before, _, _ := sample("tks_bootstrap_total", map[string]string{"method": "browser", "outcome": "ok"})
 	j := s.runJob(t, key, "https://www.facebook.com/"+page.Vanity, "full")
-	after, _, _ := sample("igs_bootstrap_total", map[string]string{"method": "browser", "outcome": "ok"})
+	after, _, _ := sample("tks_bootstrap_total", map[string]string{"method": "browser", "outcome": "ok"})
 	truth, _ := s.Fake.World.TruthFor(page.ID, time.Time{})
 	want := 0
 	for _, p := range truth.Posts {

@@ -86,7 +86,7 @@ func main() {
 	}
 	var f flags
 	fs := flag.NewFlagSet("fbs-spike "+cmd, flag.ExitOnError)
-	fs.StringVar(&f.cfgPath, "config", os.Getenv("IGS_CONFIG"), "config files, comma separated (fb.proxy tiers, fb.base_url, ...)")
+	fs.StringVar(&f.cfgPath, "config", os.Getenv("TKS_CONFIG"), "config files, comma separated (fb.proxy tiers, fb.base_url, ...)")
 	fs.StringVar(&f.registryFile, "registry", "", "registry YAML to use instead of the embedded seed (from docids or har)")
 	fs.StringVar(&f.tier, "tier", "direct", "proxy tier (run, capture, docids)")
 	fs.StringVar(&f.tiers, "tiers", "", "proxy tiers, comma separated (phase0, preflight; default --tier)")

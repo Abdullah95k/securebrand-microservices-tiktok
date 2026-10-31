@@ -32,21 +32,21 @@ Crawled records leave `status` unspecified, which means visible.
 ## Wire format
 
 - A value is the plain protobuf encoding of the message. There is no Schema Registry framing: no magic byte, schema id or message indexes.
-- The `igs-type` header holds the full message name, for example `securebrand.fb.v1.Comment`.
+- The `tks-type` header holds the full message name, for example `securebrand.fb.v1.Comment`.
 - `content-type` is `application/x-protobuf`.
 
-A consumer decodes by `igs-type`: with the generated code, or with a descriptor built from the registered schema.
+A consumer decodes by `tks-type`: with the generated code, or with a descriptor built from the registered schema.
 
 ## Schema Registry
 
 `fbctl schemas apply` registers the contract with a Confluent-compatible registry (`kafka.schema_registry.url`). Redpanda's registry, on port 8081, works.
 
 - **Subjects:**
-  - each topic's subject `<topic>-value` holds the whole proto file that declares its value message. For example, `fb.post.v1-value` and `fb.post_metrics.v1-value` both hold `post.proto`. The table above, and each record's `igs-type` header, say which message a topic carries. Confluent-framed tooling (Connect converters, ksqlDB) cannot decode these records directly: it expects the magic byte and schema id, and by default takes the file's first message;
+  - each topic's subject `<topic>-value` holds the whole proto file that declares its value message. For example, `fb.post.v1-value` and `fb.post_metrics.v1-value` both hold `post.proto`. The table above, and each record's `tks-type` header, say which message a topic carries. Confluent-framed tooling (Connect converters, ksqlDB) cannot decode these records directly: it expects the magic byte and schema id, and by default takes the file's first message;
   - `securebrand/fb/v1/common.proto`, which the other files import, has a subject of its own, and the topic subjects reference it;
   - `google/protobuf/*` imports are the registry's built-in well-known types.
 - **Check first, then register:** apply first checks every changed schema against its subject's latest version, and registers nothing unless all pass, so a failed upgrade leaves the registry as it was.
-  - A changed import is staged under a temporary subject (`igs-check-…`) during the check, so the files importing it are checked against its new content. The temporary subjects are deleted afterwards.
+  - A changed import is staged under a temporary subject (`tks-check-…`) during the check, so the files importing it are checked against its new content. The temporary subjects are deleted afterwards.
   - On registration the registry enforces the subject's level against every earlier version.
 - **Compatibility:** a subject without a level of its own is set to `BACKWARD_TRANSITIVE`: a consumer built against any earlier version can still read new data, so it can upgrade at its own pace. A level an operator set on a subject (for a planned migration, say) is kept.
 - **Idempotent:** an unchanged contract registers nothing new.

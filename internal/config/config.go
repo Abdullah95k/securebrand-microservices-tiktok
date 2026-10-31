@@ -14,7 +14,7 @@ import (
 )
 
 // EnvPrefix is the prefix of environment variable overrides.
-const EnvPrefix = "IGS_"
+const EnvPrefix = "TKS_"
 
 type Config struct {
 	Service   Service   `koanf:"service"`
@@ -168,7 +168,7 @@ type FB struct {
 // rendered page makes.
 type Browser struct {
 	Enabled bool   `koanf:"enabled"`
-	Binary  string `koanf:"binary"` // "" = $IGS_BROWSER_BINARY, PATH, /opt/pw-browsers/chromium
+	Binary  string `koanf:"binary"` // "" = $TKS_BROWSER_BINARY, PATH, /opt/pw-browsers/chromium
 	// MaxConcurrent caps the browsers a process runs at once; MaxShare the
 	// share of HTML loads that may fall back to a browser.
 	MaxConcurrent int           `koanf:"max_concurrent"`
@@ -375,9 +375,9 @@ func Load(path string) (*Config, error) {
 	return &c, nil
 }
 
-// MustLoadFromFlags parses --config (or IGS_CONFIG) and loads the config.
+// MustLoadFromFlags parses --config (or TKS_CONFIG) and loads the config.
 func MustLoadFromFlags(fs *flag.FlagSet, args []string) *Config {
-	path := fs.String("config", os.Getenv("IGS_CONFIG"), "YAML config file(s), comma separated; later files win")
+	path := fs.String("config", os.Getenv("TKS_CONFIG"), "YAML config file(s), comma separated; later files win")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)

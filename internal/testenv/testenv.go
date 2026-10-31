@@ -1,5 +1,5 @@
 // Package testenv gives integration tests access to real infrastructure.
-// Tests skip unless the IGS_TEST_* variables are set (make test-integration
+// Tests skip unless the TKS_TEST_* variables are set (make test-integration
 // starts the containers and sets them).
 package testenv
 
@@ -19,12 +19,12 @@ import (
 )
 
 // Postgres creates a fresh database for the test, migrates it and returns
-// a pool. Requires IGS_TEST_PG_DSN (a DSN to an admin database).
+// a pool. Requires TKS_TEST_PG_DSN (a DSN to an admin database).
 func Postgres(t testing.TB) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("IGS_TEST_PG_DSN")
+	dsn := os.Getenv("TKS_TEST_PG_DSN")
 	if dsn == "" {
-		t.Skip("IGS_TEST_PG_DSN not set")
+		t.Skip("TKS_TEST_PG_DSN not set")
 	}
 	ctx := context.Background()
 	admin, err := pg.Open(ctx, dsn, 2)
@@ -61,12 +61,12 @@ func replaceDB(dsn, name string) string {
 }
 
 // Redis returns a client on a dedicated DB index, flushed. Requires
-// IGS_TEST_REDIS_ADDR.
+// TKS_TEST_REDIS_ADDR.
 func Redis(t testing.TB) *redis.Client {
 	t.Helper()
-	addr := os.Getenv("IGS_TEST_REDIS_ADDR")
+	addr := os.Getenv("TKS_TEST_REDIS_ADDR")
 	if addr == "" {
-		t.Skip("IGS_TEST_REDIS_ADDR not set")
+		t.Skip("TKS_TEST_REDIS_ADDR not set")
 	}
 	c := redis.NewClient(&redis.Options{Addr: addr, DB: 1 + rand.IntN(14)})
 	if err := c.FlushDB(context.Background()).Err(); err != nil {
@@ -76,12 +76,12 @@ func Redis(t testing.TB) *redis.Client {
 	return c
 }
 
-// Kafka returns the broker list. Requires IGS_TEST_KAFKA_BROKERS.
+// Kafka returns the broker list. Requires TKS_TEST_KAFKA_BROKERS.
 func Kafka(t testing.TB) []string {
 	t.Helper()
-	b := os.Getenv("IGS_TEST_KAFKA_BROKERS")
+	b := os.Getenv("TKS_TEST_KAFKA_BROKERS")
 	if b == "" {
-		t.Skip("IGS_TEST_KAFKA_BROKERS not set")
+		t.Skip("TKS_TEST_KAFKA_BROKERS not set")
 	}
 	return strings.Split(b, ",")
 }

@@ -18,7 +18,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --uid 65532 --create-home --home-dir /home/nonroot nonroot
 COPY --from=build /out/ /usr/local/bin/
-ENV IGS_BROWSER_BINARY=/usr/bin/chromium HOME=/tmp
+ENV TKS_BROWSER_BINARY=/usr/bin/chromium HOME=/tmp
 USER 65532:65532
 EXPOSE 8080 9090
 # tini reaps Chromium's orphans under `docker run`; in Kubernetes the chart

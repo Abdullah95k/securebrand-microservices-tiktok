@@ -26,7 +26,7 @@ app.kubernetes.io/component: {{ .name }}
 
 {{/* Shared pod spec pieces: env, volumes, mounts. */}}
 {{- define "fbs.env" -}}
-- name: IGS_CONFIG
+- name: TKS_CONFIG
   value: {{ include "fbs.configFiles" . | quote }}
 {{- end -}}
 

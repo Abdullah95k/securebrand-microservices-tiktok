@@ -1,5 +1,5 @@
 // Command fakefb serves a synthetic Facebook for local development, tests
-// and load tests. Point fb.base_url at it (IGS_FB__BASE_URL).
+// and load tests. Point fb.base_url at it (TKS_FB__BASE_URL).
 package main
 
 import (

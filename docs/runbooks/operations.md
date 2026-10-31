@@ -7,33 +7,33 @@ All metric names start with `fbs_`.
 
 | Signal | Metric | Healthy |
 |---|---|---|
-| Request outcomes | `igs_ig_requests_total{query,class,tier}` | `ok` ≥ 95% |
-| Block rate | classes `rate_limited`, `login_wall`, `checkpoint`; fleet-wide `igs_fleet_block_rate` | < 5% |
-| Fleet ceiling | `igs_aimd_ceiling_rps`, `igs_fleet_rps`, `igs_aimd_adjustments_total{direction}` | ceiling stable or rising; `fleet_rps` close to it when there is backlog |
-| Breakers | `igs_breaker_state{name="proxy:..."}`, `{name="query:..."}` (2 = open), `igs_ig_query_short_circuit_total` | all 0 |
-| Lanes | `igs_lane_slots{stage,lane,state}` | `waiting` on p0 ≈ 0 |
-| Schedule | `igs_scheduled_pages{tier}`, `igs_schedule_lag_seconds{tier}`, `igs_post_refreshes_total{kind}` | lag < tier interval |
-| Budget | `igs_budget_used{kind,lane}`, `igs_budget_projected{kind}`, `igs_budget_limit{kind}`, `igs_budget_backfill_paused`, `igs_budget_stretch` | projected < limit |
-| Parser health | `igs_parse_total{outcome="drift"}`, `igs:parse_missing_per_response:rate1h` (vs 7d ago), `igs_parse_shadow_total` | drift ≈ 0; optional fields as last week |
-| Registry | `igs_registry_query_healthy{query}`, `igs_registry_sync_last_success_timestamp_seconds`, `igs_registry_promotions_total{query}`, `igs_registry_checks_total{query,status,verdict}` | all 1; last success < 1h ago |
-| Coverage | `igs_comment_completeness_ratio` | median at the Phase 0 baseline |
-| Truncation | `igs_timeline_truncated_total` | flat |
-| Retries / DLQ | `igs_retries_total`, `igs_dlq_total{reason}` | low, flat |
-| Identity churn | `igs_identity_retired_total{reason}` | mostly `max_requests`/`sticky_expiry` |
-| Proxy bandwidth | `igs_proxy_bytes_total{tier}` | within budget |
-| Jobs | `igs_jobs_total{status}` | `completed` dominates |
-| Schedule lag | `igs_schedule_lag_seconds` | < planner interval |
-| Media | `igs_media_download_total{outcome}`, `igs_media_deleted_total{reason}` | `ttl_expired` ≈ 0 |
-| Persister | `igs_persist_batch_seconds`, `igs_kafka_consumer_lag{group="igs-persister"}` | lag < 1 min |
-| Consumer lag | `igs_kafka_consumer_lag{group,topic}` (leader scheduler) | p0 groups ≈ 0 |
+| Request outcomes | `tks_tt_requests_total{query,class,tier}` | `ok` ≥ 95% |
+| Block rate | classes `rate_limited`, `login_wall`, `checkpoint`; fleet-wide `tks_fleet_block_rate` | < 5% |
+| Fleet ceiling | `tks_aimd_ceiling_rps`, `tks_fleet_rps`, `tks_aimd_adjustments_total{direction}` | ceiling stable or rising; `fleet_rps` close to it when there is backlog |
+| Breakers | `tks_breaker_state{name="proxy:..."}`, `{name="query:..."}` (2 = open), `tks_tt_query_short_circuit_total` | all 0 |
+| Lanes | `tks_lane_slots{stage,lane,state}` | `waiting` on p0 ≈ 0 |
+| Schedule | `tks_scheduled_pages{tier}`, `tks_schedule_lag_seconds{tier}`, `tks_post_refreshes_total{kind}` | lag < tier interval |
+| Budget | `tks_budget_used{kind,lane}`, `tks_budget_projected{kind}`, `tks_budget_limit{kind}`, `tks_budget_backfill_paused`, `tks_budget_stretch` | projected < limit |
+| Parser health | `tks_parse_total{outcome="drift"}`, `tks:parse_missing_per_response:rate1h` (vs 7d ago), `tks_parse_shadow_total` | drift ≈ 0; optional fields as last week |
+| Registry | `tks_registry_query_healthy{query}`, `tks_registry_sync_last_success_timestamp_seconds`, `tks_registry_promotions_total{query}`, `tks_registry_checks_total{query,status,verdict}` | all 1; last success < 1h ago |
+| Coverage | `tks_comment_completeness_ratio` | median at the Phase 0 baseline |
+| Truncation | `tks_timeline_truncated_total` | flat |
+| Retries / DLQ | `tks_retries_total`, `tks_dlq_total{reason}` | low, flat |
+| Identity churn | `tks_identity_retired_total{reason}` | mostly `max_requests`/`sticky_expiry` |
+| Proxy bandwidth | `tks_proxy_bytes_total{tier}` | within budget |
+| Jobs | `tks_jobs_total{status}` | `completed` dominates |
+| Schedule lag | `tks_schedule_lag_seconds` | < planner interval |
+| Media | `tks_media_download_total{outcome}`, `tks_media_deleted_total{reason}` | `ttl_expired` ≈ 0 |
+| Persister | `tks_persist_batch_seconds`, `tks_kafka_consumer_lag{group="tks-persister"}` | lag < 1 min |
+| Consumer lag | `tks_kafka_consumer_lag{group,topic}` (leader scheduler) | p0 groups ≈ 0 |
 
 ## Alerts and dashboards
 
 The chart ships the alerting and recording rules in `deploy/helm/fbs/files/alerts.yaml`; set `alerts.enabled` to install them as a PrometheusRule. The Grafana dashboard **fbs / Overview** is in `deploy/helm/fbs/files/dashboards/`; set `dashboards.enabled` to install it for the Grafana sidecar. Every alert links to the section of this runbook that handles it. The thresholds are starting points: tune them once Phase 0 has a baseline.
 
-Only the leader scheduler publishes AIMD, budget, schedule-lag and consumer-lag values. Every fbs binary exports those gauges, though, at 0, and a former leader keeps its last values. So the rules read them through `igs:leader:*` recording rules, which join on `igs_scheduler_leader == 1`. Do the same in ad-hoc queries.
+Only the leader scheduler publishes AIMD, budget, schedule-lag and consumer-lag values. Every fbs binary exports those gauges, though, at 0, and a former leader keeps its last values. So the rules read them through `tks:leader:*` recording rules, which join on `tks_scheduler_leader == 1`. Do the same in ad-hoc queries.
 
-`igs_kafka_consumer_lag{group,topic}` is published by the leader scheduler every 30s, so lag alerts need no separate Kafka exporter.
+`tks_kafka_consumer_lag{group,topic}` is published by the leader scheduler every 30s, so lag alerts need no separate Kafka exporter.
 
 ## Block storm (block rate > 10%)
 
@@ -45,9 +45,9 @@ The fleet reacts on its own, at three levels:
 
 What to check:
 
-1. `igs_fleet_block_rate` and `igs_aimd_ceiling_rps`. The ceiling should be falling while blocks are high.
-2. `igs_breaker_state{name=~"proxy:.*"}` and `igs_ig_requests_total` by tier. If one provider or tier is affected, change `fb.proxy.routing` to prefer another.
-3. `igs_identity_retired_total` by reason.
+1. `tks_fleet_block_rate` and `tks_aimd_ceiling_rps`. The ceiling should be falling while blocks are high.
+2. `tks_breaker_state{name=~"proxy:.*"}` and `tks_tt_requests_total` by tier. If one provider or tier is affected, change `fb.proxy.routing` to prefer another.
+3. `tks_identity_retired_total` by reason.
 4. If login walls appear at the same depth everywhere, it is coverage, not blocking: jobs report `timelines_truncated` / `posts_truncated`.
 
 To pin the ceiling by hand, for example during an incident, set the key the crawlers read (they pick it up within 5s):
@@ -64,7 +64,7 @@ Adding pods never adds load: every pod paces against the same fleet ceiling.
 
 Symptom: `class="registry_stale"` rising, tasks retrying with delay 5m.
 
-The `query:timeline|<doc_id>` breaker (`fb.query_breaker`) may open. While it is open, requests for that query are not sent (`igs_ig_query_short_circuit_total`), the fallback doc_id is tried if there is one, and tasks wait in the 5m retry topic.
+The `query:timeline|<doc_id>` breaker (`fb.query_breaker`) may open. While it is open, requests for that query are not sent (`tks_tt_query_short_circuit_total`), the fallback doc_id is tried if there is one, and tasks wait in the 5m retry topic.
 
 Usually `fbs-registry-sync` heals this on its own within `registry_sync.interval` (30m). Each run:
 
@@ -81,10 +81,10 @@ Crawlers reload the registry within `fb.registry_refresh` (30s), and parked task
 
 When it does not heal:
 
-- `igs_registry_query_healthy{query} == 0`: the active doc_id is stale or drifted and nothing passed.
+- `tks_registry_query_healthy{query} == 0`: the active doc_id is stale or drifted and nothing passed.
   - If the run report lists the query's friendly name under `not_found`, Facebook renamed the operation. Capture a HAR (phase0 runbook), then set the new entry with `PUT /v1/admin/queries/{name}`.
   - If the checks say `drift`, it is a parser change: see Schema drift below.
-- `igs_registry_sync_last_success_timestamp_seconds` is old: no recent run gave every query a verdict. Typically no canary page loads (blocked tier, or a page gone), every probe is blocked, or the canary pages have no posts with comments or reply threads. See `GET /v1/admin/registry-sync/runs` (`unchecked`) and the service logs. Replace dead or quiet canary pages.
+- `tks_registry_sync_last_success_timestamp_seconds` is old: no recent run gave every query a verdict. Typically no canary page loads (blocked tier, or a page gone), every probe is blocked, or the canary pages have no posts with comments or reply threads. See `GET /v1/admin/registry-sync/runs` (`unchecked`) and the service logs. Replace dead or quiet canary pages.
 - To check without promoting, set `registry_sync.promote: false`. The runs then list what they would promote under `proposed`.
 - `fbs-registry-sync --once` runs once and prints the report. It exits 3 when the run is degraded.
 
@@ -98,7 +98,7 @@ The manual path is still there:
    `crawler.max_attempts` retries in a row without the stream moving forward.
    `max_total_attempts` is the cap on all retries of one task.
 
-`GET /v1/admin/queries` shows each entry's `last_check`, `last_checked_at` and `last_ok_at`. The sync's own requests are counted under `query="registry_sync:<name>"` in `igs_ig_requests_total`, apart from crawl traffic.
+`GET /v1/admin/queries` shows each entry's `last_check`, `last_checked_at` and `last_ok_at`. The sync's own requests are counted under `query="registry_sync:<name>"` in `tks_tt_requests_total`, apart from crawl traffic.
 
 ## Browser fallback
 
@@ -106,22 +106,22 @@ The manual path is still there:
 
 - **Bootstraps:** when a page's HTML carries no tokens (it needs JavaScript first), the identity is bootstrapped in a fresh Chromium.
   - The browser presents the identity: its own exit (proxy credentials are answered on the challenge; SOCKS exits with credentials are not supported by Chromium), its user agent and matching client hints, and its cookies.
-  - Images, media and fonts are refused, and Chromium's own background traffic is off, to save proxy bandwidth. The render's wire bytes count in `igs_proxy_bytes_total`.
+  - Images, media and fonts are refused, and Chromium's own background traffic is off, to save proxy bandwidth. The render's wire bytes count in `tks_proxy_bytes_total`.
   - The rendered page is classified like an HTTP load: a login or checkpoint wall, or a block, is recorded on the identity, not taken for a bootstrap.
   - On success, the cookies and tokens are copied into the identity and the plain HTTP client continues as usual.
-- **Limits:** at most `max_share` (2%) of HTML loads and `max_concurrent` (2) browsers per pod. A capped bootstrap fails at once (`igs_bootstrap_total{method="browser",outcome="capped"|"busy"}`) and the task retries. It never holds a crawl slot waiting for a browser.
+- **Limits:** at most `max_share` (2%) of HTML loads and `max_concurrent` (2) browsers per pod. A capped bootstrap fails at once (`tks_bootstrap_total{method="browser",outcome="capped"|"busy"}`) and the task retries. It never holds a crawl slot waiting for a browser.
 - **Doc_id discovery:** when the bundles declare no doc_id for a registry query, fbs-registry-sync renders a canary page and reads the doc_id from the GraphQL requests the page makes itself. These show under `rendered` in the run report.
 - **Sandbox and processes:** pods drop every capability, which leaves Chromium's sandbox unusable, so the chart sets `fb.browser.no_sandbox: true`. Each render runs in its own process group and is killed as a whole. Pods using the browser image share their process namespace, so the pause process reaps what is left. With `docker run`, the image's `tini` does that.
 
 Signals:
 
-- `igs_bootstrap_total{method="browser"}` by outcome;
-- `IgsBrowserFallbackSaturated`: more pages need JavaScript than the cap allows. Raise `max_share` and `max_concurrent`, and give the crawler pods the CPU and memory for that many browsers. A render of a fakefb page took about a second in development; size real pages under load first;
-- `IgsBrowserFallbackFailing`: Chromium fails to render, or the rendered pages carry no tokens either.
+- `tks_bootstrap_total{method="browser"}` by outcome;
+- `TksBrowserFallbackSaturated`: more pages need JavaScript than the cap allows. Raise `max_share` and `max_concurrent`, and give the crawler pods the CPU and memory for that many browsers. A render of a fakefb page took about a second in development; size real pages under load first;
+- `TksBrowserFallbackFailing`: Chromium fails to render, or the rendered pages carry no tokens either.
 
 ## Schema drift
 
-Symptom: `igs_parse_total{outcome="drift"}` (alert `IgsSchemaDrift`), or a field going missing more often than a week ago (`IgsOptionalFieldDrift`). When half the responses of a query fail to parse (`fb.query_breaker`), its breaker opens and the query stops being sent until a probe parses again. This saves the requests that would be wasted until the fix ships.
+Symptom: `tks_parse_total{outcome="drift"}` (alert `TksSchemaDrift`), or a field going missing more often than a week ago (`TksOptionalFieldDrift`). When half the responses of a query fail to parse (`fb.query_breaker`), its breaker opens and the query stops being sent until a probe parses again. This saves the requests that would be wasted until the fix ships.
 
 **Required fields** (a post or comment cannot be built):
 
@@ -131,30 +131,30 @@ Symptom: `igs_parse_total{outcome="drift"}` (alert `IgsSchemaDrift`), or a field
 3. Fix the candidate paths in `internal/fb/parse`, `make golden`, and check the fix against the production responses before shipping: `fbctl replay --query timeline --since 24h`. It exits 3 while some still drift.
 4. Ship, then replay the DLQ: `fbctl dlq replay --reason max_attempts`.
 
-**Optional fields** (text, reactions, media and the like) never fail a parse, so their loss is silent. `igs:parse_missing_per_response:rate1h` is how often each field is missing per response. `IgsOptionalFieldDrift` fires when that is more than twice last week's rate plus 5 points, or above 25% with no history. The "Optional fields missing per response" panel shows both curves. To look at the responses, set `fb.capture_raw: all` for a while and run `fbctl replay --prefix raw --query <q>`.
+**Optional fields** (text, reactions, media and the like) never fail a parse, so their loss is silent. `tks:parse_missing_per_response:rate1h` is how often each field is missing per response. `TksOptionalFieldDrift` fires when that is more than twice last week's rate plus 5 points, or above 25% with no history. The "Optional fields missing per response" panel shows both curves. To look at the responses, set `fb.capture_raw: all` for a while and run `fbctl replay --prefix raw --query <q>`.
 
 **Proving a new parser version on live traffic:** register it as a candidate in `internal/crawl/shadow` (`shadow.Candidates.Timeline` or `.Comments`, from its file's `init`). A share of responses (`fb.shadow_rate`, 5%) is then parsed by both versions; only the active result is emitted.
-- `igs_parse_shadow_total{query,outcome}` counts `same`, `differs` and `drift`.
+- `tks_parse_shadow_total{query,outcome}` counts `same`, `differs` and `drift`.
 - Responses the two parse differently are captured under `raw-failures/shadow-<query>/`, apart from real drift. Replay them with `fbctl replay --query shadow-<query>`. A candidate that panics only counts as `error`.
-- `IgsShadowParserDiffers` (info) fires above 1%.
+- `TksShadowParserDiffers` (info) fires above 1%.
 - Promote the candidate once it stays `same`.
 
 ## Kafka lag
 
 * Crawler lag: KEDA scales stage deployments. If they are at max replicas and lag still grows, the fleet ceiling (not pods) is the bottleneck.
-  - Compare `igs_fleet_rps` with `igs_aimd_ceiling_rps`.
+  - Compare `tks_fleet_rps` with `tks_aimd_ceiling_rps`.
   - AIMD raises the ceiling only while blocks stay low, up to `fb.aimd.max_rps`. Raise that cap only if the block rate allows.
 * Lanes share each crawler's `crawler.slots` per stage in priority order: on-demand (p0), scheduled (p1), backfill (p2).
   - Backfill is capped by `crawler.lanes.p2` (40%). Every lane keeps `crawler.lane_min` slots when it has work.
-  - `igs_lane_slots{state="waiting",lane="p0"}` above 0 for long means on-demand work is queuing behind tasks that are still finishing. Tasks yield after `crawler.yield_after`, so it clears within a minute; if it persists, add pods.
+  - `tks_lane_slots{state="waiting",lane="p0"}` above 0 for long means on-demand work is queuing behind tasks that are still finishing. Tasks yield after `crawler.yield_after`, so it clears within a minute; if it persists, add pods.
 * Persister lag delays job completion (the finalizer waits up to
   `scheduler.finalize_timeout`). Scale the persister; check Postgres I/O.
 
 ## Media backlog / TTL expiries
 
-* `igs_media_deleted_total{reason="ttl_expired"}` rising: the analysis service
+* `tks_media_deleted_total{reason="ttl_expired"}` rising: the analysis service
   is not acking in time. Fix the consumer or raise `media.ttl`.
-* `igs_media_download_total{outcome="expired"}` rising: downloads lag behind
+* `tks_media_download_total{outcome="expired"}` rising: downloads lag behind
   discovery; scale `media-downloader`.
 
 ## Erasure requests
@@ -216,7 +216,7 @@ The timeline scan re-reads posts younger than `scheduler.incremental_overlap` (2
 
 - **Backoff:** each refresh that finds nothing new doubles the post's interval, up to 2^`max_backoff`.
 - **Recrawls:** posts with at least `recrawl_min_comments` (20) comments get a full recrawl at 7 and 30 days, to pick up edits and deletions (next section).
-- **Signal:** `igs_post_refreshes_total{kind="refresh"|"recrawl"}`.
+- **Signal:** `tks_post_refreshes_total{kind="refresh"|"recrawl"}`.
 - **Cleanup:** rows of posts past every window, and of pages no longer scheduled, are deleted hourly.
 
 ## Comment edits and deletions
@@ -235,13 +235,13 @@ The timeline scan re-reads posts younger than `scheduler.incremental_overlap` (2
 **A comment seen again** after being marked deleted is `visible` again, with the replies that were deleted with it (same `deleted_at`). That happens, for example, when a page hides a comment and shows it again later.
 
 **Signals:**
-- `igs_comment_changes_total{kind="edited"|"deleted"|"restored"}`;
-- `igs_deletion_checks_total{outcome="checked"|"skipped_partial"}`;
+- `tks_comment_changes_total{kind="edited"|"deleted"|"restored"}`;
+- `tks_deletion_checks_total{outcome="checked"|"skipped_partial"}`;
 - the "Comment edits and deletions" and "Deletion checks" panels.
 
-**`IgsDeletionChecksSkipped`:** more than a quarter of the checks were skipped over 6h.
-1. Facebook is likely serving partial comment lists, or its counts include comments it does not show. Expect `IgsCommentCompletenessLow` too.
-2. Check `igs_ig_requests_total` for login walls on `comments`.
+**`TksDeletionChecksSkipped`:** more than a quarter of the checks were skipped over 6h.
+1. Facebook is likely serving partial comment lists, or its counts include comments it does not show. Expect `TksCommentCompletenessLow` too.
+2. Check `tks_tt_requests_total` for login walls on `comments`.
 3. Compare the orderings with the Phase 0 harness (`fbs-spike run`).
 4. If the lists are complete and only the counts are a little off, raise `deletion_count_slack` (for example to 0.02). A partial answer within the slack can then mark live comments deleted until they are seen again. `detect_deletions: false` turns detection off.
 
@@ -252,9 +252,9 @@ The timeline scan re-reads posts younger than `scheduler.incremental_overlap` (2
 `scheduler.budget.requests_per_day` and `bytes_per_day` bound Facebook traffic fleet-wide per UTC day. 0 means unlimited, the default; set them from the Phase 0 cost projection.
 
 **Every minute the leader:**
-1. Adds today's use (`igs_budget_used`) to the last hour's rate extrapolated to midnight (`igs_budget_projected`).
-2. If that exceeds the budget, backfill (p2) pauses (`igs_budget_backfill_paused` = 1). Crawlers close the p2 lane within 15s; queued backfill waits in Kafka.
-3. If on-demand plus scheduled traffic alone would exceed it, the `stretch_tiers` (T4, T3, T2) intervals are multiplied by `stretch` (2) for the runs planned next (`igs_budget_stretch`).
+1. Adds today's use (`tks_budget_used`) to the last hour's rate extrapolated to midnight (`tks_budget_projected`).
+2. If that exceeds the budget, backfill (p2) pauses (`tks_budget_backfill_paused` = 1). Crawlers close the p2 lane within 15s; queued backfill waits in Kafka.
+3. If on-demand plus scheduled traffic alone would exceed it, the `stretch_tiers` (T4, T3, T2) intervals are multiplied by `stretch` (2) for the runs planned next (`tks_budget_stretch`).
 4. On-demand (p0) traffic is never held back.
 
 Backfill resumes, and the stretch lifts, only when the projection is 5% under the budget. Each new day starts from zero.

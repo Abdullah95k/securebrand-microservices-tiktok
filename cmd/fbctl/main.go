@@ -51,7 +51,7 @@ commands:
 
 func main() {
 	global := flag.NewFlagSet("fbctl", flag.ExitOnError)
-	cfgPath := global.String("config", os.Getenv("IGS_CONFIG"), "config file")
+	cfgPath := global.String("config", os.Getenv("TKS_CONFIG"), "config file")
 	_ = global.Parse(os.Args[1:])
 	args := global.Args()
 	if len(args) < 1 {

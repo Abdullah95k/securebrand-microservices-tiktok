@@ -15,7 +15,7 @@ import (
 )
 
 // partitionLockKey serialises partition DDL across processes.
-const partitionLockKey = 4_300_001
+const partitionLockKey = 4_400_001
 
 // Monthly partitioned tables (by post month or capture month).
 var monthlyTables = []string{"posts", "comments", "page_snapshots"}

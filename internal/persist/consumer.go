@@ -17,7 +17,7 @@ import (
 
 // Group is the persister's consumer group; the job finaliser waits for its
 // committed offsets.
-const Group = "igs-persister"
+const Group = "tks-persister"
 
 // Consumer reads entity topics in batches and writes them.
 type Consumer struct {

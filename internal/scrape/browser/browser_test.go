@@ -257,7 +257,7 @@ func browserProcesses(t *testing.T, tmp string) int {
 	n := 0
 	for _, e := range entries {
 		b, err := os.ReadFile("/proc/" + e.Name() + "/cmdline")
-		if err == nil && strings.Contains(string(b), "--user-data-dir="+filepath.Join(tmp, "igs-browser-")) {
+		if err == nil && strings.Contains(string(b), "--user-data-dir="+filepath.Join(tmp, "tks-browser-")) {
 			stat, _ := os.ReadFile("/proc/" + e.Name() + "/stat")
 			if !strings.Contains(string(stat), ") Z ") { // zombies are reaped by the test's parent
 				n++

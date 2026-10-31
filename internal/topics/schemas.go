@@ -2,7 +2,7 @@ package topics
 
 // ValueSchemas maps each public topic to the proto file (import path in
 // api/proto) declaring its value message. Records carry the message type in
-// the igs-type header and plain protobuf bytes; the Schema Registry subjects
+// the tks-type header and plain protobuf bytes; the Schema Registry subjects
 // (<topic>-value) document and gate the contract without changing the wire
 // format.
 var ValueSchemas = map[string]string{

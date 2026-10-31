@@ -1,7 +1,7 @@
 // Package schemareg registers protobuf schemas with a Confluent-compatible
 // Schema Registry (Redpanda's included) and gates changes on its
 // compatibility check. fbs keeps plain protobuf on the wire (the message
-// type is in the igs-type record header); the registry documents the
+// type is in the tks-type record header); the registry documents the
 // contract for consumers and rejects changes that would break them.
 package schemareg
 

@@ -76,7 +76,7 @@ fbs and igs keep their values; tks changes every one of them in its copy (M1b). 
 | API keys | `fbs_…` | `igs_…` | `tks_…` |
 | Schema-check subjects | `fbs-check-…` | `igs-check-…` | `tks-check-…` |
 
-**Until M1b is merged, no tks binary runs on shared infrastructure.** The probe (`tks-spike`) touches none of it, which is why it can come first.
+**Until M1b is merged, no tks binary runs on shared infrastructure; until M3, tks's pipeline does not run on shared Kafka either**, because the copied pipeline still uses fbs's topic names (`fb.*.v1`, `fbs.task.*`, as igs's copy does until its own M3). The probe (`tks-spike`) touches none of it, which is why it can come first.
 
 ### 6. Configuration
 tks's root config has igs's sections with `tt:` for the platform client, embedded defaults in `configs/tt/default.yaml`, env prefix `TKS_`, `--config` or `TKS_CONFIG`. The media download switch is `limits.include_media` (`TKS_LIMITS__INCLUDE_MEDIA`), default `false` (build brief D5). The signer is `tt.signer.mode` (`none`, `browser`) with a per-operation override in the registry.

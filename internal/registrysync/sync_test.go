@@ -352,7 +352,7 @@ func TestSyncSkipsWhileAnotherRunHoldsTheLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Release()
-	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended('igs:registry-sync', 0))`); err != nil {
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended('tks:registry-sync', 0))`); err != nil {
 		t.Fatal(err)
 	}
 	if rep, err := f.s.Run(ctx); err != nil || rep.Status != registrysync.StatusSkipped {

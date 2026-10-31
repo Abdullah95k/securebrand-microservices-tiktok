@@ -170,9 +170,9 @@ def main():
     # What the cluster's Secret fbs-env (secretEnv.existingSecret) would hold.
     secret_env = os.path.join(work, "fbs-env")
     with open(secret_env, "w") as f:
-        f.write(f"IGS_POSTGRES__DSN=postgres://fbs:fbs@postgres:5432/{DB}?sslmode=disable\n"
-                "IGS_S3__ACCESS_KEY=smoke\nIGS_S3__SECRET_KEY=smokesmoke\n"
-                f"IGS_PRIVACY__AUTHOR_HMAC_KEY={secrets.token_hex(32)}\n")
+        f.write(f"TKS_POSTGRES__DSN=postgres://fbs:fbs@postgres:5432/{DB}?sslmode=disable\n"
+                "TKS_S3__ACCESS_KEY=smoke\nIGS_S3__SECRET_KEY=smokesmoke\n"
+                f"TKS_PRIVACY__AUTHOR_HMAC_KEY={secrets.token_hex(32)}\n")
     # The Services the values expect besides the infrastructure.
     sh("docker", "run", "-d", "--name", PREFIX + "s3", "--network", args.network, "--network-alias", "s3",
        "--entrypoint", "/usr/local/bin/devs3", args.image, "--addr", ":9000")
