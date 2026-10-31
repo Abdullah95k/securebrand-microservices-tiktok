@@ -1,0 +1,99 @@
+# TikTok's logged-out web API, as the owner's recordings show it
+# (docs/tiktok/har-findings-2026-10-31.md §2) and public sources describe it
+# (docs/tiktok/methods.md §2.2). TikTok has no doc_ids: doc_id holds the
+# variant label, variables the call's own query parameters (null values are
+# left out), method says GET (docs/tiktok ADR 0006 §3). The builder adds the
+# web client's standard parameters (client_params below), the identity's
+# page values (device_id, odinId, WebIdLastTime, region, language) and sorts
+# them as the browser does.
+client_params:
+  aid: "1988"
+  app_language: en
+  app_name: tiktok_web
+  browser_name: Mozilla
+  browser_online: "true"
+  channel: tiktok_web
+  cookie_enabled: "true"
+  data_collection_enabled: "false"
+  device_platform: web_pc
+  focus_state: "true"
+  history_len: "3"
+  is_fullscreen: "false"
+  is_page_visible: "true"
+  priority_region: ""
+  screen_height: "1080"
+  screen_width: "1920"
+  tz_name: Asia/Baghdad
+  user_is_login: "false"
+  webcast_language: en
+queries:
+  # The post list the web app itself calls; the recordings show it signed
+  # with X-Gnarly (T4).
+  - name: post_list
+    doc_id: web
+    method: GET
+    endpoint: /api/post/item_list/
+    parser: post_list
+    priority: 10
+    variables:
+      secUid: "{{sec_uid}}"
+      count: "{{count}}"
+      cursor: "{{cursor}}"
+      coverFormat: "2"
+      from_page: user
+      needPinnedItemIds: "true"
+      post_item_list_request_type: "0"
+      video_encoding: dash
+  # The post list yt-dlp and gallery-dl call without a signature (T4).
+  - name: creator_list
+    doc_id: creator
+    method: GET
+    endpoint: /api/creator/item_list/
+    parser: post_list
+    priority: 10
+    variables:
+      secUid: "{{sec_uid}}"
+      count: "{{count}}"
+      cursor: "{{cursor}}"
+      type: "1"
+      verifyFp: verify_tks
+  - name: user_detail
+    doc_id: web
+    method: GET
+    endpoint: /api/user/detail/
+    parser: user_detail
+    priority: 10
+    variables:
+      uniqueId: "{{username}}"
+      secUid: "{{sec_uid}}"
+  - name: item_detail
+    doc_id: web
+    method: GET
+    endpoint: /api/item/detail/
+    parser: item_detail
+    priority: 10
+    variables:
+      itemId: "{{item_id}}"
+  - name: comments
+    doc_id: web
+    method: GET
+    endpoint: /api/comment/list/
+    parser: comments
+    priority: 10
+    variables:
+      aweme_id: "{{item_id}}"
+      count: "{{count}}"
+      cursor: "{{cursor}}"
+      from_page: video
+  - name: replies
+    doc_id: web
+    method: GET
+    endpoint: /api/comment/list/reply/
+    parser: comments
+    priority: 10
+    variables:
+      item_id: "{{item_id}}"
+      comment_id: "{{comment_id}}"
+      count: "{{count}}"
+      cursor: "{{cursor}}"
+      from_page: video
