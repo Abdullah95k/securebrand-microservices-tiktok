@@ -1,0 +1,83 @@
+{
+  "optional_missing": null,
+  "page_info": {
+    "HasNext": true,
+    "EndCursor": "AQHRnext",
+    "Found": true
+  },
+  "posts": [
+    {
+      "media": [
+        {
+          "media_id": "b451a380-fa3a-56dd-8056-59d8ba2f37ca",
+          "fb_media_id": "https://scontent.xx.fbcdn.net/v/t15/link.jpg?oe=6A1B2C3D\u0026oh=x",
+          "kind": "MEDIA_KIND_THUMBNAIL",
+          "variant": "link_preview",
+          "owner_type": "post",
+          "owner_id": "5550001112223334",
+          "post_id": "5550001112223334",
+          "page_id": "100064999000001",
+          "source_url": "https://scontent.xx.fbcdn.net/v/t15/link.jpg?oe=6A1B2C3D\u0026oh=x",
+          "source_expires_at": "2026-05-30T18:28:13Z"
+        }
+      ],
+      "post": {
+        "post_id": "5550001112223334",
+        "page_id": "100064999000001",
+        "created_at": "2025-10-01T12:00:00Z",
+        "story_id": "UzpfSTEwMDA2NDk5OTAwMDAwMTo1NTUwMDAxMTEyMjIzMzM0OjU1NTAwMDExMTIyMjMzMzQ=",
+        "permalink": "https://www.facebook.com/brandx/posts/pfbid02abc",
+        "type": "POST_TYPE_SHARE",
+        "text": "Big #Launch today with @Partner",
+        "text_ranges": [
+          {
+            "offset": 4,
+            "length": 7,
+            "entity_type": "Hashtag",
+            "entity_id": "h1",
+            "url": "https://www.facebook.com/hashtag/launch"
+          },
+          {
+            "offset": 25,
+            "length": 8,
+            "entity_type": "Page",
+            "entity_id": "777",
+            "url": "https://www.facebook.com/partner",
+            "name": "Partner"
+          }
+        ],
+        "hashtags": [
+          "launch"
+        ],
+        "links": [
+          {
+            "url": "https://news.example.org/story?id=9",
+            "title": "News story",
+            "description": "desc",
+            "source": "news.example.org",
+            "image_url": "https://scontent.xx.fbcdn.net/v/t15/link.jpg?oe=6A1B2C3D\u0026oh=x"
+          }
+        ],
+        "shared_post_id": "5550000000000001",
+        "shared_post_url": "https://www.facebook.com/brandx/posts/1",
+        "author_id": "100064999000001",
+        "author_name": "Brand X",
+        "reactions": {
+          "total": "1500",
+          "by_type": {
+            "haha": "100",
+            "like": "1000",
+            "love": "300"
+          }
+        },
+        "comment_count": "87",
+        "share_count": "12",
+        "feedback_id": "ZmVlZGJhY2s6NTU1MDAwMTExMjIyMzMzNA==",
+        "media_ids": [
+          "b451a380-fa3a-56dd-8056-59d8ba2f37ca"
+        ],
+        "status": "POST_STATUS_VISIBLE"
+      }
+    }
+  ]
+}

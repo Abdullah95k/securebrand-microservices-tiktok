@@ -1,0 +1,129 @@
+# Facebook web GraphQL query registry seed.
+#
+# IMPORTANT: doc_ids rotate frequently and the values below are placeholders.
+# Run `fbs-spike capture` (Phase 0) against real logged-out Facebook to record
+# the current friendly_name -> doc_id pairs and variable shapes, then update
+# this file or the fb_queries table (PUT /v1/admin/queries/{name}). Rows here
+# are upserted with source=seed and never overwrite non-seed rows.
+#
+# Variables are a JSON template. A string value of the form "{{name}}" is
+# replaced by the caller-provided value (JSON null when not provided).
+#
+# A query may also name an endpoint (a path on the platform's host; default
+# /api/graphql/) and extra request headers, sent in this order; a header the
+# client already sends takes the query's value in its place:
+#   endpoint: /graphql/query
+#   headers:
+#     - {name: x-root-field-name, value: some_root_field}
+# Facebook needs neither.
+client_params:
+  __a: "1"
+  __comet_req: "15"
+  dpr: "1"
+  __ccg: "EXCELLENT"
+  fb_api_caller_class: "RelayModern"
+  server_timestamps: "true"
+  x_asbd_id: "359341"
+
+queries:
+  - name: timeline
+    friendly_name: ProfileCometTimelineFeedRefetchQuery
+    doc_id: "9000000000000001"
+    parser: timeline
+    parser_version: 1
+    priority: 10
+    variables:
+      afterTime: null
+      beforeTime: null
+      count: "{{count}}"
+      cursor: "{{cursor}}"
+      feedLocation: TIMELINE
+      feedbackSource: 0
+      focusCommentID: null
+      memorializedSplitTimeFilter: null
+      omitPinnedPost: false
+      postedBy: null
+      privacy: null
+      privacySelectorRenderLocation: COMET_STREAM
+      renderLocation: timeline
+      scale: 1
+      stream_count: 1
+      taggedInOnly: null
+      useDefaultActor: false
+      id: "{{page_id}}"
+
+  # "All comments" ordering: the most complete logged-out view.
+  - name: comments
+    friendly_name: CommentsListComponentsPaginationQuery
+    doc_id: "9000000000000002"
+    parser: comments
+    parser_version: 1
+    priority: 10
+    variables:
+      commentsAfterCount: -1
+      commentsAfterCursor: "{{cursor}}"
+      commentsBeforeCount: null
+      commentsBeforeCursor: null
+      commentsIntentToken: RANKED_UNFILTERED_CHRONOLOGICAL_REPLIES_INTENT_V1
+      feedLocation: DEDICATED_COMMENTING_SURFACE
+      focusCommentID: null
+      scale: 1
+      useDefaultActor: false
+      id: "{{feedback_id}}"
+
+  # Newest-first ordering, used by incremental re-scrapes.
+  - name: comments_newest
+    friendly_name: CommentsListComponentsPaginationQuery
+    doc_id: "9000000000000002"
+    parser: comments
+    parser_version: 1
+    priority: 10
+    variables:
+      commentsAfterCount: -1
+      commentsAfterCursor: "{{cursor}}"
+      commentsBeforeCount: null
+      commentsBeforeCursor: null
+      commentsIntentToken: RECENT_ACTIVITY_INTENT_V1
+      feedLocation: DEDICATED_COMMENTING_SURFACE
+      focusCommentID: null
+      scale: 1
+      useDefaultActor: false
+      id: "{{feedback_id}}"
+
+  # "Most relevant" ordering; only used by the Phase 0 spike for comparison.
+  - name: comments_relevant
+    friendly_name: CommentsListComponentsPaginationQuery
+    doc_id: "9000000000000002"
+    parser: comments
+    parser_version: 1
+    priority: 10
+    variables:
+      commentsAfterCount: -1
+      commentsAfterCursor: "{{cursor}}"
+      commentsBeforeCount: null
+      commentsBeforeCursor: null
+      commentsIntentToken: RANKED_FILTERED_INTENT_V1
+      feedLocation: DEDICATED_COMMENTING_SURFACE
+      focusCommentID: null
+      scale: 1
+      useDefaultActor: false
+      id: "{{feedback_id}}"
+
+  - name: replies
+    friendly_name: Depth1CommentsListPaginationQuery
+    doc_id: "9000000000000003"
+    parser: replies
+    parser_version: 1
+    priority: 10
+    variables:
+      clientKey: null
+      expansionToken: "{{expansion_token}}"
+      feedLocation: DEDICATED_COMMENTING_SURFACE
+      focusCommentID: null
+      repliesAfterCount: null
+      repliesAfterCursor: "{{cursor}}"
+      repliesBeforeCount: null
+      repliesBeforeCursor: null
+      scale: 1
+      useDefaultActor: false
+      id: "{{feedback_id}}"

@@ -1,0 +1,14 @@
+# Public Instagram profiles for the igs probe (docs/runbooks/igs-probe.md).
+#
+#   cp phase0/ig-profiles.example.txt phase0/ig-profiles.txt
+#
+# phase0/ig-profiles.txt is git-ignored. One profile per line: a username,
+# @username or the profile URL (https://www.instagram.com/username/).
+# Lines starting with # are comments.
+#
+# Pick 5 to 10: a big brand, a small account, at least two with more than
+# 50 posts (the grid depth question), and one with highlights. Replace the
+# placeholder lines below with your own.
+your_first_profile
+@your_second_profile
+https://www.instagram.com/your_third_profile/

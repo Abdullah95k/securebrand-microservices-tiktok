@@ -1,0 +1,21 @@
+# Browser fingerprints. Each entry pins the tls-client TLS/HTTP2 profile to
+# the matching User-Agent and client hints: mixing a newer UA with an older
+# TLS fingerprint is a strong bot signal. Only deploy profiles tls-client
+# implements (see profiles.MappedTLSClients). Verify the GREASE brand strings
+# against a real Chrome of the same major version before production.
+profiles:
+  chrome_146:
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+    sec_ch_ua: '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"'
+    sec_ch_ua_mobile: "?0"
+    sec_ch_ua_platform: '"Windows"'
+  chrome_144:
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
+    sec_ch_ua: '"Not(A:Brand";v="8", "Chromium";v="144", "Google Chrome";v="144"'
+    sec_ch_ua_mobile: "?0"
+    sec_ch_ua_platform: '"Windows"'
+  chrome_133:
+    user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+    sec_ch_ua: '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"'
+    sec_ch_ua_mobile: "?0"
+    sec_ch_ua_platform: '"macOS"'

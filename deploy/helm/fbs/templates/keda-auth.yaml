@@ -1,0 +1,15 @@
+{{- if and .Values.keda.enabled .Values.keda.authSecret }}
+# Credentials the KEDA lag triggers use to reach brokers that need SASL/TLS.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "fbs.fullname" . }}-kafka
+  labels: {{- include "fbs.labels" . | nindent 4 }}
+spec:
+  secretTargetRef:
+    {{- range .Values.keda.authParams }}
+    - parameter: {{ . }}
+      name: {{ $.Values.keda.authSecret }}
+      key: {{ . }}
+    {{- end }}
+{{- end }}

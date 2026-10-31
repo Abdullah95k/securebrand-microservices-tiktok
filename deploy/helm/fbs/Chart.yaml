@@ -1,0 +1,6 @@
+apiVersion: v2
+name: fbs
+description: Self-hosted Facebook public-page scraper (SecureBrand)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

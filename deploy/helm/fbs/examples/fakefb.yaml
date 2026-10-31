@@ -1,0 +1,57 @@
+# Staging values: the whole chart against fakefb (a synthetic Facebook) and
+# small single-instance infrastructure, to rehearse an install end to end.
+#
+#   helm install fbs deploy/helm/fbs -f deploy/helm/fbs/examples/fakefb.yaml
+#
+# Expects, in the release namespace: Services postgres:5432, redpanda:9092,
+# valkey:6379, s3:9000 (any S3; the image's /usr/local/bin/devs3 is an
+# in-memory one) and fakefb:8090 (the image's /usr/local/bin/fakefb), and a
+# Secret fbs-env with IGS_POSTGRES__DSN, IGS_S3__ACCESS_KEY,
+# IGS_S3__SECRET_KEY and IGS_PRIVACY__AUTHOR_HMAC_KEY.
+# scripts/chart-smoke.py runs exactly these values in Docker.
+config:
+  service: {env: staging}
+  kafka:
+    brokers: ["redpanda:9092"]
+  redis:
+    addr: "valkey:6379"
+  s3:
+    endpoint: "s3:9000"
+    use_ssl: false
+    region: "us-east-1"
+    media_bucket: "igs-media"
+    raw_bucket: "igs-raw"
+  fb:
+    base_url: "http://fakefb:8090"
+    identity_rps: 20
+    page_rps: 20
+    global_rps: 200
+    proxy:
+      tiers: [{name: direct, kind: direct}]
+      routing: {default: [direct], bootstrap_html: [direct]}
+  media:
+    required_consumers: ["analysis"]
+
+# No proxies file: the direct tier above reaches fakefb.
+secretFiles:
+  existingSecret: ""
+
+# No KEDA in a rehearsal cluster: fixed replicas.
+keda:
+  enabled: false
+
+hooks:
+  topicReplicas: 1
+
+components:
+  api: {replicas: 1, pdb: null, resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 512Mi}}}
+  scheduler: {replicas: 1, pdb: null, resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 256Mi}}}
+  crawler-page: {replicas: 1, pdb: null, resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 1Gi}}}
+  crawler-post: {replicas: 1, pdb: null, resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 1Gi}}}
+  crawler-thread: {replicas: 1, pdb: null, resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 1Gi}}}
+  crawler-retry: {replicas: 1}
+  persister: {replicas: 1, pdb: null, resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 1Gi}}}
+  media-downloader: {replicas: 1, pdb: null, resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 1Gi}}}
+  media-janitor: {replicas: 1}
+  # Without canary pages there is nothing for it to check.
+  registry-sync: {enabled: false}

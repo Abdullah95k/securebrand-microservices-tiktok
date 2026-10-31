@@ -1,0 +1,119 @@
+syntax = "proto3";
+
+package securebrand.fb.v1;
+
+import "google/protobuf/timestamp.proto";
+import "securebrand/fb/v1/common.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fb/v1;fbv1";
+
+enum MediaKind {
+  MEDIA_KIND_UNSPECIFIED = 0;
+  MEDIA_KIND_PHOTO = 1;
+  MEDIA_KIND_VIDEO = 2;
+  MEDIA_KIND_REEL = 3;
+  MEDIA_KIND_THUMBNAIL = 4;
+  MEDIA_KIND_COMMENT_PHOTO = 5;
+  MEDIA_KIND_COMMENT_GIF = 6;
+  MEDIA_KIND_STICKER = 7;
+  MEDIA_KIND_COMMENT_VIDEO = 8;
+  MEDIA_KIND_COVER = 9;
+  MEDIA_KIND_PROFILE_PIC = 10;
+}
+
+// Media is discovered metadata, published on fb.media.v1 keyed by media_id.
+message Media {
+  Observation obs = 1;
+  // UUIDv5 of fb_media_id + variant: stable across scrapes.
+  string media_id = 2;
+  string fb_media_id = 3;
+  MediaKind kind = 4;
+  // original | sd | hd | thumbnail
+  string variant = 5;
+  // post | comment | page
+  string owner_type = 6;
+  int64 owner_id = 7;
+  int64 post_id = 8;
+  int64 page_id = 9;
+  optional int64 comment_id = 10;
+  // Signed fbcdn URL. It expires: see source_expires_at.
+  string source_url = 11;
+  google.protobuf.Timestamp source_expires_at = 12;
+  int32 width = 13;
+  int32 height = 14;
+  int64 duration_ms = 15;
+  string mime = 16;
+  string alt_text = 17;
+  string dash_manifest_url = 18;
+  string thumbnail_url = 19;
+  google.protobuf.Timestamp post_created_at = 20;
+}
+
+message S3Object {
+  string bucket = 1;
+  string key = 2;
+  int64 size = 3;
+  bytes sha256 = 4;
+  string content_type = 5;
+}
+
+// MediaReady is published on fb.media.ready.v1 once the file is in object
+// storage. The analysis service must answer with MediaProcessed.
+message MediaReady {
+  string event_id = 1;
+  string media_id = 2;
+  string fb_media_id = 3;
+  MediaKind kind = 4;
+  string variant = 5;
+  int64 page_id = 6;
+  int64 post_id = 7;
+  optional int64 comment_id = 8;
+  S3Object object = 9;
+  int32 width = 10;
+  int32 height = 11;
+  int64 duration_ms = 12;
+  string alt_text = 13;
+  google.protobuf.Timestamp discovered_at = 14;
+  google.protobuf.Timestamp stored_at = 15;
+  // The object is deleted at this time even without an ack.
+  google.protobuf.Timestamp delete_after = 16;
+  uint32 attempt = 17;
+  // Set only when presigned URLs are enabled.
+  string presigned_url = 18;
+  repeated string job_ids = 19;
+}
+
+enum ProcessStatus {
+  PROCESS_STATUS_UNSPECIFIED = 0;
+  PROCESS_STATUS_PROCESSED = 1;
+  PROCESS_STATUS_FAILED_PERMANENT = 2;
+  PROCESS_STATUS_FAILED_RETRYABLE = 3;
+}
+
+// MediaProcessed is produced by the analysis service on fb.media.processed.v1.
+message MediaProcessed {
+  string event_id = 1;
+  string media_id = 2;
+  // Name of the consuming service; must match a configured required consumer.
+  string consumer = 3;
+  ProcessStatus status = 4;
+  google.protobuf.Timestamp processed_at = 5;
+  string error = 6;
+}
+
+enum DeleteReason {
+  DELETE_REASON_UNSPECIFIED = 0;
+  DELETE_REASON_ACKED = 1;
+  DELETE_REASON_TTL_EXPIRED = 2;
+  DELETE_REASON_ERASURE = 3;
+  DELETE_REASON_ORPHAN = 4;
+}
+
+// MediaDeleted is published on fb.media.deleted.v1 after the object is gone.
+message MediaDeleted {
+  string event_id = 1;
+  string media_id = 2;
+  S3Object object = 3;
+  DeleteReason reason = 4;
+  google.protobuf.Timestamp deleted_at = 5;
+}

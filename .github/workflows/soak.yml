@@ -1,0 +1,60 @@
+name: soak
+
+# The soak test (make soak, internal/e2e/soak_test.go) on a GitHub runner:
+# scheduled crawls of a changing fakefb world with component restarts, then
+# a full check of the store against the world. Run it from the Actions tab.
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: How long the world changes (IGS_SOAK_DURATION)
+        default: 90m
+      pages:
+        description: Pages crawled (IGS_SOAK_PAGES)
+        default: "20"
+      restart_every:
+        description: A component restart this often; 0 = never (IGS_SOAK_RESTART_EVERY)
+        default: 2m
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Infrastructure
+        run: |
+          make infra-up
+          for i in $(seq 1 60); do docker exec fbs-redpanda-1 rpk cluster health --exit-when-healthy && break; sleep 2; done
+      - name: Soak
+        env:
+          IGS_SOAK_DURATION: ${{ inputs.duration }}
+          IGS_SOAK_PAGES: ${{ inputs.pages }}
+          IGS_SOAK_RESTART_EVERY: ${{ inputs.restart_every }}
+          IGS_SOAK_OUT: ${{ github.workspace }}/soak.md
+          IGS_SOAK_HEAPPROFILE: ${{ github.workspace }}/heap
+        run: make soak > soak.log 2>&1
+      - name: Report
+        if: always()
+        run: |
+          if [ -f soak.md ]; then cat soak.md; cat soak.md >> "$GITHUB_STEP_SUMMARY"; fi
+          grep -v ' INFO ' soak.log | tail -60 || true
+          # What the heap retained at the end that it did not after 2 minutes.
+          if [ -f heap-end.pprof ]; then
+            go tool pprof -top -nodecount=40 -sample_index=inuse_space -diff_base heap-base.pprof heap-end.pprof || true
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: soak
+          path: |
+            soak.md
+            soak.log
+            heap-*.pprof
+          if-no-files-found: ignore

@@ -1,0 +1,6 @@
+# Configuration for `make phase0-dryrun`: fakefb on localhost, direct egress.
+log:
+  level: warn
+fb:
+  base_url: "http://127.0.0.1:8090"
+  request_timeout: 10s

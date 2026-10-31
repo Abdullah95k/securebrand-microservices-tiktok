@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package securebrand.fb.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fb/v1;fbv1";
+
+// CrawlMode says how the entity was observed.
+enum CrawlMode {
+  CRAWL_MODE_UNSPECIFIED = 0;
+  // First scrape / backfill: every post inside the age window, every comment.
+  CRAWL_MODE_FULL = 1;
+  // Scheduled re-scrape: only new posts and posts whose counts changed.
+  CRAWL_MODE_INCREMENTAL = 2;
+  // Counts-only refresh of an older post.
+  CRAWL_MODE_REFRESH = 3;
+  // Full comment pass on an aged post to capture edits and deletions.
+  CRAWL_MODE_RECRAWL = 4;
+}
+
+// Observation is attached to every public message. Consumers dedupe on
+// (entity id, content_hash); event_id is derived from both so a redelivered
+// event is byte-identical.
+message Observation {
+  string event_id = 1;
+  google.protobuf.Timestamp observed_at = 2;
+  repeated string job_ids = 3;
+  // Logical registry query name (timeline, comments, replies, page_html, ...).
+  string query_name = 4;
+  string doc_id = 5;
+  uint32 parser_version = 6;
+  bytes content_hash = 7;
+  CrawlMode mode = 8;
+}
+
+// TextRange marks an entity inside a text body (hashtag, mention, link).
+message TextRange {
+  int32 offset = 1;
+  int32 length = 2;
+  // Facebook __typename of the entity: Hashtag, Page, User, ExternalUrl, ...
+  string entity_type = 3;
+  string entity_id = 4;
+  string url = 5;
+  string name = 6;
+}
+
+message Reactions {
+  int64 total = 1;
+  // Keyed by lower-case reaction name: like, love, care, haha, wow, sad, angry.
+  map<string, int64> by_type = 2;
+  // False when Facebook only exposed the top reaction types.
+  bool complete = 3;
+}
+
+message ImageRef {
+  string url = 1;
+  int32 width = 2;
+  int32 height = 3;
+}

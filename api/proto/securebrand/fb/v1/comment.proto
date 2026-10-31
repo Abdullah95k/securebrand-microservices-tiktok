@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package securebrand.fb.v1;
+
+import "google/protobuf/timestamp.proto";
+import "securebrand/fb/v1/common.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-igs/gen/go/securebrand/fb/v1;fbv1";
+
+message Author {
+  // Empty when pii_mode=pseudonymized or the author was erased.
+  string id = 1;
+  string name = 2;
+  string url = 3;
+  string avatar_url = 4;
+  optional bool verified = 5;
+  // Facebook __typename: User or Page.
+  string type = 6;
+  // HMAC-SHA256 of the author id; stable pseudonymous key.
+  bytes author_key = 7;
+}
+
+message Attachment {
+  // photo, gif, sticker, video, link
+  string type = 1;
+  // Deterministic media id when the attachment is downloadable media.
+  string media_id = 2;
+  string url = 3;
+  string preview_url = 4;
+  int32 width = 5;
+  int32 height = 6;
+}
+
+enum CommentStatus {
+  // Crawled comments: visible when observed.
+  COMMENT_STATUS_UNSPECIFIED = 0;
+  COMMENT_STATUS_VISIBLE = 1;
+  // No longer publicly visible: deleted by its author, removed or hidden by
+  // the page, or filtered by Facebook. Published by the job finalizer when a
+  // full re-read of the post no longer returns a known top-level comment;
+  // only the ids, post_created_at, depth and obs are set. A later sighting
+  // of the comment makes it visible again.
+  COMMENT_STATUS_DELETED = 2;
+}
+
+// Comment is published on fb.comment.v1, keyed by post_id so a post's thread
+// stays ordered. Replies are comments with depth > 0.
+message Comment {
+  Observation obs = 1;
+  int64 comment_id = 2;
+  int64 post_id = 3;
+  int64 page_id = 4;
+  google.protobuf.Timestamp post_created_at = 5;
+  string graph_id = 6;
+  optional int64 parent_comment_id = 7;
+  optional int64 root_comment_id = 8;
+  int32 depth = 9;
+  Author author = 10;
+  string text = 11;
+  repeated TextRange text_ranges = 12;
+  repeated Attachment attachments = 13;
+  google.protobuf.Timestamp created_at = 14;
+  optional bool edited = 15;
+  // True when the comment author is the page that published the post.
+  optional bool is_op = 16;
+  Reactions reactions = 17;
+  optional int64 reply_count = 18;
+  string feedback_id = 19;
+  string url = 20;
+  // True when content was removed because of an erasure/suppression rule.
+  bool redacted = 21;
+  string extra_json = 22;
+  CommentStatus status = 23;
+}

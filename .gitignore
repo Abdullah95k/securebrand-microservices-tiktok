@@ -1,17 +1,24 @@
 /bin/
 *.test
 *.out
+spike-results.jsonl
 /coverage*
 .env
 __pycache__/
-# Recordings and raw TikTok answers stay local (docs/tiktok/build-brief.md §7).
-# HARs go only under .local/har/.
+# Recordings, raw TikTok answers and the account list stay local
+# (docs/tiktok/build-brief.md §7). HARs go only under .local/har/.
 /.local/
 *.har
 *.har.gz
 *.har.zip
-# Probe and Phase 0: credentials, the account list and results stay local.
-# Everything in phase0/ is ignored except the kit's own files (added with them).
+# Phase 0 and the probe: credentials, account lists and results stay local.
+# Everything in phase0/ is ignored except the kit's own files, so editor swap
+# files and backups of proxies.yaml (which hold credentials) can't be
+# committed either.
 /phase0/*
+!/phase0/dryrun-pages.csv
+!/phase0/dryrun.sh
+!/phase0/dryrun.yaml
+!/phase0/pages.example.csv
 !/phase0/proxies.example.yaml
 !/phase0/tt-accounts.example.txt

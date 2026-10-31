@@ -1,0 +1,10 @@
+.git
+bin/
+**/*.test
+deploy/helm
+docs/
+
+# Phase 0: credentials, page lists and results never enter an image.
+phase0/proxies.yaml
+phase0/pages.csv
+phase0/out*
