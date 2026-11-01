@@ -231,7 +231,7 @@ func comment(id int64, parent int64, at time.Time, text string, author int64) *t
 	created := time.Date(2026, 9, 1, 13, 0, 0, 0, time.UTC)
 	c := &ttv1.Comment{Obs: obs(at, text), CommentId: id, PostId: 1, UserId: 7001, PostCreatedAt: timestamppb.New(created),
 		Author: &ttv1.Person{AuthorKey: emit.AuthorKey(secret, author), UserId: proto.Int64(author), Username: "u" + text},
-		Text: text, CreatedAt: timestamppb.New(created.Add(time.Minute)), LikeCount: proto.Int64(1),
+		Text:   text, CreatedAt: timestamppb.New(created.Add(time.Minute)), LikeCount: proto.Int64(1),
 		Status: ttv1.CommentStatus_COMMENT_STATUS_VISIBLE}
 	if parent != 0 {
 		c.ParentCommentId, c.Depth = proto.Int64(parent), 1

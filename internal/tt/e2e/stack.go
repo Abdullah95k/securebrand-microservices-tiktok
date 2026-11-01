@@ -129,7 +129,7 @@ func Start(t *testing.T, o Options) *Stack {
 	cfg.TT.CaptureRaw = "none"
 	cfg.TT.Signer.Mode = config.SignerBrowser
 	cfg.TT.CommentsPageSize = 10 // continuations within a post's comments
-	cfg.Crawler.YieldPages = 2    // and within a list
+	cfg.Crawler.YieldPages = 2   // and within a list
 	cfg.Crawler.Slots, cfg.Crawler.LaneMin = 24, 2
 	cfg.Crawler.Lanes = map[string]int{"p0": 24, "p1": 16, "p2": 8}
 	cfg.Crawler.SuppressionRefresh = 200 * time.Millisecond
