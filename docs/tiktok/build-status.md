@@ -7,7 +7,7 @@ Each build session updates this file at the end of its work. The plan and rules 
 - **TikTok's own script in a few browser pages to sign comment and reply requests**, which plain HTTP then sends from any identity;
 - video files with the `tt_chain_token` cookie.
 
-**The owner decides the method (G1)**, asked in the session. Then the build goes on with M2 (inherited fixes) and M3 (contracts), and the Phase 0 kit (M7) to measure calls per IP per day (C4).
+**The owner chose the method (G1, 2026-11-01): plain HTTP plus a browser signer.** The build goes on with M2 (inherited fixes) and M3 (contracts), then M4–M6 (parsers, crawl stages with the signer pool, persister and API), and the Phase 0 kit (M7) to measure calls per IP per day and the signer's throughput (C4).
 
 ## Decisions taken in the kickoff session (2026-10-31)
 
@@ -17,6 +17,7 @@ Each build session updates this file at the end of its work. The plan and rules 
 | Code organisation? | **Copy igs now**, with its history; the probe first; igs's later work ported by cherry-pick | D7 approved; ADR 0006 accepted; M1a seeds from igs's main of that day |
 | How strict is "new posts within 3 hours"? | **At least 99 % within 3 h**: the list is checked every 2 h 45 min | D2 and §8 A2; ADR 0007 §4 |
 | Which proxy country? (asked after the plan) | European ISP proxies (Germany or the Netherlands) were recommended. **For now the owner keeps the existing US ISP tier** (shared with the igs and fbs tests; buying more would replace it); a European tier comes later | The test pass runs through the `isp` tier (US) only. T23 (country effects) and T30 (filtered posts) stay open until a second tier is added; the runbook says how. A US exit reaches TikTok's US service (TikTok USDS Joint Venture), so the probe's `region` and `filter_reasons` are worth reading with that in mind |
+| **Method (G1, 2026-11-01)**, from C2 and C3 | **Plain HTTP plus a browser signer** (recommended) | D11 confirmed: plain HTTP for accounts, posts, metrics, pinned flags and the backfill; a few browser pages sign each comment and reply request, sent by plain-HTTP workers from any identity; video files with the `tt_chain_token` cookie, off by default. Not chosen: the browser for everything (3–19 MB a page load), a provider for comments, or deciding after Phase 0 |
 | How fast should the full pass (C3) run? (asked 2026-11-01, after the owner raised speed) | **10 accounts at a time**, each through its own IP of the US ISP tier (recommended: 5) | `--parallel` in the probe (M1g); `make tks-probe-all` uses 10, capped at the tier's IP count: about 2 to 4 hours instead of a day. Production speed comes from the same lever (parallel identities, one call per account per check); see Findings |
 | The account list | **273 public accounts** (media, brands, public figures), sent in the session on 2026-10-31 | Kept only in a git-ignored folder and on the owner's Mac; never committed. The test pass uses 3 to 5 of them |
 
@@ -34,7 +35,7 @@ Each build session updates this file at the end of its work. The plan and rules 
 | M1i | Fixes from the session's code review | **done** when its PR merges (2026-11-01) | (this session's PR) | A code and logic review of M1c–M1h (2026-11-01) found 9 issues, all fixed: replays and in-page answers are classed as the client classes them (an error `statusCode` or a captcha no longer reads as answered, an empty account as answered); browser calls and navigations time out (30 s, 60 s) instead of hanging; the page's sent URL is matched by its parameters, not its path alone; next-page and changed-cursor URLs edit the one parameter in place, keeping the page's order and encoding; tks's in-page URLs carry the browser's own time zone, screen and history length; comments read both ways are kept once; the page-size check asks only for 5; the depth summary's zero entries are explicit. Each with a test |
 | C3 | Owner: probe full pass (whole list, 365 days, 10 accounts at a time) | **done** (2026-11-01) | | [`c3-findings-2026-11-01.md`](c3-findings-2026-11-01.md): 273 accounts, 104,045 posts, 11,509 requests in 62 min through 10 IPs, no captcha or challenge; 0.12 % passing errors; posting rates for the scheduling model |
 | M1j | Walk fixes from C3 | **done** when its PR merges (2026-11-01) | (this session's PR) | A page holding only the cursor's post moves past it (3 in a row stop the walk); a soft error (10101/10102) is retried once after a pause; an empty first page that says older posts remain starts the walk. `fakett` gains TikTok's list window and its occasional errors; a test walks through both. The brief's rules now say: always give the owner all the steps |
-| G1 | Owner decision: method, from C2 and C3 | **waiting for owner** (asked in the session, 2026-11-01) | | Recommended: plain HTTP for accounts, posts and metrics; a few browser pages signing comment and reply requests, sent by plain HTTP; video files with the cookie, off by default |
+| G1 | Owner decision: method, from C2 and C3 | **done** (2026-11-01): plain HTTP plus a browser signer | | D11 confirmed (`build-brief.md` §2) |
 | M2 | Inherited fixes (igs's M2, ported or made) | not started | | igs's M2 not merged at `9463b91` |
 | M3 | Contracts | not started | | `common.v1` from igs's M3 if it has landed |
 | M4 | Parsers, scrubber, golden fixtures | not started | | Needs C1 or C2 data |
@@ -91,13 +92,14 @@ From the kickoff research (public sources only; details and citations in [`metho
 
 ## What the owner needs to do
 
-**Decide the method (G1)**: the session asks with its recommendation. Nothing to run on the droplet now.
+Nothing to run now: the method is chosen (G1). The next owner checkpoint is Phase 0 (C4), after the Phase 0 kit (M7).
+
 
 **Legal:** share [`methods.md` §5](methods.md#5-legal-and-terms-of-service-notes-for-the-legal-team) with the legal team.
 
 ## Log
 
-- **2026-11-01 (build session, run 3 and C3):** the owner ran test pass run 3 and the full pass back to back (bundles shared through Drive); the session recorded both ([run 3](c2-findings-2026-10-31.md#10-run-3-2026-11-01), [C3](c3-findings-2026-11-01.md)), fixed the walk (M1j), added the owner's rule to always give all the steps to the brief, and asked for the method decision (G1).
+- **2026-11-01 (build session, run 3 and C3):** the owner ran test pass run 3 and the full pass back to back (bundles shared through Drive); the session recorded both ([run 3](c2-findings-2026-10-31.md#10-run-3-2026-11-01), [C3](c3-findings-2026-11-01.md)), fixed the walk (M1j), added the owner's rule to always give all the steps to the brief, and asked for the method decision: the owner chose plain HTTP plus a browser signer (G1).
 - **2026-11-01 (build session, review):** at the owner's request, a code and logic review of everything written since M1b; 9 findings fixed in M1i, each tested (`go test -race ./...`, `golangci-lint`, a browser dry run).
 - **2026-11-01 (build session, C2 run 2):** the owner ran the fixed probe; the session recorded run 2 ([findings §7–8](c2-findings-2026-10-31.md#7-run-2-2026-11-01)), merged M1g ([#8](https://github.com/Abdullah95k/securebrand-microservices-tiktok/pull/8)) and built M1h (comments through the page, signed-URL replays, the video cookie). Tested locally with `go test -race ./...`, `golangci-lint` and a browser dry run.
 - **2026-11-01 (build session, speed):** the owner asked how to make the method fast enough for production; the session answered with the arithmetic above and, by the owner's choice, added `--parallel` to the probe (M1g), with the full pass at 10 accounts at a time.
