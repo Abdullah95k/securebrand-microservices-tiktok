@@ -35,6 +35,17 @@ type Suppression struct {
 	mu      sync.RWMutex
 	authors map[string]bool
 	pages   map[int64]bool
+	// pageType is the suppression table's subject_type for the crawled
+	// entity: "page" (fbs's), "account" in tks's schema tt.
+	pageType string
+}
+
+// ForAccounts makes the set read tks's account subjects (subject_type
+// "account", keyed by the account's user id) where fbs has pages; the
+// PageSuppressed and Add methods then take user ids.
+func (s *Suppression) ForAccounts() *Suppression {
+	s.pageType = "account"
+	return s
 }
 
 func NewSuppression(pool *pgxpool.Pool) *Suppression {
@@ -80,7 +91,7 @@ func (s *Suppression) Load(ctx context.Context) error {
 		switch typ {
 		case "author":
 			authors[k] = true
-		case "page":
+		case s.pageSubject():
 			if id, err := strconv.ParseInt(k, 10, 64); err == nil {
 				pages[id] = true
 			}
@@ -93,6 +104,13 @@ func (s *Suppression) Load(ctx context.Context) error {
 	s.authors, s.pages = authors, pages
 	s.mu.Unlock()
 	return nil
+}
+
+func (s *Suppression) pageSubject() string {
+	if s.pageType != "" {
+		return s.pageType
+	}
+	return "page"
 }
 
 // Add marks a subject suppressed locally (used right after an erasure).

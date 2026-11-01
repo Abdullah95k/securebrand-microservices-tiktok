@@ -86,6 +86,8 @@ func NewServer(w *World, o Options) *Server {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.World.mu.RLock()
+	defer s.World.mu.RUnlock()
 	p := r.URL.Path
 	switch {
 	case strings.HasPrefix(p, "/api/"):
@@ -121,7 +123,7 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	acc := s.World.Account(strings.TrimPrefix(parts[0], "@"))
-	if acc == nil {
+	if acc == nil && len(parts) != 1 {
 		http.NotFound(w, r)
 		return
 	}
@@ -147,6 +149,14 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		scope["webapp.video-detail"] = map[string]any{"itemInfo": map[string]any{"itemStruct": s.item(post, r.Host)}, "statusCode": 0}
+	case len(parts) == 1 && acc == nil:
+		// No account under this username (renamed or never there): a page
+		// that names nothing, with the app context. Its statusCode is a
+		// hypothesis (public sources' 10202; T1).
+		scope["webapp.user-detail"] = map[string]any{"statusCode": 10202, "statusMsg": "user not exist"}
+	case len(parts) == 1 && acc.Gone:
+		// The full pass's shells of banned accounts (C3; T1).
+		scope["webapp.user-detail"] = map[string]any{"statusCode": 10221, "statusMsg": ""}
 	case len(parts) == 1:
 		if !s.opts.Faults.ShellPages {
 			scope["webapp.user-detail"] = map[string]any{"userInfo": s.userInfo(acc, r.Host), "statusCode": 0}
@@ -281,7 +291,7 @@ func (s *Server) signed(path string) bool {
 // answer itself and returns nil.
 func (s *Server) listable(w http.ResponseWriter, sec string) *Account {
 	acc := s.World.AccountBySec(sec)
-	if acc == nil {
+	if acc == nil || acc.Gone {
 		writeJSON(w, map[string]any{"statusCode": 10202, "statusMsg": "user not exist"})
 		return nil
 	}
@@ -312,7 +322,8 @@ func (s *Server) issue(dev *device, cursor string) {
 }
 
 // creatorList is /api/creator/item_list/: posts older than the cursor (a
-// time in ms, starting at now), newest first, pinned posts in date order.
+// time in ms, starting at now), newest first, pinned posts at their own
+// date with isPinnedItem (C2 run 2).
 func (s *Server) creatorList(w http.ResponseWriter, r *http.Request, dev *device) {
 	q := r.URL.Query()
 	acc := s.listable(w, q.Get("secUid"))
@@ -361,7 +372,7 @@ func (s *Server) creatorList(w http.ResponseWriter, r *http.Request, dev *device
 	// Like TikTok's (the C2 run): no cursor and no hasMore in the answer;
 	// the next cursor is the last post's createTime in ms, and
 	// hasMorePrevious says whether older posts remain.
-	writeJSON(w, map[string]any{"itemList": s.items(page, r.Host, false), "hasMorePrevious": more, "statusCode": 0})
+	writeJSON(w, map[string]any{"itemList": s.items(page, r.Host), "hasMorePrevious": more, "statusCode": 0})
 }
 
 // postList is /api/post/item_list/: pinned posts first on the first page,
@@ -414,7 +425,7 @@ func (s *Server) postList(w http.ResponseWriter, r *http.Request, dev *device) {
 	}
 	more := skipped+taken < len(acc.Posts)-pinned
 	s.issue(dev, strconv.FormatInt(next, 10))
-	writeJSON(w, map[string]any{"itemList": s.items(page, r.Host, true), "cursor": strconv.FormatInt(next, 10), "hasMore": more,
+	writeJSON(w, map[string]any{"itemList": s.items(page, r.Host), "cursor": strconv.FormatInt(next, 10), "hasMore": more,
 		"statusCode": 0, "status_code": 0, "status_msg": ""})
 }
 
@@ -466,14 +477,10 @@ func (s *Server) userInfo(acc *Account, host string) map[string]any {
 	}
 }
 
-func (s *Server) items(ps []*Post, host string, flagPinned bool) []any {
+func (s *Server) items(ps []*Post, host string) []any {
 	out := make([]any, 0, len(ps))
 	for _, p := range ps {
-		it := s.item(p, host)
-		if !flagPinned {
-			delete(it, "isPinnedItem")
-		}
-		out = append(out, it)
+		out = append(out, s.item(p, host))
 	}
 	return out
 }

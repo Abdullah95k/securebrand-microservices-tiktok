@@ -9,6 +9,8 @@ package fakett
 import (
 	"fmt"
 	"math/rand/v2"
+	"slices"
+	"sync"
 	"time"
 )
 
@@ -51,6 +53,9 @@ type Account struct {
 	Diggs      int64
 	Friends    int64
 	CreateTime time.Time
+	// Gone marks a banned or deleted account: its page names nothing
+	// (statusCode 10221) and its list answers "user not exist".
+	Gone bool
 	// Posts are newest first by createTime; pinned posts are flagged.
 	Posts []*Post
 }
@@ -105,8 +110,12 @@ type Comment struct {
 	Replies []*Comment
 }
 
-// World is the ground truth.
+// World is the ground truth. The server reads it under its lock; tests
+// change it through Mutate and the helpers below (new posts, count changes,
+// renames, deletions, private and gone accounts) between crawls.
 type World struct {
+	mu       sync.RWMutex
+	rng      *rand.Rand
 	Now      time.Time
 	accounts []*Account
 	byName   map[string]*Account
@@ -126,7 +135,7 @@ func NewWorld(s Spec) *World {
 		now = time.Now().UTC().Truncate(time.Second)
 	}
 	r := rand.New(rand.NewPCG(s.Seed, s.Seed^0x7ee))
-	w := &World{Now: now, byName: map[string]*Account{}, bySec: map[string]*Account{}, posts: map[int64]*Post{}, comments: map[int64]*Comment{}}
+	w := &World{Now: now, rng: r, byName: map[string]*Account{}, bySec: map[string]*Account{}, posts: map[int64]*Post{}, comments: map[int64]*Comment{}}
 	person := func(prefix string, i int) Person {
 		created := now.Add(-time.Duration(1000+r.IntN(2000)) * 24 * time.Hour)
 		return Person{UID: ItemID(created, r.Uint32()), SecUID: fmt.Sprintf("MS4wLjABAAAA%s%04d%08x", prefix, i, r.Uint32()),
@@ -205,3 +214,70 @@ func (w *World) Post(id int64) *Post { return w.posts[id] }
 
 // Comment returns a comment or reply by id.
 func (w *World) Comment(id int64) *Comment { return w.comments[id] }
+
+// Mutate runs f with the world locked against the server.
+func (w *World) Mutate(f func()) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	f()
+}
+
+// Advance moves the world's present forward.
+func (w *World) Advance(d time.Duration) { w.Mutate(func() { w.Now = w.Now.Add(d) }) }
+
+// AddPost publishes a new post on acc at the world's present, with
+// comments top-level comments (no replies), and returns it.
+func (w *World) AddPost(acc *Account, comments int) *Post {
+	var p *Post
+	w.Mutate(func() {
+		t := w.Now
+		p = &Post{ID: ItemID(t, w.rng.Uint32()), Created: t, Kind: "video", Duration: 15, Owner: acc,
+			Desc: "New post of " + acc.Username + " #news", Hashtags: []string{"news"},
+			Music: Music{ID: int64(7_100_000_000_000_000_000 + w.rng.IntN(1_000_000)), Title: "original sound", Author: acc.Nickname, Original: true, Duration: 15},
+			Plays: int64(w.rng.IntN(1000)), Likes: int64(w.rng.IntN(100))}
+		for c := 0; c < comments; c++ {
+			w.addComment(p, t)
+		}
+		acc.Posts = slices.Insert(acc.Posts, 0, p)
+		w.posts[p.ID] = p
+	})
+	return p
+}
+
+// AddComments adds n top-level comments to p, at the world's present.
+func (w *World) AddComments(p *Post, n int) {
+	w.Mutate(func() {
+		for range n {
+			w.addComment(p, w.Now)
+		}
+	})
+}
+
+func (w *World) addComment(p *Post, t time.Time) {
+	i := len(p.Comments)
+	cm := &Comment{ID: ItemID(t, w.rng.Uint32()), Created: t, Likes: int64(w.rng.IntN(50)),
+		Text: fmt.Sprintf("comment %d on post %d", i, p.ID), Author: Person{UID: ItemID(t.Add(-1000*24*time.Hour), w.rng.Uint32()),
+			SecUID: fmt.Sprintf("MS4wLjABAAAAlate%06d%08x", i, w.rng.Uint32()), Username: fmt.Sprintf("late_%d", i), Nickname: fmt.Sprintf("late %d", i)}}
+	p.Comments = append(p.Comments, cm)
+	w.comments[cm.ID] = cm
+}
+
+// DeletePost removes a post: it is no longer listed or served.
+func (w *World) DeletePost(p *Post) {
+	w.Mutate(func() {
+		acc := p.Owner
+		acc.Posts = slices.DeleteFunc(acc.Posts, func(x *Post) bool { return x == p })
+		delete(w.posts, p.ID)
+	})
+}
+
+// Rename changes an account's username: its old profile page names
+// nothing, and its list (by secUid) carries the new name.
+func (w *World) Rename(acc *Account, username string) {
+	w.Mutate(func() {
+		delete(w.byName, acc.Username)
+		acc.Username = username
+		w.byName[username] = acc
+	})
+}
+

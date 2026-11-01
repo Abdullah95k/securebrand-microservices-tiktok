@@ -72,6 +72,7 @@ var (
 
 	// Coverage.
 	CommentCompleteness = histVec("comment_completeness_ratio", "Collected / reported comments per post at job completion.", []float64{0.1, 0.25, 0.5, 0.7, 0.8, 0.9, 0.95, 0.99, 1.0, 1.01}, "lane")
+	ListStops           = counterVec("list_stops_total", "tks account list walks by mode (full, incremental, refresh) and why they stopped (first_post, age, watermark, max_posts, stuck).", "mode", "reason")
 	TimelineTruncated   = counterVec("timeline_truncated_total", "Timelines that hit a login wall before the end of the window.", "reason")
 
 	// Media.

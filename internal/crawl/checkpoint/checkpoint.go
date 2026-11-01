@@ -29,6 +29,9 @@ type State struct {
 	// Walls counts login walls hit at WallCursor on distinct identities.
 	Walls      int    `json:"walls,omitempty"`
 	WallCursor string `json:"wall_cursor,omitempty"`
+	// Stuck counts list pages in a row that held only the cursor's post
+	// (tks's account stage).
+	Stuck int `json:"stuck,omitempty"`
 	// Counters of the pages this segment already read, so a retried or
 	// redelivered segment that resumes at Cursor reports them too.
 	Counters map[string]int64 `json:"counters,omitempty"`
@@ -152,6 +155,9 @@ type PostCache struct {
 	Reported        int64 `json:"reported"`
 	NewestComment   int64 `json:"newest_comment"`
 	ThreadsComplete bool  `json:"threads_complete"`
+	// ReadAt is when the post's comments were last read (Unix seconds; 0
+	// unknown): tks's comment windows space re-reads by it.
+	ReadAt int64 `json:"read_at,omitempty"`
 }
 
 const cacheTTL = 45 * 24 * time.Hour

@@ -128,3 +128,8 @@ tt:
     # Top-level comments plus replies read per post and pass. After Phase 0.
     max_per_post: 1000
     include_replies: true
+  # Media downloads (build brief D5): off until the analysis service exists.
+  # Metadata (covers, photos, video renditions, avatars) is always published;
+  # TKS_TT__MEDIA__INCLUDE=true queues the downloads too.
+  media:
+    include: false

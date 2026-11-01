@@ -212,6 +212,16 @@ type TT struct {
 	Signer    Signer     `koanf:"signer"`
 	Freshness Freshness  `koanf:"freshness"`
 	Comments  TTComments `koanf:"comments"`
+	Media     TTMedia    `koanf:"media"`
+}
+
+// TTMedia is tks's media download switch (build brief D5). tks's tasks
+// read it instead of the shared limits.include_media, which the copied
+// Facebook pipeline's tests still run with on (docs/tiktok ADR 0007 §8).
+type TTMedia struct {
+	// Include queues downloads of covers, photos and videos; media
+	// metadata is published either way.
+	Include bool `koanf:"include"`
 }
 
 // Signer modes.
