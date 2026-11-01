@@ -28,6 +28,12 @@ const (
 	BackwardTransitive = "BACKWARD_TRANSITIVE"
 )
 
+// CheckSubjectPrefix starts the temporary subjects a check stages changed
+// imports under (after the topic prefix): tks's own, so a check never
+// touches fbs's (fbs-check-) or igs's (igs-check-) on a shared registry
+// (docs/tiktok ADR 0006 §5).
+const CheckSubjectPrefix = "tks-check-"
+
 // Reference is an import resolved to another subject.
 type Reference struct {
 	Name    string `json:"name"`
@@ -330,7 +336,7 @@ func Apply(ctx context.Context, c *Client, files fs.FS, prefix string, topicFile
 			_ = c.DeleteSubject(cctx, temps[i])
 		}
 	}()
-	tmpPrefix := fmt.Sprintf("%sigs-check-%d.", prefix, time.Now().UnixNano())
+	tmpPrefix := fmt.Sprintf("%s%s%d.", prefix, CheckSubjectPrefix, time.Now().UnixNano())
 	var problems []string
 	for i, n := range nodes {
 		s := n.schema(staged)

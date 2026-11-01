@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package securebrand.common.v1;
+
+import "google/protobuf/timestamp.proto";
+import "securebrand/common/v1/common.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/common/v1;commonv1";
+
+enum JobStatus {
+  JOB_STATUS_UNSPECIFIED = 0;
+  JOB_STATUS_QUEUED = 1;
+  JOB_STATUS_RUNNING = 2;
+  JOB_STATUS_COMPLETED = 3;
+  // Finished, but some posts were truncated or tasks failed permanently.
+  JOB_STATUS_PARTIAL = 4;
+  JOB_STATUS_FAILED = 5;
+  JOB_STATUS_CANCELLED = 6;
+}
+
+// Completeness compares what the platform reported against what was
+// collected (fbs's fields and numbers).
+message Completeness {
+  int64 posts = 1;
+  int64 posts_complete = 2;
+  int64 posts_truncated = 3;
+  double median_ratio = 4;
+  double min_ratio = 5;
+  int64 comments_reported = 6;
+  int64 comments_collected = 7;
+}
+
+// JobEvent is published on <platform>.job.v1 when a job reaches a terminal
+// state. When it says COMPLETED or PARTIAL, all of the job's data is
+// queryable.
+message JobEvent {
+  string event_id = 1;
+  string job_id = 2;
+  JobStatus status = 3;
+  // on_demand | scheduled | backfill
+  string kind = 4;
+  // The reference the job was asked for (u:<username>, sec:<secUid>,
+  // id:<user id> on TikTok).
+  string subject_ref = 5;
+  // The account it resolved to.
+  int64 subject_id = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp finished_at = 8;
+  map<string, int64> counters = 9;
+  Completeness completeness = 10;
+  repeated string errors = 11;
+  Platform platform = 12;
+}

@@ -313,17 +313,37 @@ func (r *Static) Fallback(name, failed string) (Query, bool) { return r.s.fallba
 func (r *Static) ClientParams() map[string]string            { return r.s.params }
 func (r *Static) All() []Query                               { return r.s.all }
 
-// DB is a Postgres-backed registry refreshed in the background.
-type DB struct {
-	pool *pgxpool.Pool
-	mu   sync.RWMutex
-	s    *snapshot
-	seed Seed
+// Tables names a platform's registry tables: the entries and the client
+// params. The names are unqualified and resolve through the pool's
+// search_path.
+type Tables struct {
+	Queries string
+	Params  string
 }
 
-// NewDB loads the registry once; call Run to keep it fresh.
+// FBTables are the copied Facebook schema's registry tables, the default.
+var FBTables = Tables{Queries: "fb_queries", Params: "fb_client_params"}
+
+func (t Tables) queries() string { return pgx.Identifier{t.Queries}.Sanitize() }
+func (t Tables) params() string  { return pgx.Identifier{t.Params}.Sanitize() }
+
+// DB is a Postgres-backed registry refreshed in the background.
+type DB struct {
+	pool   *pgxpool.Pool
+	mu     sync.RWMutex
+	s      *snapshot
+	seed   Seed
+	tables Tables
+}
+
+// NewDB loads the registry from FBTables once; call Run to keep it fresh.
 func NewDB(ctx context.Context, pool *pgxpool.Pool, seed Seed) (*DB, error) {
-	r := &DB{pool: pool, seed: seed}
+	return NewDBFrom(ctx, pool, FBTables, seed)
+}
+
+// NewDBFrom loads the registry from tables once; call Run to keep it fresh.
+func NewDBFrom(ctx context.Context, pool *pgxpool.Pool, tables Tables, seed Seed) (*DB, error) {
+	r := &DB{pool: pool, seed: seed, tables: tables}
 	if err := r.Reload(ctx); err != nil {
 		return nil, err
 	}
@@ -354,14 +374,14 @@ func (r *DB) All() []Query {
 	return r.s.all
 }
 
-// Reload reads fb_queries and fb_client_params. Seed client params fill in
-// keys the table does not override.
+// Reload reads the registry's entries and client params. Seed client
+// params fill in keys the table does not override.
 func (r *DB) Reload(ctx context.Context) error {
-	qs, err := List(ctx, r.pool)
+	qs, err := ListFrom(ctx, r.pool, r.tables)
 	if err != nil {
 		return err
 	}
-	rows, err := r.pool.Query(ctx, "SELECT key, value FROM fb_client_params")
+	rows, err := r.pool.Query(ctx, "SELECT key, value FROM "+r.tables.params())
 	if err != nil {
 		return fmt.Errorf("registry: client params: %w", err)
 	}
@@ -406,10 +426,15 @@ func (r *DB) Run(ctx context.Context, every time.Duration) error {
 
 // List returns every row of fb_queries.
 func List(ctx context.Context, pool *pgxpool.Pool) ([]Query, error) {
+	return ListFrom(ctx, pool, FBTables)
+}
+
+// ListFrom returns every entry of tables.
+func ListFrom(ctx context.Context, pool *pgxpool.Pool, tables Tables) ([]Query, error) {
 	rows, err := pool.Query(ctx, `SELECT name, doc_id, friendly_name, variables_template, parser,
 		parser_version, status, priority, source, method, endpoint, headers,
 		coalesce(last_check, ''), last_checked_at, last_ok_at
-		FROM fb_queries ORDER BY name, priority DESC`)
+		FROM `+tables.queries()+` ORDER BY name, priority DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("registry: list: %w", err)
 	}
@@ -438,13 +463,19 @@ func ScanHeaders(b []byte) ([]Header, error) {
 	return h, nil
 }
 
-// ApplySeed upserts seed rows. Existing rows from other sources win: a seed
-// never overrides a doc_id discovered or set manually.
+// ApplySeed upserts seed rows into FBTables. Existing rows from other
+// sources win: a seed never overrides a doc_id discovered or set manually.
 func ApplySeed(ctx context.Context, pool *pgxpool.Pool, seed Seed) error {
+	return ApplySeedTo(ctx, pool, FBTables, seed)
+}
+
+// ApplySeedTo upserts seed rows into tables, as ApplySeed.
+func ApplySeedTo(ctx context.Context, pool *pgxpool.Pool, tables Tables, seed Seed) error {
+	qt := tables.queries()
 	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 		for _, q := range seed.Queries {
 			_, err := tx.Exec(ctx, `
-				INSERT INTO fb_queries (name, doc_id, friendly_name, variables_template, parser,
+				INSERT INTO `+qt+` (name, doc_id, friendly_name, variables_template, parser,
 					parser_version, status, priority, method, endpoint, headers, source, promoted_at)
 				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$11,$9,$10,'seed', now())
 				ON CONFLICT (name, doc_id) DO UPDATE SET
@@ -457,7 +488,7 @@ func ApplySeed(ctx context.Context, pool *pgxpool.Pool, seed Seed) error {
 					endpoint = EXCLUDED.endpoint,
 					headers = EXCLUDED.headers,
 					updated_at = now()
-				WHERE fb_queries.source = 'seed'`,
+				WHERE `+qt+`.source = 'seed'`,
 				q.Name, q.DocID, q.FriendlyName, q.Variables, q.Parser, q.ParserVersion, q.Status, q.Priority,
 				q.Endpoint, headersJSON(q.Headers), q.Method)
 			if err != nil {
@@ -468,9 +499,15 @@ func ApplySeed(ctx context.Context, pool *pgxpool.Pool, seed Seed) error {
 	})
 }
 
-// Upsert sets an entry (admin API, registry-sync). When status is active,
-// other active entries of the same name are demoted to fallback.
+// Upsert sets an entry of FBTables (admin API, registry-sync). When status
+// is active, other active entries of the same name are demoted to fallback.
 func Upsert(ctx context.Context, pool *pgxpool.Pool, q Query) error {
+	return UpsertTo(ctx, pool, FBTables, q)
+}
+
+// UpsertTo sets an entry of tables, as Upsert.
+func UpsertTo(ctx context.Context, pool *pgxpool.Pool, tables Tables, q Query) error {
+	qt := tables.queries()
 	if q.Status == "" {
 		q.Status = StatusActive
 	}
@@ -489,13 +526,13 @@ func Upsert(ctx context.Context, pool *pgxpool.Pool, q Query) error {
 	}
 	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 		if q.Status == StatusActive {
-			if _, err := tx.Exec(ctx, `UPDATE fb_queries SET status = 'fallback', updated_at = now()
+			if _, err := tx.Exec(ctx, `UPDATE `+qt+` SET status = 'fallback', updated_at = now()
 				WHERE name = $1 AND doc_id <> $2 AND status = 'active'`, q.Name, q.DocID); err != nil {
 				return err
 			}
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO fb_queries (name, doc_id, friendly_name, variables_template, parser,
+			INSERT INTO `+qt+` (name, doc_id, friendly_name, variables_template, parser,
 				parser_version, status, priority, source, method, endpoint, headers, promoted_at)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$12,$10,$11, CASE WHEN $7 = 'active' THEN now() END)
 			ON CONFLICT (name, doc_id) DO UPDATE SET
@@ -503,7 +540,7 @@ func Upsert(ctx context.Context, pool *pgxpool.Pool, q Query) error {
 				parser = EXCLUDED.parser, parser_version = EXCLUDED.parser_version,
 				status = EXCLUDED.status, priority = EXCLUDED.priority, source = EXCLUDED.source,
 				method = EXCLUDED.method, endpoint = EXCLUDED.endpoint, headers = EXCLUDED.headers,
-				promoted_at = COALESCE(EXCLUDED.promoted_at, fb_queries.promoted_at), updated_at = now()`,
+				promoted_at = COALESCE(EXCLUDED.promoted_at, `+qt+`.promoted_at), updated_at = now()`,
 			q.Name, q.DocID, q.FriendlyName, q.Variables, q.Parser, q.ParserVersion, q.Status, q.Priority, q.Source,
 			q.Endpoint, headersJSON(hdr), q.Method)
 		return err

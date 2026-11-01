@@ -18,9 +18,17 @@ import (
 // win; e.g. a ConfigMap then a Secret) and environment variables starting
 // with envPrefix into out. List values in env vars are comma separated.
 func Load(defaults []byte, paths, envPrefix string, out any) (*koanf.Koanf, error) {
+	return LoadLayers([][]byte{defaults}, paths, envPrefix, out)
+}
+
+// LoadLayers is Load with several default documents, merged in order
+// (later ones win) before the files and environment variables.
+func LoadLayers(defaults [][]byte, paths, envPrefix string, out any) (*koanf.Koanf, error) {
 	k := koanf.New(".")
-	if err := k.Load(rawbytes.Provider(defaults), yaml.Parser()); err != nil {
-		return nil, fmt.Errorf("config: defaults: %w", err)
+	for i, d := range defaults {
+		if err := k.Load(rawbytes.Provider(d), yaml.Parser()); err != nil {
+			return nil, fmt.Errorf("config: defaults %d: %w", i, err)
+		}
 	}
 	for _, path := range strings.Split(paths, ",") {
 		path = strings.TrimSpace(path)

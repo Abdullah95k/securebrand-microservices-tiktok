@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package securebrand.tt.v1;
+
+import "google/protobuf/timestamp.proto";
+import "securebrand/common/v1/common.proto";
+import "securebrand/tt/v1/common.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1;ttv1";
+
+enum PostKind {
+  POST_KIND_UNSPECIFIED = 0;
+  POST_KIND_VIDEO = 1;
+  // A photo post (imagePost): photos and a sound, no playable video.
+  POST_KIND_PHOTO = 2;
+}
+
+enum PostStatus {
+  POST_STATUS_UNSPECIFIED = 0;
+  POST_STATUS_VISIBLE = 1;
+  POST_STATUS_UNAVAILABLE = 2;
+  POST_STATUS_PRIVATE = 3;
+}
+
+// How the post was found. Only LIST today; the others are kept for later
+// sources (build brief D1) so adding one is not a breaking change.
+enum DiscoveredVia {
+  DISCOVERED_VIA_UNSPECIFIED = 0;
+  DISCOVERED_VIA_LIST = 1;
+  DISCOVERED_VIA_SEARCH = 2;
+  DISCOVERED_VIA_HASHTAG = 3;
+  DISCOVERED_VIA_POST_PAGE = 4;
+}
+
+// Counts are a post's counts, exact (statsV2).
+message PostCounts {
+  optional int64 plays = 1;
+  optional int64 likes = 2;
+  optional int64 comments = 3;
+  optional int64 shares = 4;
+  // collectCount
+  optional int64 saves = 5;
+  optional int64 reposts = 6;
+}
+
+message Hashtag {
+  // The challenge id; 0 when only textExtra named it.
+  int64 id = 1;
+  string name = 2;
+}
+
+message Photo {
+  string media_id = 1;
+  int32 position = 2;
+  int32 width = 3;
+  int32 height = 4;
+}
+
+// Labels TikTok puts on a post, as served.
+message PostLabels {
+  // ShowAIGC: labelled AI-generated.
+  optional bool ai_generated = 1;
+  // aigcLabelType, when present.
+  optional int32 aigc_label_type = 2;
+  // warnInfo entries' texts.
+  repeated string warnings = 3;
+  // anchors (links to products, places, effects), as served.
+  string anchors_json = 4;
+}
+
+// Post is published on tt.post.v1, keyed by post_id, when a post is first
+// read in full (from the list or its page), so created_at is always set.
+message Post {
+  securebrand.common.v1.Observation obs = 1;
+  int64 post_id = 2;
+  // The monitored account.
+  int64 user_id = 3;
+  PostKind kind = 4;
+  google.protobuf.Timestamp created_at = 5;
+  // desc: the account's own text, not gated (ADR 0007 §6).
+  string caption = 6;
+  repeated Hashtag hashtags = 7;
+  repeated TextRange text_ranges = 8;
+  int64 duration_ms = 9;
+  int32 width = 10;
+  int32 height = 11;
+  string cover_media_id = 12;
+  repeated Photo photos = 13;
+  optional int64 music_id = 14;
+  // isPinnedItem; known only from list reads.
+  optional bool pinned = 15;
+  optional bool ad = 16;
+  PostLabels labels = 17;
+  // CategoryType.
+  optional int32 category = 18;
+  string playlist_id = 19;
+  // itemCommentStatus != 0.
+  optional bool comments_disabled = 20;
+  // locationCreated: the region the post was made in.
+  string region = 21;
+  string text_language = 22;
+  PostCounts counts = 23;
+  PostStatus status = 24;
+  DiscoveredVia discovered_via = 25;
+}
+
+// PostMetrics is published on tt.post_metrics.v1, keyed by post_id, when a
+// read finds a post's counts changed.
+message PostMetrics {
+  securebrand.common.v1.Observation obs = 1;
+  int64 post_id = 2;
+  int64 user_id = 3;
+  google.protobuf.Timestamp post_created_at = 4;
+  google.protobuf.Timestamp captured_at = 5;
+  PostCounts counts = 6;
+}

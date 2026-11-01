@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package securebrand.tt.v1;
+
+import "google/protobuf/timestamp.proto";
+import "securebrand/common/v1/common.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1;ttv1";
+
+enum MediaKind {
+  MEDIA_KIND_UNSPECIFIED = 0;
+  MEDIA_KIND_COVER = 1;
+  MEDIA_KIND_ORIGIN_COVER = 2;
+  MEDIA_KIND_DYNAMIC_COVER = 3;
+  MEDIA_KIND_VIDEO = 4;
+  // One photo of a photo post.
+  MEDIA_KIND_PHOTO = 5;
+  MEDIA_KIND_AVATAR = 6;
+  MEDIA_KIND_MUSIC_COVER = 7;
+  MEDIA_KIND_COMMENT_IMAGE = 8;
+}
+
+// Media is discovered metadata, published on tt.media.v1 keyed by media_id.
+// Always published; files are downloaded only with limits.include_media on
+// (build brief D5).
+message Media {
+  securebrand.common.v1.Observation obs = 1;
+  // UUIDv5 of "<owner id>|<kind>|<variant>" in tks's namespace.
+  string media_id = 2;
+  MediaKind kind = 3;
+  // original | sd | hd | thumbnail
+  string variant = 4;
+  int64 user_id = 5;
+  optional int64 post_id = 6;
+  optional int64 music_id = 7;
+  optional int64 comment_id = 8;
+  // A photo's place in its post.
+  int32 position = 9;
+  // Signed TikTok CDN link. It expires (T18): see source_expires_at.
+  string source_url = 10;
+  google.protobuf.Timestamp source_expires_at = 11;
+  int32 width = 12;
+  int32 height = 13;
+  int64 duration_ms = 14;
+  int64 size_bytes = 15;
+  string mime = 16;
+  int64 bitrate = 17;
+  google.protobuf.Timestamp post_created_at = 18;
+  // The person a comment image or a person's avatar belongs to: an erased
+  // person's media is never stored or downloaded.
+  bytes author_key = 19;
+}

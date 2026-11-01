@@ -52,6 +52,31 @@ func Postgres(t testing.TB) *pgxpool.Pool {
 	return pool
 }
 
+// EmptyPostgres creates a fresh, empty database for the test and returns
+// its DSN: for schemas that migrate themselves (tks's tt, through
+// internal/tt/ttstore). Requires TKS_TEST_PG_DSN.
+func EmptyPostgres(t testing.TB) string {
+	t.Helper()
+	dsn := os.Getenv("TKS_TEST_PG_DSN")
+	if dsn == "" {
+		t.Skip("TKS_TEST_PG_DSN not set")
+	}
+	ctx := context.Background()
+	admin, err := pg.Open(ctx, dsn, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := fmt.Sprintf("tks_test_%d", rand.Int64N(1<<40))
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
+		admin.Close()
+	})
+	return replaceDB(dsn, name)
+}
+
 func replaceDB(dsn, name string) string {
 	q := ""
 	if i := strings.IndexByte(dsn, '?'); i >= 0 {
@@ -110,6 +135,17 @@ func Kafka(t testing.TB) []string {
 		t.Skip("TKS_TEST_KAFKA_BROKERS not set")
 	}
 	return strings.Split(b, ",")
+}
+
+// SchemaRegistry returns the registry's URL. Requires
+// TKS_TEST_SCHEMA_REGISTRY.
+func SchemaRegistry(t testing.TB) string {
+	t.Helper()
+	u := os.Getenv("TKS_TEST_SCHEMA_REGISTRY")
+	if u == "" {
+		t.Skip("TKS_TEST_SCHEMA_REGISTRY not set")
+	}
+	return u
 }
 
 // TopicPrefix returns a unique prefix so tests sharing a broker never see

@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package securebrand.tt.v1;
+
+import "google/protobuf/timestamp.proto";
+import "securebrand/common/v1/common.proto";
+import "securebrand/tt/v1/common.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1;ttv1";
+
+enum CommentStatus {
+  COMMENT_STATUS_UNSPECIFIED = 0;
+  COMMENT_STATUS_VISIBLE = 1;
+  // No longer served: published when a complete read of the post no longer
+  // returns a known comment (ADR 0007 §5); only the ids, post_created_at,
+  // depth and obs are set. A later sighting makes it visible again.
+  COMMENT_STATUS_DELETED = 2;
+}
+
+// Comment is published on tt.comment.v1, keyed by post_id so a post's
+// comments stay ordered. Replies are comments with depth 1.
+message Comment {
+  securebrand.common.v1.Observation obs = 1;
+  int64 comment_id = 2;
+  int64 post_id = 3;
+  // The post's account.
+  int64 user_id = 4;
+  google.protobuf.Timestamp post_created_at = 5;
+  // A reply's top-level comment (reply_id); unset at the top level.
+  optional int64 parent_comment_id = 6;
+  // The reply a reply answers (reply_to_reply_id), when not 0.
+  optional int64 reply_to_comment_id = 7;
+  int32 depth = 8;
+  Person author = 9;
+  // Personal data (behind pii:read); empty when redacted.
+  string text = 10;
+  repeated TextRange text_ranges = 11;
+  google.protobuf.Timestamp created_at = 12;
+  optional int64 like_count = 13;
+  // reply_comment_total
+  optional int64 reply_count = 14;
+  // is_author_digged: the post's creator liked it.
+  optional bool liked_by_creator = 15;
+  // author_pin: the post's creator pinned it.
+  optional bool pinned_by_creator = 16;
+  int32 stick_position = 17;
+  // Media ids of the images attached (image_list).
+  repeated string image_media_ids = 18;
+  repeated string labels = 19;
+  string language = 20;
+  CommentStatus status = 21;
+  // True when content was removed by an erasure or suppression rule.
+  bool redacted = 22;
+}

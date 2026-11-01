@@ -1,0 +1,145 @@
+syntax = "proto3";
+
+// securebrand.tks.task.v1 is tks's internal task envelope (never public).
+// The generic fields keep fbs's and igs's names and numbers, since the
+// worker is a copy of fbs's; TikTok's own parts are disjoint from theirs:
+// kind values start at 200 and scope fields at 40 (fbs: 1 and 10, igs: 100
+// and 20). A task that lands on another service's topic decodes with an
+// unknown kind and no scope, and is dead-lettered instead of running as the
+// wrong task (tks ADR 0007 §2).
+package securebrand.tks.task.v1;
+
+import "google/protobuf/timestamp.proto";
+import "securebrand/common/v1/common.proto";
+import "securebrand/tt/v1/media.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tks/task/v1;tkstaskv1";
+
+enum Lane {
+  LANE_UNSPECIFIED = 0;
+  // On-demand API jobs.
+  LANE_P0 = 1;
+  // Scheduled checks.
+  LANE_P1 = 2;
+  // Backfill.
+  LANE_P2 = 3;
+}
+
+enum Kind {
+  KIND_UNSPECIFIED = 0;
+  // One account's check: the post list (and, daily, the account).
+  KIND_ACCOUNT = 200;
+  // One post's comments.
+  KIND_POST = 201;
+  KIND_MEDIA = 202;
+  // One comment's replies.
+  KIND_THREAD = 203;
+}
+
+enum VideoPolicy {
+  VIDEO_POLICY_UNSPECIFIED = 0;
+  VIDEO_POLICY_NONE = 1;
+  VIDEO_POLICY_THUMBNAIL = 2;
+  VIDEO_POLICY_SD = 3;
+  VIDEO_POLICY_HD = 4;
+}
+
+// Limits keeps fbs's fields and numbers.
+message Limits {
+  int64 max_age_seconds = 1;
+  int64 max_posts = 2;
+  int64 max_comments_per_post = 3;
+  int32 max_depth = 4;
+  bool include_comments = 5;
+  bool include_replies = 6;
+  bool include_media = 7;
+  VideoPolicy video_policy = 8;
+  bool include_comment_media = 9;
+}
+
+message AccountScope {
+  // The reference the job was asked for: u:<username>, sec:<secUid> or
+  // id:<user id>.
+  string account_ref = 1;
+  int64 user_id = 2;
+  string sec_uid = 3;
+  string username = 4;
+  // INCREMENTAL: the newest stored post's createTime; the list is read back
+  // to it, pinned posts exempt.
+  google.protobuf.Timestamp watermark = 5;
+  int64 posts_seen = 6;
+  google.protobuf.Timestamp newest_seen_at = 7;
+  // When the account itself was last refreshed; the stage refreshes it
+  // once tt.freshness.account_refresh has passed.
+  google.protobuf.Timestamp account_seen_at = 8;
+  // When the profile page (the only source of the bio link) was last read.
+  google.protobuf.Timestamp page_seen_at = 9;
+}
+
+message PostScope {
+  int64 post_id = 1;
+  int64 user_id = 2;
+  google.protobuf.Timestamp created_at = 3;
+  // The post's comment count when the task was made; comments are re-read
+  // only when it went up (ADR 0007 §5).
+  int64 comment_count_seen = 4;
+  // Comments the stream's earlier segments read, so that
+  // limits.max_comments_per_post caps the post, not each segment.
+  int64 items_seen = 5;
+  // Top-level comments this read found that were not stored before.
+  int64 new_seen = 6;
+}
+
+message ThreadScope {
+  int64 post_id = 1;
+  int64 user_id = 2;
+  google.protobuf.Timestamp post_created_at = 3;
+  int64 comment_id = 4;
+  // reply_comment_total when the task was made.
+  int64 reported_reply_count = 5;
+  int64 items_seen = 6;
+}
+
+message MediaScope {
+  securebrand.tt.v1.Media media = 1;
+}
+
+// SessionSnapshot carries a serialised identity when a cursor turns out to
+// be bound to one (fbs's field; TikTok's cursors are not, T27).
+message SessionSnapshot {
+  bytes data = 1;
+}
+
+// Task is the envelope on every tks.task.* topic.
+message Task {
+  // Deterministic: sha256(job|kind|scope|mode|lineage|seq).
+  string task_id = 1;
+  // Shared by every continuation of one pagination stream.
+  string lineage_id = 2;
+  uint32 seq = 3;
+  string job_id = 4;
+  Lane lane = 5;
+  Kind kind = 6;
+  securebrand.common.v1.CrawlMode mode = 7;
+  // Resume point; empty means start of stream.
+  string cursor = 8;
+  Limits limits = 9;
+  // fbs's scope numbers 10-13 and igs's 21-29 are never used here (igs's
+  // 20 is fbs's waits, kept below).
+  reserved 10 to 13, 21 to 29;
+  oneof scope {
+    AccountScope account = 40;
+    PostScope post = 41;
+    ThreadScope thread = 42;
+    MediaScope media = 43;
+  }
+  SessionSnapshot affinity = 14;
+  uint32 attempt = 15;
+  google.protobuf.Timestamp not_before = 16;
+  google.protobuf.Timestamp enqueued_at = 17;
+  map<string, string> trace = 18;
+  // Retries since the task last advanced its checkpoint, waits excluded.
+  uint32 stalls = 19;
+  // Retries spent waiting for proxy exits (crawler.max_waits bounds them).
+  uint32 waits = 20;
+}

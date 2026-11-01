@@ -12,20 +12,24 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/breaker"
 	pconfig "github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/config"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
 )
 
 // EnvPrefix is the prefix of environment variable overrides.
 const EnvPrefix = "TKS_"
 
 type Config struct {
-	Service   Service   `koanf:"service"`
-	Log       Log       `koanf:"log"`
-	HTTP      HTTP      `koanf:"http"`
-	Postgres  Postgres  `koanf:"postgres"`
-	Redis     Redis     `koanf:"redis"`
-	Kafka     Kafka     `koanf:"kafka"`
-	S3        S3        `koanf:"s3"`
-	FB        FB        `koanf:"fb"`
+	Service  Service  `koanf:"service"`
+	Log      Log      `koanf:"log"`
+	HTTP     HTTP     `koanf:"http"`
+	Postgres Postgres `koanf:"postgres"`
+	Redis    Redis    `koanf:"redis"`
+	Kafka    Kafka    `koanf:"kafka"`
+	S3       S3       `koanf:"s3"`
+	FB       FB       `koanf:"fb"`
+	// TT is tks's TikTok client and freshness (configs/tt/default.yaml).
+	// FB stays for the copied Facebook pipeline until M9 removes it.
+	TT        TT        `koanf:"tt"`
 	Crawler   Crawler   `koanf:"crawler"`
 	Limits    Limits    `koanf:"limits"`
 	Scheduler Scheduler `koanf:"scheduler"`
@@ -168,6 +172,111 @@ type FB struct {
 	ShadowRate float64 `koanf:"shadow_rate"`
 	// Detect replaces parts of the built-in detect rules.
 	Detect Detect `koanf:"detect"`
+}
+
+// TT configures tks's TikTok client, its browser signer and how fresh the
+// data is kept (docs/tiktok ADR 0006 §6, ADR 0007 §4). Defaults are in
+// configs/tt/default.yaml; values marked there as after Phase 0 are
+// provisional.
+type TT struct {
+	BaseURL string `koanf:"base_url"`
+	// OperationSeed is the registry seed's path in configs (configs.FS).
+	OperationSeed       string        `koanf:"operation_seed"`
+	RegistryRefresh     time.Duration `koanf:"registry_refresh"`
+	FingerprintProfile  string        `koanf:"fingerprint_profile"`
+	FingerprintProfiles []string      `koanf:"fingerprint_profiles"`
+	AcceptLanguage      string        `koanf:"accept_language"`
+	RequestTimeout      time.Duration `koanf:"request_timeout"`
+	IdentityRPS         float64       `koanf:"identity_rps"`
+	IdentityBurst       int           `koanf:"identity_burst"`
+	// An identity serves a random number of requests in [min, max] before
+	// it is replaced.
+	IdentityMaxRequestsMin int `koanf:"identity_max_requests_min"`
+	IdentityMaxRequestsMax int `koanf:"identity_max_requests_max"`
+	// AccountRPS caps one account's requests fleet wide; AccountRPSP0 for
+	// on-demand jobs. GlobalRPS is the fleet's ceiling and AIMD's start.
+	AccountRPS       int            `koanf:"account_rps"`
+	AccountRPSP0     int            `koanf:"account_rps_p0"`
+	GlobalRPS        int            `koanf:"global_rps"`
+	ListPageSize     int            `koanf:"list_page_size"`
+	CommentsPageSize int            `koanf:"comments_page_size"`
+	RepliesPageSize  int            `koanf:"replies_page_size"`
+	CaptureRaw       string         `koanf:"capture_raw"`
+	Proxy            Proxy          `koanf:"proxy"`
+	QueryBreaker     breaker.Config `koanf:"query_breaker"`
+	AIMD             AIMD           `koanf:"aimd"`
+	// Browser is the bootstrap fallback for shell pages; the signer has
+	// its own pages.
+	Browser   Browser    `koanf:"browser"`
+	Detect    Detect     `koanf:"detect"`
+	Signer    Signer     `koanf:"signer"`
+	Freshness Freshness  `koanf:"freshness"`
+	Comments  TTComments `koanf:"comments"`
+}
+
+// Signer modes.
+const (
+	SignerNone    = "none"
+	SignerBrowser = "browser"
+)
+
+// Signer configures the browser signer (build brief D11): TikTok pages in
+// headless Chromium whose own script signs the calls that need it.
+type Signer struct {
+	Mode string `koanf:"mode"` // none | browser
+	// Pages is the pages one crawler process keeps open.
+	Pages int `koanf:"pages"`
+	// A page is reopened after PageMaxSigns signatures or PageMaxAge.
+	PageMaxSigns int           `koanf:"page_max_signs"`
+	PageMaxAge   time.Duration `koanf:"page_max_age"`
+	SignTimeout  time.Duration `koanf:"sign_timeout"`
+	PageTimeout  time.Duration `koanf:"page_timeout"`
+	// MaxShare is the share of calls signed above which the signer alerts.
+	MaxShare float64 `koanf:"max_share"`
+}
+
+// Freshness says how often each kind of data is re-read (build brief D2).
+type Freshness struct {
+	// ListInterval is each account's post-list check (2 h 45 min).
+	ListInterval time.Duration `koanf:"list_interval"`
+	// AccountRefresh is the account's own refresh; PageRefresh the profile
+	// page's, the bio link's only source.
+	AccountRefresh time.Duration `koanf:"account_refresh"`
+	PageRefresh    time.Duration `koanf:"page_refresh"`
+	// BackfillDays is how far back a new account is read.
+	BackfillDays int `koanf:"backfill_days"`
+	// MetricsWalks walk the list deeper than the check, for metrics.
+	MetricsWalks []MetricsWalk `koanf:"metrics_walks"`
+	// CommentWindows bound comment re-reads by post age (ascending MaxAge).
+	CommentWindows []CommentWindow `koanf:"comment_windows"`
+}
+
+// MetricsWalk walks an account's list every Every, back Back.
+type MetricsWalk struct {
+	Every time.Duration `koanf:"every"`
+	Back  time.Duration `koanf:"back"`
+}
+
+// CommentWindow re-reads a post's comments at most every Interval while it
+// is younger than MaxAge, and only when its comment count went up.
+type CommentWindow struct {
+	MaxAge   time.Duration `koanf:"max_age"`
+	Interval time.Duration `koanf:"interval"`
+}
+
+// Comment orders (ADR 0007 §5).
+const (
+	CommentsRanked = "ranked"
+	CommentsNewest = "newest"
+)
+
+// TTComments configures comment reads.
+type TTComments struct {
+	// Order is TikTok's comment order: ranked (re-read to the cap) or
+	// newest (read until the first stored comment).
+	Order          string `koanf:"order"`
+	MaxPerPost     int64  `koanf:"max_per_post"`
+	IncludeReplies bool   `koanf:"include_replies"`
 }
 
 // Detect replaces parts of the platform's built-in detect rules
@@ -419,7 +528,7 @@ type Retention struct {
 // Load reads the config from defaults, an optional file and env vars.
 func Load(path string) (*Config, error) {
 	var c Config
-	if _, err := pconfig.Load(configs.Default(), path, EnvPrefix, &c); err != nil {
+	if _, err := pconfig.LoadLayers([][]byte{configs.Default(), configs.TTDefault()}, path, EnvPrefix, &c); err != nil {
 		return nil, err
 	}
 	if err := c.Validate(); err != nil {
@@ -449,6 +558,7 @@ func (c *Config) Validate() error {
 	if _, err := detect.DefaultRules().Apply(detect.Overrides(c.FB.Detect)); err != nil {
 		errs = append(errs, fmt.Errorf("fb.detect: %w", err))
 	}
+	errs = append(errs, c.TT.validate()...)
 	if c.Crawler.YieldPages <= 0 {
 		errs = append(errs, errors.New("crawler.yield_pages must be > 0"))
 	}
@@ -508,4 +618,81 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("registry_sync.interval and registry_sync.timeout must be > 0"))
 	}
 	return errors.Join(errs...)
+}
+
+// validate checks the tt: section.
+func (t TT) validate() []error {
+	var errs []error
+	if t.BaseURL == "" {
+		errs = append(errs, errors.New("tt.base_url must be set"))
+	}
+	if b, err := configs.FS.ReadFile(t.OperationSeed); err != nil {
+		errs = append(errs, fmt.Errorf("tt.operation_seed: %w", err))
+	} else if seed, err := registry.ParseSeed(b); err != nil {
+		errs = append(errs, fmt.Errorf("tt.operation_seed: %w", err))
+	} else if len(seed.Queries) == 0 {
+		errs = append(errs, fmt.Errorf("tt.operation_seed: %s has no operations", t.OperationSeed))
+	}
+	// What can be wrong is the overrides' syntax (patterns, status
+	// classes), which does not depend on the rules they replace parts of,
+	// so the neutral defaults check it (importing internal/tt/detect here
+	// would be an import cycle).
+	if _, err := detect.DefaultRules().Apply(detect.Overrides(t.Detect)); err != nil {
+		errs = append(errs, fmt.Errorf("tt.detect: %w", err))
+	}
+	if t.RequestTimeout <= 0 || t.IdentityRPS <= 0 || t.GlobalRPS <= 0 {
+		errs = append(errs, errors.New("tt.request_timeout, tt.identity_rps and tt.global_rps must be > 0"))
+	}
+	if t.IdentityMaxRequestsMin > t.IdentityMaxRequestsMax {
+		errs = append(errs, errors.New("tt.identity_max_requests_min exceeds tt.identity_max_requests_max"))
+	}
+	if t.ListPageSize <= 0 || t.CommentsPageSize <= 0 || t.RepliesPageSize <= 0 {
+		errs = append(errs, errors.New("tt.list_page_size, tt.comments_page_size and tt.replies_page_size must be > 0"))
+	}
+	switch t.CaptureRaw {
+	case "all", "failures", "none":
+	default:
+		errs = append(errs, fmt.Errorf("tt.capture_raw %q must be all, failures or none", t.CaptureRaw))
+	}
+	switch t.Signer.Mode {
+	case SignerNone:
+	case SignerBrowser:
+		if t.Signer.Pages <= 0 || t.Signer.PageMaxSigns <= 0 || t.Signer.PageMaxAge <= 0 ||
+			t.Signer.SignTimeout <= 0 || t.Signer.PageTimeout <= 0 {
+			errs = append(errs, errors.New("tt.signer: browser mode needs pages, page_max_signs, page_max_age, sign_timeout and page_timeout > 0"))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("tt.signer.mode %q must be none or browser", t.Signer.Mode))
+	}
+	if s := t.Signer.MaxShare; s <= 0 || s > 1 {
+		errs = append(errs, errors.New("tt.signer.max_share must be in (0, 1]"))
+	}
+	f := t.Freshness
+	if f.ListInterval <= 0 || f.AccountRefresh <= 0 || f.PageRefresh <= 0 {
+		errs = append(errs, errors.New("tt.freshness.list_interval, account_refresh and page_refresh must be > 0"))
+	}
+	if f.BackfillDays <= 0 {
+		errs = append(errs, errors.New("tt.freshness.backfill_days must be > 0"))
+	}
+	for i, w := range f.MetricsWalks {
+		if w.Every <= 0 || w.Back <= 0 || (i > 0 && w.Back <= f.MetricsWalks[i-1].Back) {
+			errs = append(errs, errors.New("tt.freshness.metrics_walks need every and back > 0, back ascending"))
+			break
+		}
+	}
+	for i, w := range f.CommentWindows {
+		if w.Interval <= 0 || w.MaxAge <= 0 || (i > 0 && w.MaxAge <= f.CommentWindows[i-1].MaxAge) {
+			errs = append(errs, errors.New("tt.freshness.comment_windows need intervals and ascending max_age"))
+			break
+		}
+	}
+	switch t.Comments.Order {
+	case CommentsRanked, CommentsNewest:
+	default:
+		errs = append(errs, fmt.Errorf("tt.comments.order %q must be ranked or newest", t.Comments.Order))
+	}
+	if t.Comments.MaxPerPost < 0 {
+		errs = append(errs, errors.New("tt.comments.max_per_post must be >= 0 (0: no cap)"))
+	}
+	return errs
 }
