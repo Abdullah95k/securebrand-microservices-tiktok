@@ -1,0 +1,101 @@
+{
+  "comments": [
+    {
+      "comment": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "comment_id": "7702580078028253206",
+        "post_id": "7702574477277198399",
+        "parent_comment_id": "7702579522107497828",
+        "depth": 1,
+        "author": {
+          "author_key": "kmW1UA==",
+          "user_id": "7505881258353079632",
+          "sec_uid": "MS4wLjABAAAAJz-RQTb16OY0gQx2SztepzsBvevrmqmGskjX_exuj4QnP5FBNvXo5jSBDHZLO16n",
+          "username": "userfccde7fb",
+          "nickname": "Person ae596b",
+          "avatar_url": "https://p19-common-sign.tiktokcdn-us.com/scrubbed/49aa6994d1e0.jpg?x-expires=1793602800"
+        },
+        "text": "xx xxxxxx xxx xxxx xx xxxxx",
+        "created_at": "2026-10-30T21:45:11Z",
+        "like_count": "25",
+        "liked_by_creator": false,
+        "language": "ar",
+        "status": "COMMENT_STATUS_VISIBLE"
+      },
+      "media": []
+    },
+    {
+      "comment": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "comment_id": "7702583613235309518",
+        "post_id": "7702574477277198399",
+        "parent_comment_id": "7702579522107497828",
+        "reply_to_comment_id": "7702580078028253206",
+        "depth": 1,
+        "author": {
+          "author_key": "4dw7DA==",
+          "user_id": "7031122133201468172",
+          "sec_uid": "MS4wLjABAAAAOvk4C0Ftintx_3hjnuwIh9eo1Wbw9ChcQ0rs4Nxs0IM6-TgLQW2Ke3H_eGOe7AiH",
+          "username": "usera3924fca",
+          "nickname": "Person c419fa",
+          "avatar_url": "https://p19-common-sign.tiktokcdn-us.com/scrubbed/be1959435010.jpg?x-expires=1793602800"
+        },
+        "text": "xx xxx xxxxxx xx xxxx xxxx xxxxx xxx xxxxx xxxxx",
+        "created_at": "2026-10-30T21:58:36Z",
+        "like_count": "13",
+        "liked_by_creator": false,
+        "language": "ar",
+        "status": "COMMENT_STATUS_VISIBLE"
+      },
+      "media": []
+    },
+    {
+      "comment": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "comment_id": "7702583939335055749",
+        "post_id": "7702574477277198399",
+        "parent_comment_id": "7702579522107497828",
+        "reply_to_comment_id": "7702583613235309518",
+        "depth": 1,
+        "author": {
+          "author_key": "kmW1UA==",
+          "user_id": "7505881258353079632",
+          "sec_uid": "MS4wLjABAAAAJz-RQTb16OY0gQx2SztepzsBvevrmqmGskjX_exuj4QnP5FBNvXo5jSBDHZLO16n",
+          "username": "userfccde7fb",
+          "nickname": "Person ae596b",
+          "avatar_url": "https://p19-common-sign.tiktokcdn-us.com/scrubbed/49aa6994d1e0.jpg?x-expires=1793602800"
+        },
+        "text": "😂😂😂",
+        "created_at": "2026-10-30T22:00:06Z",
+        "like_count": "3",
+        "liked_by_creator": false,
+        "language": "un",
+        "status": "COMMENT_STATUS_VISIBLE"
+      },
+      "media": []
+    }
+  ],
+  "cursor": 3,
+  "dropped": {},
+  "has_more": true,
+  "missing": null,
+  "optional_missing": null,
+  "status_code": 0,
+  "threads": null,
+  "total": 24
+}

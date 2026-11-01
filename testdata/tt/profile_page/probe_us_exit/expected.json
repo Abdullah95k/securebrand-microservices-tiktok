@@ -1,0 +1,59 @@
+{
+  "account": {
+    "obs": {
+      "query_name": "golden",
+      "doc_id": "fixture",
+      "parser_version": 1,
+      "platform": "PLATFORM_TIKTOK"
+    },
+    "user_id": "7041539490274267691",
+    "sec_uid": "MS4wLjABAAAAJ4bAONubJWmyC0B8NSPlFLGVIq1w1cUte9vcjZrJUG8nhsA425slabILQHw1I-UU",
+    "username": "user335be839",
+    "nickname": "Person 0eb353",
+    "bio": "xxxx xxxxxxxxx xxxxx xxxxx xxxxxxx xxxxx xxxxxxx xxxxxx xxxxxx",
+    "bio_link": "https://example.invalid/scrubbed",
+    "bio_link_risk": 3,
+    "avatar_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/6c6688daa8bb.jpeg?x-expires=1793689200",
+    "avatar_media_id": "0372842e-76d5-5f4a-9d0f-46ec52433d17",
+    "verified": true,
+    "private": false,
+    "organization": true,
+    "created_at": "2021-12-14T12:53:34Z",
+    "nickname_modified_at": "2022-05-23T10:03:19Z",
+    "counts": {
+      "followers": "15845967",
+      "following": "4",
+      "hearts": "417693471",
+      "videos": "6298",
+      "likes_given": "0",
+      "friends": "3",
+      "exact": true
+    },
+    "language": "en",
+    "status": "ACCOUNT_STATUS_ACTIVE",
+    "source": "ACCOUNT_SOURCE_PROFILE_PAGE",
+    "author_key": "1a7SKw=="
+  },
+  "dropped": {},
+  "media": [
+    {
+      "obs": {
+        "query_name": "golden",
+        "doc_id": "fixture",
+        "parser_version": 1,
+        "platform": "PLATFORM_TIKTOK"
+      },
+      "media_id": "0372842e-76d5-5f4a-9d0f-46ec52433d17",
+      "kind": "MEDIA_KIND_AVATAR",
+      "variant": "original",
+      "user_id": "7041539490274267691",
+      "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/6c6688daa8bb.jpeg?x-expires=1793689200",
+      "source_expires_at": "2026-11-03T07:00:00Z",
+      "author_key": "1a7SKw=="
+    }
+  ],
+  "missing": null,
+  "optional_missing": null,
+  "status": "ACCOUNT_STATUS_ACTIVE",
+  "status_code": 0
+}

@@ -42,6 +42,9 @@ jobs:
           if grep -rlE 'oh=00_|_nc_cat=' testdata/; then
             echo "fixtures with real fbcdn signatures: run fbctl fixtures scrub"; exit 1
           fi
+          if grep -rlE 'x-signature=|[?&]signature=|[?&]policy=|tt_chain_token' testdata/tt; then
+            echo "TikTok fixtures with signed links: add them with tksctl fixtures add"; exit 1
+          fi
       - name: Unit tests (parsers, fake Facebook client layer, accounting)
         env: {TKS_BROWSER_NO_SANDBOX: "1"} # runners may not allow the Chromium sandbox
         run: go test -race -count=1 ./...

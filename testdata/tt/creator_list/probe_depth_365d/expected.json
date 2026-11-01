@@ -1,0 +1,1237 @@
+{
+  "account": {
+    "obs": {
+      "query_name": "golden",
+      "doc_id": "fixture",
+      "parser_version": 1,
+      "platform": "PLATFORM_TIKTOK"
+    },
+    "user_id": "7041539490274267691",
+    "sec_uid": "MS4wLjABAAAAJ4bAONubJWmyC0B8NSPlFLGVIq1w1cUte9vcjZrJUG8nhsA425slabILQHw1I-UU",
+    "username": "user335be839",
+    "nickname": "Person 0eb353",
+    "bio": "xxxx xxxxxxxxx xxxxx xxxxx xxxxxxx xxxxx xxxxxxx xxxxxx xxxxxx",
+    "avatar_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/6c6688daa8bb.jpeg?x-expires=1793689200",
+    "avatar_media_id": "0372842e-76d5-5f4a-9d0f-46ec52433d17",
+    "verified": true,
+    "private": false,
+    "counts": {
+      "followers": "15800000",
+      "following": "4",
+      "hearts": "417700000",
+      "videos": "6299",
+      "likes_given": "54",
+      "friends": "0"
+    },
+    "status": "ACCOUNT_STATUS_ACTIVE",
+    "source": "ACCOUNT_SOURCE_POST_LIST",
+    "author_key": "1a7SKw=="
+  },
+  "account_media": [
+    {
+      "obs": {
+        "query_name": "golden",
+        "doc_id": "fixture",
+        "parser_version": 1,
+        "platform": "PLATFORM_TIKTOK"
+      },
+      "media_id": "0372842e-76d5-5f4a-9d0f-46ec52433d17",
+      "kind": "MEDIA_KIND_AVATAR",
+      "variant": "original",
+      "user_id": "7041539490274267691",
+      "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/6c6688daa8bb.jpeg?x-expires=1793689200",
+      "source_expires_at": "2026-11-03T07:00:00Z",
+      "author_key": "1a7SKw=="
+    }
+  ],
+  "cursor": "",
+  "dropped": {},
+  "filtered": false,
+  "has_more": true,
+  "missing": null,
+  "optional_missing": null,
+  "posts": [
+    {
+      "media": [
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "b3536f00-2039-5397-93d0-bcd4941b9062",
+          "kind": "MEDIA_KIND_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691954042084940025",
+          "source_url": "https://p19-common-sign.tiktokcdn-us.com/scrubbed/abefa518f4e7.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "width": 576,
+          "height": 1024,
+          "post_created_at": "2026-10-02T06:30:01Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "2e5ec52e-66d7-59b5-b46c-0930c0d5f8a1",
+          "kind": "MEDIA_KIND_ORIGIN_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691954042084940025",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/eae5427d3c44.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T06:30:01Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "a71de88a-c1d9-5c9b-91b8-9064a491f6cb",
+          "kind": "MEDIA_KIND_DYNAMIC_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691954042084940025",
+          "source_url": "https://p19-common-sign.tiktokcdn-us.com/scrubbed/3430c5014707.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T06:30:01Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "6ab5401b-8e5c-5a67-8c76-b1c989d11a77",
+          "kind": "MEDIA_KIND_VIDEO",
+          "variant": "sd",
+          "user_id": "7041539490274267691",
+          "post_id": "7691954042084940025",
+          "source_url": "https://v16-webapp-prime.us.tiktok.com/scrubbed/69957e2c67a3?expire=1793690326",
+          "source_expires_at": "2026-11-03T07:18:46Z",
+          "width": 576,
+          "height": 1024,
+          "duration_ms": "58000",
+          "size_bytes": "3188649",
+          "mime": "video/mp4",
+          "bitrate": "436636",
+          "post_created_at": "2026-10-02T06:30:01Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "dc0a1c09-a0de-5110-829f-9fedc0987b47",
+          "kind": "MEDIA_KIND_VIDEO",
+          "variant": "hd",
+          "user_id": "7041539490274267691",
+          "post_id": "7691954042084940025",
+          "source_url": "https://v16-webapp-prime.us.tiktok.com/scrubbed/4cfeccd59935?expire=1793690326",
+          "source_expires_at": "2026-11-03T07:18:46Z",
+          "width": 576,
+          "height": 1024,
+          "duration_ms": "58000",
+          "size_bytes": "4391157",
+          "mime": "video/mp4",
+          "bitrate": "601415",
+          "post_created_at": "2026-10-02T06:30:01Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "83e93d61-9b3c-5905-bb2f-44e6ee922dff",
+          "kind": "MEDIA_KIND_MUSIC_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "music_id": "7691954104243423127",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/6c6688daa8bb.jpeg?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T06:30:01Z"
+        }
+      ],
+      "metrics": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "post_id": "7691954042084940025",
+        "user_id": "7041539490274267691",
+        "post_created_at": "2026-10-02T06:30:01Z",
+        "counts": {
+          "plays": "64100",
+          "likes": "736",
+          "comments": "29",
+          "shares": "22",
+          "saves": "40",
+          "reposts": "0"
+        }
+      },
+      "music": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "music_id": "7691954104243423127",
+        "title": "xxxxxxxx xxxxx - xxxxxxxxxxxxxxxxx",
+        "author_name": "Person 0eb353",
+        "original": true,
+        "duration_ms": "58000",
+        "cover_media_id": "83e93d61-9b3c-5905-bb2f-44e6ee922dff",
+        "copyrighted": false,
+        "commerce": true
+      },
+      "post": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "post_id": "7691954042084940025",
+        "user_id": "7041539490274267691",
+        "kind": "POST_KIND_VIDEO",
+        "created_at": "2026-10-02T06:30:01Z",
+        "caption": "xxx xx xxx xxxx xxx xxxxx.. xxxxxxxx xxxxxxx #xxxxx_xxxxxx",
+        "hashtags": [
+          {
+            "id": "7284280508344471826",
+            "name": "xxxxx_xxxxxx"
+          }
+        ],
+        "text_ranges": [
+          {
+            "offset": 45,
+            "length": 13,
+            "type": "hashtag",
+            "name": "xxxxx_xxxxxx"
+          }
+        ],
+        "duration_ms": "58000",
+        "width": 576,
+        "height": 1024,
+        "cover_media_id": "b3536f00-2039-5397-93d0-bcd4941b9062",
+        "music_id": "7691954104243423127",
+        "pinned": false,
+        "ad": false,
+        "labels": {
+          "ai_generated": true
+        },
+        "category": 114,
+        "comments_disabled": false,
+        "text_language": "ar",
+        "counts": {
+          "plays": "64100",
+          "likes": "736",
+          "comments": "29",
+          "shares": "22",
+          "saves": "40",
+          "reposts": "0"
+        },
+        "status": "POST_STATUS_VISIBLE",
+        "discovered_via": "DISCOVERED_VIA_LIST"
+      }
+    },
+    {
+      "media": [
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "23e55be7-3aef-5008-89d9-43119534af3e",
+          "kind": "MEDIA_KIND_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691783605750290926",
+          "source_url": "https://p19-common-sign.tiktokcdn-us.com/scrubbed/730013a67bd4.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "width": 1080,
+          "height": 1920,
+          "post_created_at": "2026-10-02T06:00:00Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "5f34460e-8f71-5620-a629-409cdb989962",
+          "kind": "MEDIA_KIND_ORIGIN_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691783605750290926",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/28875eb7e9d8.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T06:00:00Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "8d56b810-0a24-550f-8115-cb4fbb6a8be8",
+          "kind": "MEDIA_KIND_DYNAMIC_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691783605750290926",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/48e065004738.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T06:00:00Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "773819ac-2d19-551b-b5a8-0ce3e7ca37cc",
+          "kind": "MEDIA_KIND_VIDEO",
+          "variant": "sd",
+          "user_id": "7041539490274267691",
+          "post_id": "7691783605750290926",
+          "source_url": "https://v16-webapp-prime.us.tiktok.com/scrubbed/9b3af98ae500?expire=1793690344",
+          "source_expires_at": "2026-11-03T07:19:04Z",
+          "width": 576,
+          "height": 1024,
+          "duration_ms": "76000",
+          "size_bytes": "1973160",
+          "mime": "video/mp4",
+          "bitrate": "206378",
+          "post_created_at": "2026-10-02T06:00:00Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "df979305-8bda-5466-ae02-d681bddb6687",
+          "kind": "MEDIA_KIND_VIDEO",
+          "variant": "hd",
+          "user_id": "7041539490274267691",
+          "post_id": "7691783605750290926",
+          "source_url": "https://v16-webapp-prime.us.tiktok.com/scrubbed/455efe53bc88?expire=1793690344",
+          "source_expires_at": "2026-11-03T07:19:04Z",
+          "width": 1080,
+          "height": 1920,
+          "duration_ms": "76000",
+          "size_bytes": "6905628",
+          "mime": "video/mp4",
+          "bitrate": "722346",
+          "post_created_at": "2026-10-02T06:00:00Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "98a8d887-1bc2-582c-8f38-de359652f687",
+          "kind": "MEDIA_KIND_MUSIC_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "music_id": "7691784090764225424",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/6c6688daa8bb.jpeg?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T06:00:00Z"
+        }
+      ],
+      "metrics": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "post_id": "7691783605750290926",
+        "user_id": "7041539490274267691",
+        "post_created_at": "2026-10-02T06:00:00Z",
+        "counts": {
+          "plays": "4600000",
+          "likes": "96300",
+          "comments": "4493",
+          "shares": "10600",
+          "saves": "7839",
+          "reposts": "0"
+        }
+      },
+      "music": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "music_id": "7691784090764225424",
+        "title": "xxxxxxxx xxxxx - xxxxxxxxxxxxxxxxx",
+        "author_name": "Person 0eb353",
+        "original": true,
+        "duration_ms": "76000",
+        "cover_media_id": "98a8d887-1bc2-582c-8f38-de359652f687",
+        "copyrighted": false,
+        "commerce": true
+      },
+      "post": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "post_id": "7691783605750290926",
+        "user_id": "7041539490274267691",
+        "kind": "POST_KIND_VIDEO",
+        "created_at": "2026-10-02T06:00:00Z",
+        "caption": "\"xxxxx xxxxxxx xxx\".. xxxx xxxx xxxxxx xxxxxx xxx xxxx xxxxxx! xxxxxx xxxxxx xxxxxx #xxxxxx_xxx xx #xxx_xxx xxx xxxxxx xxxxxxxxxx xx xx xxxx xxxxxx xxxxxxx xxx xxxxxx",
+        "duration_ms": "76000",
+        "width": 1080,
+        "height": 1920,
+        "cover_media_id": "23e55be7-3aef-5008-89d9-43119534af3e",
+        "music_id": "7691784090764225424",
+        "pinned": false,
+        "ad": false,
+        "labels": {
+          "ai_generated": true
+        },
+        "category": 114,
+        "playlist_id": "7286666184993154113",
+        "comments_disabled": false,
+        "text_language": "ar",
+        "counts": {
+          "plays": "4600000",
+          "likes": "96300",
+          "comments": "4493",
+          "shares": "10600",
+          "saves": "7839",
+          "reposts": "0"
+        },
+        "status": "POST_STATUS_VISIBLE",
+        "discovered_via": "DISCOVERED_VIA_LIST"
+      }
+    },
+    {
+      "media": [
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "84949018-2cca-5594-9bab-0d37ae3886be",
+          "kind": "MEDIA_KIND_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691938854828177096",
+          "source_url": "https://p19-common-sign.tiktokcdn-us.com/scrubbed/a2ed374631b8.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "width": 576,
+          "height": 1024,
+          "post_created_at": "2026-10-02T05:31:18Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "b470647d-21d1-5bdc-b11d-a93f50892628",
+          "kind": "MEDIA_KIND_ORIGIN_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691938854828177096",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/387d68a618f5.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T05:31:18Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "453b7508-ba21-5384-b195-d802917c6ec2",
+          "kind": "MEDIA_KIND_DYNAMIC_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691938854828177096",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/0a4e22032d0d.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T05:31:18Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "d0a08f16-203e-5826-9867-0d36a05c0cfc",
+          "kind": "MEDIA_KIND_VIDEO",
+          "variant": "sd",
+          "user_id": "7041539490274267691",
+          "post_id": "7691938854828177096",
+          "source_url": "https://v16-webapp-prime.us.tiktok.com/scrubbed/4f3dfcc00ae4?expire=1793690285",
+          "source_expires_at": "2026-11-03T07:18:05Z",
+          "width": 576,
+          "height": 1024,
+          "duration_ms": "17000",
+          "size_bytes": "868240",
+          "mime": "video/mp4",
+          "bitrate": "401962",
+          "post_created_at": "2026-10-02T05:31:18Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "3349eaf0-1b90-546d-b9d7-b1652851ac6e",
+          "kind": "MEDIA_KIND_VIDEO",
+          "variant": "hd",
+          "user_id": "7041539490274267691",
+          "post_id": "7691938854828177096",
+          "source_url": "https://v16-webapp-prime.us.tiktok.com/scrubbed/622e91a2f62c?expire=1793690285",
+          "source_expires_at": "2026-11-03T07:18:05Z",
+          "width": 576,
+          "height": 1024,
+          "duration_ms": "17000",
+          "size_bytes": "1061305",
+          "mime": "video/mp4",
+          "bitrate": "491344",
+          "post_created_at": "2026-10-02T05:31:18Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "9e016cd8-fa96-5eaa-bad8-c896eac5f6be",
+          "kind": "MEDIA_KIND_MUSIC_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "music_id": "7691938912935061159",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/6c6688daa8bb.jpeg?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T05:31:18Z"
+        }
+      ],
+      "metrics": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "post_id": "7691938854828177096",
+        "user_id": "7041539490274267691",
+        "post_created_at": "2026-10-02T05:31:18Z",
+        "counts": {
+          "plays": "591200",
+          "likes": "14400",
+          "comments": "1044",
+          "shares": "363",
+          "saves": "955",
+          "reposts": "0"
+        }
+      },
+      "music": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "music_id": "7691938912935061159",
+        "title": "xxxxxxxx xxxxx - xxxxxxxxxxxxxxxxx",
+        "author_name": "Person 0eb353",
+        "original": true,
+        "duration_ms": "17000",
+        "cover_media_id": "9e016cd8-fa96-5eaa-bad8-c896eac5f6be",
+        "copyrighted": false,
+        "commerce": true
+      },
+      "post": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "post_id": "7691938854828177096",
+        "user_id": "7041539490274267691",
+        "kind": "POST_KIND_VIDEO",
+        "created_at": "2026-10-02T05:31:18Z",
+        "caption": "\"xxxxxx xx xx\".. xxxx xxx xxxx xxxxx xxxxxx xxxx xxx xxx xxxxxxx xxx xxxxx xxx xxxxxx xxxxxx xxxx xxxxx xxx #xxxxx_xxxxxx",
+        "hashtags": [
+          {
+            "id": "7284280508344471826",
+            "name": "xxxxx_xxxxxx"
+          }
+        ],
+        "text_ranges": [
+          {
+            "offset": 108,
+            "length": 13,
+            "type": "hashtag",
+            "name": "xxxxx_xxxxxx"
+          }
+        ],
+        "duration_ms": "17000",
+        "width": 576,
+        "height": 1024,
+        "cover_media_id": "84949018-2cca-5594-9bab-0d37ae3886be",
+        "music_id": "7691938912935061159",
+        "pinned": false,
+        "ad": false,
+        "labels": {
+          "ai_generated": true
+        },
+        "category": 120,
+        "comments_disabled": false,
+        "text_language": "ar",
+        "counts": {
+          "plays": "591200",
+          "likes": "14400",
+          "comments": "1044",
+          "shares": "363",
+          "saves": "955",
+          "reposts": "0"
+        },
+        "status": "POST_STATUS_VISIBLE",
+        "discovered_via": "DISCOVERED_VIA_LIST"
+      }
+    },
+    {
+      "media": [
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "8b808f17-dc5a-5848-af40-b1494d5e5504",
+          "kind": "MEDIA_KIND_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691932195438708525",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/20dece00d13d.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "width": 576,
+          "height": 1024,
+          "post_created_at": "2026-10-02T05:05:19Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "ad7a437f-a671-5f9b-83ce-151d086b03b4",
+          "kind": "MEDIA_KIND_ORIGIN_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691932195438708525",
+          "source_url": "https://p19-common-sign.tiktokcdn-us.com/scrubbed/ebe3ca630aec.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T05:05:19Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "10aad9c7-bf23-5ae5-bf16-7644faa6db22",
+          "kind": "MEDIA_KIND_DYNAMIC_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691932195438708525",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/4a4fefba05f6.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T05:05:19Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "04af3b62-fa32-52ec-b094-a89c90850457",
+          "kind": "MEDIA_KIND_VIDEO",
+          "variant": "sd",
+          "user_id": "7041539490274267691",
+          "post_id": "7691932195438708525",
+          "source_url": "https://v16-webapp-prime.us.tiktok.com/scrubbed/08ca92a74d66?expire=1793690310",
+          "source_expires_at": "2026-11-03T07:18:30Z",
+          "width": 576,
+          "height": 1024,
+          "duration_ms": "42000",
+          "size_bytes": "3642589",
+          "mime": "video/mp4",
+          "bitrate": "691619",
+          "post_created_at": "2026-10-02T05:05:19Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "863646e7-b8b4-5444-9567-14fc49a9a35e",
+          "kind": "MEDIA_KIND_VIDEO",
+          "variant": "hd",
+          "user_id": "7041539490274267691",
+          "post_id": "7691932195438708525",
+          "source_url": "https://v16-webapp-prime.us.tiktok.com/scrubbed/5239631260ba?expire=1793690310",
+          "source_expires_at": "2026-11-03T07:18:30Z",
+          "width": 576,
+          "height": 1024,
+          "duration_ms": "42000",
+          "size_bytes": "6428382",
+          "mime": "video/mp4",
+          "bitrate": "1220559",
+          "post_created_at": "2026-10-02T05:05:19Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "7424e8a5-a4a9-5941-9f8c-119586d9d316",
+          "kind": "MEDIA_KIND_MUSIC_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "music_id": "7691932259759440142",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/6c6688daa8bb.jpeg?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T05:05:19Z"
+        }
+      ],
+      "metrics": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "post_id": "7691932195438708525",
+        "user_id": "7041539490274267691",
+        "post_created_at": "2026-10-02T05:05:19Z",
+        "counts": {
+          "plays": "49100",
+          "likes": "875",
+          "comments": "72",
+          "shares": "62",
+          "saves": "51",
+          "reposts": "0"
+        }
+      },
+      "music": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "music_id": "7691932259759440142",
+        "title": "xxxxxxxx xxxxx - xxxxxxxxxxxxxxxxx",
+        "author_name": "Person 0eb353",
+        "original": true,
+        "duration_ms": "42000",
+        "cover_media_id": "7424e8a5-a4a9-5941-9f8c-119586d9d316",
+        "copyrighted": false,
+        "commerce": true
+      },
+      "post": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "post_id": "7691932195438708525",
+        "user_id": "7041539490274267691",
+        "kind": "POST_KIND_VIDEO",
+        "created_at": "2026-10-02T05:05:19Z",
+        "caption": "xxxxxxx xxxx xxx.. xxxxxxx xxxx xx xxxxx xxxxx #xxxxx_xxxxxx",
+        "hashtags": [
+          {
+            "id": "7284280508344471826",
+            "name": "xxxxx_xxxxxx"
+          }
+        ],
+        "text_ranges": [
+          {
+            "offset": 47,
+            "length": 13,
+            "type": "hashtag",
+            "name": "xxxxx_xxxxxx"
+          }
+        ],
+        "duration_ms": "42000",
+        "width": 576,
+        "height": 1024,
+        "cover_media_id": "8b808f17-dc5a-5848-af40-b1494d5e5504",
+        "music_id": "7691932259759440142",
+        "pinned": false,
+        "ad": false,
+        "labels": {
+          "ai_generated": true
+        },
+        "category": 114,
+        "comments_disabled": false,
+        "text_language": "ar",
+        "counts": {
+          "plays": "49100",
+          "likes": "875",
+          "comments": "72",
+          "shares": "62",
+          "saves": "51",
+          "reposts": "0"
+        },
+        "status": "POST_STATUS_VISIBLE",
+        "discovered_via": "DISCOVERED_VIA_LIST"
+      }
+    },
+    {
+      "media": [
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "0c832c16-a87a-5a97-8dba-a75f007234f4",
+          "kind": "MEDIA_KIND_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691922493595325406",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/9c37154145ac.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "width": 576,
+          "height": 1024,
+          "post_created_at": "2026-10-02T04:27:19Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "7ac2c892-e48b-5825-a793-88415bac3e97",
+          "kind": "MEDIA_KIND_ORIGIN_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691922493595325406",
+          "source_url": "https://p19-common-sign.tiktokcdn-us.com/scrubbed/34837651fa81.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T04:27:19Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "3d5d149c-895c-5c3c-8758-ae5f84a83acb",
+          "kind": "MEDIA_KIND_DYNAMIC_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691922493595325406",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/a3948d273ac4.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T04:27:19Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "952594ff-a05f-56a9-980d-9e19c2a8631a",
+          "kind": "MEDIA_KIND_VIDEO",
+          "variant": "sd",
+          "user_id": "7041539490274267691",
+          "post_id": "7691922493595325406",
+          "source_url": "https://v16-webapp-prime.us.tiktok.com/scrubbed/0f430c5680d1?expire=1793690321",
+          "source_expires_at": "2026-11-03T07:18:41Z",
+          "width": 576,
+          "height": 1024,
+          "duration_ms": "53000",
+          "size_bytes": "2932253",
+          "mime": "video/mp4",
+          "bitrate": "437209",
+          "post_created_at": "2026-10-02T04:27:19Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "950b16c9-962e-5075-990f-44fade77da42",
+          "kind": "MEDIA_KIND_VIDEO",
+          "variant": "hd",
+          "user_id": "7041539490274267691",
+          "post_id": "7691922493595325406",
+          "source_url": "https://v16-webapp-prime.us.tiktok.com/scrubbed/893afe7c897f?expire=1793690321",
+          "source_expires_at": "2026-11-03T07:18:41Z",
+          "width": 576,
+          "height": 1024,
+          "duration_ms": "53000",
+          "size_bytes": "3930258",
+          "mime": "video/mp4",
+          "bitrate": "586015",
+          "post_created_at": "2026-10-02T04:27:19Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "d1b40284-14f6-5395-a0ea-2f7cef2c794a",
+          "kind": "MEDIA_KIND_MUSIC_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "music_id": "7691922554714840010",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/6c6688daa8bb.jpeg?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T04:27:19Z"
+        }
+      ],
+      "metrics": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "post_id": "7691922493595325406",
+        "user_id": "7041539490274267691",
+        "post_created_at": "2026-10-02T04:27:19Z",
+        "counts": {
+          "plays": "21100",
+          "likes": "264",
+          "comments": "6",
+          "shares": "5",
+          "saves": "22",
+          "reposts": "0"
+        }
+      },
+      "music": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "music_id": "7691922554714840010",
+        "title": "xxxxxxxx xxxxx - xxxxxxxxxxxxxxxxx",
+        "author_name": "Person 0eb353",
+        "original": true,
+        "duration_ms": "53000",
+        "cover_media_id": "d1b40284-14f6-5395-a0ea-2f7cef2c794a",
+        "copyrighted": false,
+        "commerce": true
+      },
+      "post": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "post_id": "7691922493595325406",
+        "user_id": "7041539490274267691",
+        "kind": "POST_KIND_VIDEO",
+        "created_at": "2026-10-02T04:27:19Z",
+        "caption": "xxx xx xxxx؟.. xxxxxx xxxx xxxx xxxxx xxx xxxxxxx xx xxxxxxxxx #xxxxx_xxxxxx",
+        "hashtags": [
+          {
+            "id": "7284280508344471826",
+            "name": "xxxxx_xxxxxx"
+          }
+        ],
+        "text_ranges": [
+          {
+            "offset": 63,
+            "length": 13,
+            "type": "hashtag",
+            "name": "xxxxx_xxxxxx"
+          }
+        ],
+        "duration_ms": "53000",
+        "width": 576,
+        "height": 1024,
+        "cover_media_id": "0c832c16-a87a-5a97-8dba-a75f007234f4",
+        "music_id": "7691922554714840010",
+        "pinned": false,
+        "ad": false,
+        "labels": {
+          "ai_generated": true
+        },
+        "category": 114,
+        "comments_disabled": false,
+        "text_language": "ar",
+        "counts": {
+          "plays": "21100",
+          "likes": "264",
+          "comments": "6",
+          "shares": "5",
+          "saves": "22",
+          "reposts": "0"
+        },
+        "status": "POST_STATUS_VISIBLE",
+        "discovered_via": "DISCOVERED_VIA_LIST"
+      }
+    },
+    {
+      "media": [
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "50a3bf4b-bd90-55a1-ad32-3d4d3579a6d3",
+          "kind": "MEDIA_KIND_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691915370825647832",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/1aa73e064e82.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "width": 576,
+          "height": 1024,
+          "post_created_at": "2026-10-02T04:00:00Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "66ea32b6-cb9a-5751-82b3-9b4aeeac6433",
+          "kind": "MEDIA_KIND_ORIGIN_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691915370825647832",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/abdcd9788349.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T04:00:00Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "f1233115-977c-5c77-bfed-13b7f134deb6",
+          "kind": "MEDIA_KIND_DYNAMIC_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "post_id": "7691915370825647832",
+          "source_url": "https://p19-common-sign.tiktokcdn-us.com/scrubbed/0c8e825c1575.image?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T04:00:00Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "df4aca46-6bd1-555e-b758-c3edbfa45e8a",
+          "kind": "MEDIA_KIND_VIDEO",
+          "variant": "sd",
+          "user_id": "7041539490274267691",
+          "post_id": "7691915370825647832",
+          "source_url": "https://v16-webapp-prime.us.tiktok.com/scrubbed/73cd18c0f618?expire=1793690301",
+          "source_expires_at": "2026-11-03T07:18:21Z",
+          "width": 576,
+          "height": 1024,
+          "duration_ms": "33000",
+          "size_bytes": "1519411",
+          "mime": "video/mp4",
+          "bitrate": "365473",
+          "post_created_at": "2026-10-02T04:00:00Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "5a19f3bc-16dd-5548-b72b-10139af0ca27",
+          "kind": "MEDIA_KIND_VIDEO",
+          "variant": "hd",
+          "user_id": "7041539490274267691",
+          "post_id": "7691915370825647832",
+          "source_url": "https://v16-webapp-prime.us.tiktok.com/scrubbed/c59ed5b70a7c?expire=1793690301",
+          "source_expires_at": "2026-11-03T07:18:21Z",
+          "width": 576,
+          "height": 1024,
+          "duration_ms": "33000",
+          "size_bytes": "2455484",
+          "mime": "video/mp4",
+          "bitrate": "590633",
+          "post_created_at": "2026-10-02T04:00:00Z"
+        },
+        {
+          "obs": {
+            "query_name": "golden",
+            "doc_id": "fixture",
+            "parser_version": 1,
+            "platform": "PLATFORM_TIKTOK"
+          },
+          "media_id": "e943fa06-13ec-5356-b2c3-85269f5ce944",
+          "kind": "MEDIA_KIND_MUSIC_COVER",
+          "variant": "original",
+          "user_id": "7041539490274267691",
+          "music_id": "7691915417041276945",
+          "source_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/6c6688daa8bb.jpeg?x-expires=1793689200",
+          "source_expires_at": "2026-11-03T07:00:00Z",
+          "post_created_at": "2026-10-02T04:00:00Z"
+        }
+      ],
+      "metrics": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "post_id": "7691915370825647832",
+        "user_id": "7041539490274267691",
+        "post_created_at": "2026-10-02T04:00:00Z",
+        "counts": {
+          "plays": "45300",
+          "likes": "351",
+          "comments": "14",
+          "shares": "5",
+          "saves": "17",
+          "reposts": "0"
+        }
+      },
+      "music": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "music_id": "7691915417041276945",
+        "title": "xxxxxxxx xxxxx - xxxxxxxxxxxxxxxxx",
+        "author_name": "Person 0eb353",
+        "original": true,
+        "duration_ms": "33000",
+        "cover_media_id": "e943fa06-13ec-5356-b2c3-85269f5ce944",
+        "copyrighted": false,
+        "commerce": true
+      },
+      "post": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "post_id": "7691915370825647832",
+        "user_id": "7041539490274267691",
+        "kind": "POST_KIND_VIDEO",
+        "created_at": "2026-10-02T04:00:00Z",
+        "caption": "xxxxxx xxxx xxxxx xxxx xxxxxx xxxxxx xxxx xxx xxxxx #xxxxx_xxxxxx",
+        "hashtags": [
+          {
+            "id": "7284280508344471826",
+            "name": "xxxxx_xxxxxx"
+          }
+        ],
+        "text_ranges": [
+          {
+            "offset": 52,
+            "length": 13,
+            "type": "hashtag",
+            "name": "xxxxx_xxxxxx"
+          }
+        ],
+        "duration_ms": "33000",
+        "width": 576,
+        "height": 1024,
+        "cover_media_id": "50a3bf4b-bd90-55a1-ad32-3d4d3579a6d3",
+        "music_id": "7691915417041276945",
+        "pinned": false,
+        "ad": false,
+        "labels": {
+          "ai_generated": true
+        },
+        "category": 114,
+        "comments_disabled": false,
+        "text_language": "ar",
+        "counts": {
+          "plays": "45300",
+          "likes": "351",
+          "comments": "14",
+          "shares": "5",
+          "saves": "17",
+          "reposts": "0"
+        },
+        "status": "POST_STATUS_VISIBLE",
+        "discovered_via": "DISCOVERED_VIA_LIST"
+      }
+    }
+  ],
+  "status_code": 0
+}

@@ -4,6 +4,7 @@
 //	tksctl migrate up|down|status        migrate schema tt, seed the operation registry, create partitions
 //	tksctl kafka apply                   create/grow tks's topics from configs/tt/topics.yaml
 //	tksctl schemas apply|check           register the tt.v1 and common.v1 schemas (BACKWARD_TRANSITIVE) / dry run
+//	tksctl fixtures add|scrub            scrub a real answer into a golden fixture (M4) / scrub old fixtures again
 //
 // The copied Facebook pipeline keeps fbctl until M9 removes it.
 package main
@@ -26,7 +27,9 @@ func usage() {
 commands:
   migrate up|down|status
   kafka apply [--partitions-cap N] [--replicas N]
-  schemas apply | schemas check`)
+  schemas apply | schemas check
+  fixtures add --from <har|answer> --name <case> [--kind K] [--entry N] [--items N]
+  fixtures scrub [--root testdata/tt]`)
 	os.Exit(2)
 }
 
@@ -58,6 +61,10 @@ func main() {
 		out, err = kafkaApply(ctx, cfg, rest)
 	case "schemas apply", "schemas check":
 		out, err = schemasApply(ctx, cfg, sub == "check")
+	case "fixtures add":
+		out, err = fixturesAdd(rest)
+	case "fixtures scrub":
+		out, err = fixturesScrub(rest)
 	default:
 		usage()
 	}
