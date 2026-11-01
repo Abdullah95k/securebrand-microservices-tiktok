@@ -151,8 +151,18 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 		script = signer
 	}
 	page(w, `<!doctype html><html><head>`+script+`</head><body><div id="app"></div>`+
-		`<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">`+string(blob)+`</script></body></html>`)
+		`<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">`+string(blob)+`</script>`+ownCalls+`</body></html>`)
 }
+
+// ownCalls is the page script making the page's own first API call, as
+// TikTok's web app does once it starts: a profile page asks for the post
+// list, a post page for its comments. Only a browser runs it.
+const ownCalls = `<script>(function(){const d=JSON.parse(document.getElementById("__UNIVERSAL_DATA_FOR_REHYDRATION__").textContent).__DEFAULT_SCOPE__;` +
+	`const c=d["webapp.app-context"],u=d["webapp.user-detail"],v=d["webapp.video-detail"];` +
+	`const base="aid=1988&device_id="+c.wid+"&odinId="+c.odinId;` +
+	`if(u&&u.userInfo){fetch("/api/post/item_list/?"+base+"&count=16&cursor=0&secUid="+encodeURIComponent(u.userInfo.user.secUid));}` +
+	`if(v&&v.itemInfo){fetch("/api/comment/list/?"+base+"&aweme_id="+v.itemInfo.itemStruct.id+"&count=20&cursor=0");}` +
+	`})();</script>`
 
 func (s *Server) mint() (wid, odin, created string) {
 	s.mu.Lock()
@@ -187,6 +197,12 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if f.RequireSignature && s.signed(r.URL.Path) && q.Get("X-Gnarly") == "" {
+		if r.URL.Path == "/api/user/detail/" {
+			// The account call is refused with an empty account, not an
+			// empty body (the C2 run).
+			writeJSON(w, map[string]any{"userInfo": map[string]any{"user": map[string]any{}, "stats": map[string]any{}, "shareMeta": map[string]any{}}})
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -323,8 +339,10 @@ func (s *Server) creatorList(w http.ResponseWriter, r *http.Request, dev *device
 	}
 	more := skipped+len(page) < len(acc.Posts)
 	s.issue(dev, strconv.FormatInt(next, 10))
-	writeJSON(w, map[string]any{"itemList": s.items(page, r.Host, false), "cursor": strconv.FormatInt(next, 10),
-		"hasMore": more, "hasMorePrevious": more, "statusCode": 0})
+	// Like TikTok's (the C2 run): no cursor and no hasMore in the answer;
+	// the next cursor is the last post's createTime in ms, and
+	// hasMorePrevious says whether older posts remain.
+	writeJSON(w, map[string]any{"itemList": s.items(page, r.Host, false), "hasMorePrevious": more, "statusCode": 0})
 }
 
 // postList is /api/post/item_list/: pinned posts first on the first page,

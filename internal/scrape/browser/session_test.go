@@ -88,3 +88,66 @@ func TestSessionFetchesFromThePage(t *testing.T) {
 		t.Fatalf("fetch after close: %v", err)
 	}
 }
+
+// TestSessionCapturesThePagesOwnCalls loads a page whose script calls the
+// API on its own, then follows a link to a second page that does too: the
+// Session must report each page's own calls with their answers.
+func TestSessionCapturesThePagesOwnCalls(t *testing.T) {
+	bin := chromium(t)
+	page := func(call string) string {
+		return `<!doctype html><html><head><script>fetch("/api/` + call + `/?n=1").then(r => r.text());` +
+			`window.addEventListener("scroll", () => fetch("/api/` + call + `/?n=2"));</script></head>` +
+			`<body style="height:5000px">` + call + `</body></html>`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"path":"` + r.URL.Path + `","n":"` + r.URL.Query().Get("n") + `"}`))
+		case r.URL.Path == "/video":
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(page("comment/list")))
+		default:
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(page("post/item_list")))
+		}
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	s, err := OpenSession(ctx, bin, Options{URL: srv.URL + "/@someone", NoSandbox: true, HideAutomation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	own := s.Captured(ctx, 0)
+	if len(own) != 1 || !strings.Contains(own[0].URL, "/api/post/item_list/?n=1") || !strings.Contains(string(own[0].Body), `"n":"1"`) {
+		t.Fatalf("the page's own call: %+v", own)
+	}
+	v, err := s.Evaluate(ctx, "navigator.webdriver === true")
+	if err != nil || string(v) != "false" {
+		t.Fatalf("navigator.webdriver with HideAutomation: %s %v", v, err)
+	}
+	mark := s.Mark()
+	if err := s.Scroll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Captured(ctx, mark); len(got) != 1 || !strings.Contains(got[0].URL, "n=2") {
+		t.Fatalf("after scrolling: %+v", got)
+	}
+	mark = s.Mark()
+	if err := s.Navigate(ctx, srv.URL+"/video"); err != nil {
+		t.Fatal(err)
+	}
+	if s.Status != 200 || !strings.HasSuffix(s.URL, "/video") {
+		t.Fatalf("after navigating: %s %d", s.URL, s.Status)
+	}
+	got := s.Captured(ctx, mark)
+	if len(got) != 1 || !strings.Contains(got[0].URL, "/api/comment/list/?n=1") || !strings.Contains(string(got[0].Body), "comment/list") {
+		t.Fatalf("the second page's own call: %+v", got)
+	}
+	// Fetch still works on the new page.
+	if f, err := s.Fetch(ctx, "/api/comment/list/?n=9"); err != nil || f.Status != 200 {
+		t.Fatalf("fetch after navigating: %v %v", f, err)
+	}
+}

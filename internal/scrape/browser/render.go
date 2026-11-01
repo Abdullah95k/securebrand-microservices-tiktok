@@ -67,6 +67,10 @@ type Options struct {
 	// BlockMedia fails image, media and font requests: they cost proxy
 	// bandwidth and carry nothing a bootstrap or capture needs.
 	BlockMedia bool
+	// HideAutomation starts Chromium without the automation flag pages read
+	// as navigator.webdriver (Blink's AutomationControlled feature), so the
+	// page sees the browser a person would run.
+	HideAutomation bool
 }
 
 // ClientHints is the user-agent metadata of a fingerprint.
@@ -130,6 +134,8 @@ type Exchange struct {
 	Status       int               `json:"status"`
 	Body         []byte            `json:"-"`
 	Headers      map[string]string `json:"-"`
+	// seq numbers the captured requests in the order they started.
+	seq int
 }
 
 // Result is a rendered page.
@@ -240,6 +246,9 @@ func launchPage(ctx context.Context, binary string, opts Options) (r *renderer, 
 	if opts.AcceptLanguage != "" {
 		args = append(args, "--lang="+strings.SplitN(opts.AcceptLanguage, ",", 2)[0])
 	}
+	if opts.HideAutomation {
+		args = append(args, "--disable-blink-features=AutomationControlled")
+	}
 	var proxyUser, proxyPass string
 	if opts.Proxy != nil {
 		p := *opts.Proxy
@@ -345,6 +354,7 @@ type renderer struct {
 	inflight   map[string]bool
 	lastNet    time.Time
 	authFailed bool
+	seq        int // captured requests so far
 }
 
 type document struct {
@@ -479,7 +489,8 @@ func (r *renderer) handle(ctx context.Context, ev event) error {
 			return nil
 		}
 		r.lastNet = time.Now()
-		x := &Exchange{URL: p.Request.URL, Method: p.Request.Method}
+		r.seq++
+		x := &Exchange{URL: p.Request.URL, Method: p.Request.Method, seq: r.seq}
 		post := p.Request.PostData
 		if post == "" && p.Request.HasPostData {
 			var pd struct {

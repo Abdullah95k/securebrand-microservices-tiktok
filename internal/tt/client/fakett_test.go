@@ -6,10 +6,12 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakett"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
+	ttclient "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/client"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/tttest"
 )
 
@@ -48,20 +50,24 @@ func TestClientAgainstFakett(t *testing.T) {
 				}
 				return resp
 			}
-			// The creator list pages by time back to the first post.
-			seen, cursor, pages := 0, "", 0
+			// The creator list pages by time back to the first post: the
+			// cursor is the oldest createTime read (NextCreatorCursor).
+			seen, pages := map[string]bool{}, 0
+			cursor := env.World.Now.Add(time.Second).UnixMilli()
 			for {
 				resp := call("creator_list", map[string]any{"sec_uid": acc.SecUID, "count": 15, "cursor": cursor})
-				items := resp.Parts[0].Get("itemList").Array()
-				seen += len(items)
+				for _, it := range resp.Parts[0].Get("itemList").Array() {
+					seen[it.Get("id").String()] = true
+				}
 				pages++
-				if !resp.Parts[0].Get("hasMorePrevious").Bool() || pages > 10 {
+				next, more := ttclient.NextCreatorCursor(resp.Parts[0], cursor)
+				if !more || pages > 20 {
 					break
 				}
-				cursor = resp.Parts[0].Get("cursor").String()
+				cursor = next
 			}
-			if seen != len(acc.Posts) {
-				t.Fatalf("creator list: %d posts in %d pages, want %d", seen, pages, len(acc.Posts))
+			if len(seen) != len(acc.Posts) {
+				t.Fatalf("creator list: %d posts in %d pages, want %d", len(seen), pages, len(acc.Posts))
 			}
 			// The app's own list puts the pinned post first.
 			first := call("post_list", map[string]any{"sec_uid": acc.SecUID, "count": 16, "cursor": 0}).Parts[0].Get("itemList.0")

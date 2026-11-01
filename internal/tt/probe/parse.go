@@ -135,6 +135,9 @@ func (r *runner) summarise() {
 				s.PhotoSeen++
 			}
 			gap := p.PostedAt - p.IDTime
+			if gap > 60 {
+				s.IDTimeScheduled++
+			}
 			if gap < 0 {
 				gap = -gap
 			}
@@ -151,8 +154,19 @@ func (r *runner) summarise() {
 		if w := a.Walk; w != nil {
 			s.WalkStops[w.Stop]++
 			s.FilteredPages += w.Filtered
+			s.WalkRepeats += w.Repeats
 			if !w.Oldest.IsZero() && (s.OldestReached.IsZero() || w.Oldest.Before(s.OldestReached)) {
 				s.OldestReached = w.Oldest
+			}
+		}
+		for _, d := range a.Depth {
+			if s.DepthServed == nil {
+				s.DepthServed = map[string]int{}
+			}
+			if d.Step.Items > 0 {
+				s.DepthServed[strconv.Itoa(d.Days)]++
+			} else {
+				s.DepthServed[strconv.Itoa(d.Days)] += 0
 			}
 		}
 		for _, c := range a.CommentReads {

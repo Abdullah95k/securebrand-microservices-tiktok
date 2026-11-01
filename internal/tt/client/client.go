@@ -41,13 +41,19 @@ func Seed() (registry.Seed, error) {
 
 // Decode reads TikTok's envelope: one JSON object whose statusCode (or
 // status_code) is an error unless it is 0. An empty body has no parts; the
-// rules class it RegistryStale (detect.Rules.EmptyIsStale).
+// rules class it RegistryStale (detect.Rules.EmptyIsStale). So has an
+// account or post answer whose object is empty: TikTok refuses an unsigned
+// /api/user/detail/ with {"userInfo":{"user":{},"stats":{},...}} and no
+// statusCode (the C2 run, 2026-10-31).
 func Decode(body []byte) ([]gjson.Result, []detect.GQLError, bool) {
 	trimmed := strings.TrimSpace(string(body))
 	if trimmed == "" || !gjson.Valid(trimmed) {
 		return nil, nil, false
 	}
 	r := gjson.Parse(trimmed)
+	if refusedEmpty(r) {
+		return nil, nil, false
+	}
 	code := r.Get("statusCode")
 	if !code.Exists() {
 		code = r.Get("status_code")
@@ -60,4 +66,19 @@ func Decode(body []byte) ([]gjson.Result, []detect.GQLError, bool) {
 		return []gjson.Result{r}, []detect.GQLError{{Code: c, Message: msg}}, false
 	}
 	return []gjson.Result{r}, nil, true
+}
+
+// refusedEmpty reports an answer that carries the account or post object
+// with nothing in it and no error code.
+func refusedEmpty(r gjson.Result) bool {
+	if r.Get("statusCode").Int() != 0 || r.Get("status_code").Int() != 0 {
+		return false
+	}
+	if u := r.Get("userInfo"); u.Exists() && u.Get("user.id").String() == "" {
+		return true
+	}
+	if i := r.Get("itemInfo"); i.Exists() && i.Get("itemStruct.id").String() == "" {
+		return true
+	}
+	return false
 }

@@ -2,6 +2,7 @@ package probe
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -46,6 +47,10 @@ type Options struct {
 	MaxCommentPages int
 	// CountChecks is how many accounts get the page-size check (T11).
 	CountChecks int
+	// DepthChecks is how many accounts get a creator-list page read at each
+	// of DepthDays back (T11).
+	DepthChecks int
+	DepthDays   []int
 	Covers      int // covers saved per account
 	Videos      int // video files downloaded per account
 	// Signer "browser" repeats the main calls from inside a headless
@@ -176,15 +181,21 @@ func (r *runner) account(ctx context.Context, index int, name string) Account {
 	}
 	defer r.o.Pool.Release(id)
 	// 1. The profile page (T1, T2, T3, T5, T28).
-	page, err := r.o.Loader.Load(ctx, id, a.URL)
+	page, took, err := r.load(ctx, id, a.URL)
 	if ctx.Err() != nil {
 		a.Stopped = true
 		return a
 	}
-	a.Page, a.PageForm = r.pageStep("profile_page", page, err)
+	a.Page, a.PageForm = r.pageStep("profile_page", page, err, took)
 	if page != nil && r.pages < r.o.RawPages {
 		r.pages++
 		r.saveRaw(name+"/profile_page.html", page.HTML)
+	}
+	if page != nil && a.PageForm != "ssr" {
+		if ud, ok := htmlx.Scope(page.HTML, htmlx.ScopeUserDetail); ok {
+			a.PageStatus = int(ud.Get("statusCode").Int())
+		}
+		r.saveRaw("failed/"+safe(name)+"-profile_page.html", page.HTML)
 	}
 	for k := range id.Doer.Cookies(id.Base) {
 		a.Cookies = append(a.Cookies, k)
@@ -198,8 +209,8 @@ func (r *runner) account(ctx context.Context, index int, name string) Account {
 	a.BotType = tok["botType"]
 	if index == 0 && r.o.AltPool != nil {
 		if alt, err := r.o.AltPool.Acquire(ctx, r.o.Tier); err == nil {
-			p, err := r.o.Loader.Load(ctx, alt, a.URL)
-			s, form := r.pageStep("profile_page_alt", p, err)
+			p, took, err := r.load(ctx, alt, a.URL)
+			s, form := r.pageStep("profile_page_alt", p, err, took)
 			s.Reason = strings.TrimSpace(r.o.AltFingerprint + " " + form + " " + s.Reason)
 			a.AltPage = &s
 			r.o.AltPool.Release(alt)
@@ -237,7 +248,8 @@ func (r *runner) account(ctx context.Context, index int, name string) Account {
 	sec := a.Data.SecUID
 	r.saveAvatar(ctx, id, &a)
 	// 4-5. Both post lists, unsigned (T4, T9, T10, T11).
-	creator, cs := r.call(ctx, r.o.Client, id, "creator_list", "creator_list", map[string]any{"sec_uid": sec, "count": 15, "cursor": nowMs(r.o.Now())}, a.URL)
+	start := nowMs(r.o.Now())
+	creator, cs := r.call(ctx, r.o.Client, id, "creator_list", "creator_list", map[string]any{"sec_uid": sec, "count": 15, "cursor": start}, a.URL)
 	a.CreatorList = &cs
 	app, as := r.call(ctx, r.o.Client, id, "post_list", "post_list", map[string]any{"sec_uid": sec, "count": 16, "cursor": 0}, a.URL)
 	a.PostList = &as
@@ -252,7 +264,7 @@ func (r *runner) account(ctx context.Context, index int, name string) Account {
 	}
 	if index < r.o.CountChecks {
 		a.CountChecks = map[string]Step{}
-		for _, n := range []int{5, 30} {
+		for _, n := range []int{5, 16, 20, 30} {
 			resp, s := r.call(ctx, r.o.Client, id, "creator_list_count", "creator_list", map[string]any{"sec_uid": sec, "count": n, "cursor": nowMs(r.o.Now())}, a.URL)
 			countStep(&s, resp)
 			a.CountChecks["creator_count_"+strconv.Itoa(n)] = s
@@ -261,11 +273,16 @@ func (r *runner) account(ctx context.Context, index int, name string) Account {
 	// 6. Walk the list that answered.
 	switch {
 	case cs.Class == detect.OK.String() && cs.Items > 0:
-		r.walk(ctx, id, &a, "creator_list", creator)
+		r.walk(ctx, id, &a, "creator_list", creator, start)
 	case as.Class == detect.OK.String() && as.Items > 0:
-		r.walk(ctx, id, &a, "post_list", app)
+		r.walk(ctx, id, &a, "post_list", app, 0)
 	}
 	if a.Walk != nil && a.Walk.Stop == stopped {
+		a.Stopped = true
+		return a
+	}
+	// 6b. How far back the list answers (T11).
+	if index < r.o.DepthChecks && cs.Class == detect.OK.String() && r.depth(ctx, id, &a, sec) {
 		a.Stopped = true
 		return a
 	}
@@ -293,17 +310,24 @@ func (r *runner) account(ctx context.Context, index int, name string) Account {
 	return a
 }
 
+// load loads a page with the identity and times it.
+func (r *runner) load(ctx context.Context, id *session.Identity, raw string) (*session.PageLoad, time.Duration, error) {
+	start := time.Now()
+	p, err := r.o.Loader.Load(ctx, id, raw)
+	return p, time.Since(start), err
+}
+
 // pageStep records a page load: its class and the page's form.
-func (r *runner) pageStep(kind string, p *session.PageLoad, err error) (Step, string) {
+func (r *runner) pageStep(kind string, p *session.PageLoad, err error, took time.Duration) (Step, string) {
 	if p == nil {
-		s := Step{Class: detect.Transport.String()}
+		s := Step{Class: detect.Transport.String(), Ms: took.Milliseconds()}
 		if err != nil {
 			s.Reason = redact(err.Error())
 		}
 		r.book(kind, s)
 		return s, "none"
 	}
-	s := Step{Class: p.Class.String(), Status: p.Status, Reason: redact(p.Reason), WireBytes: p.Bytes}
+	s := Step{Class: p.Class.String(), Status: p.Status, Reason: redact(p.Reason), WireBytes: p.Bytes, Ms: took.Milliseconds()}
 	form := "none"
 	switch {
 	case htmlx.IsChallenge(p.HTML):
@@ -355,9 +379,10 @@ func IDTime(id string) time.Time {
 	return time.Unix(n>>32, 0).UTC()
 }
 
-func (r *runner) walk(ctx context.Context, id *session.Identity, a *Account, variant string, first *graphql.Response) {
+func (r *runner) walk(ctx context.Context, id *session.Identity, a *Account, variant string, first *graphql.Response, cursor int64) {
 	w := &Walk{Variant: variant}
 	a.Walk = w
+	seen := map[string]bool{}
 	resp := first
 	for {
 		p := resp.Parts[0]
@@ -365,17 +390,40 @@ func (r *runner) walk(ctx context.Context, id *session.Identity, a *Account, var
 			w.Filtered++
 		}
 		posts := r.posts(a.Username, p.Get("itemList").Array())
-		a.Posts = append(a.Posts, posts...)
-		w.Posts += len(posts)
+		fresh := 0
 		for _, x := range posts {
+			if seen[x.ID] {
+				w.Repeats++
+				continue
+			}
+			seen[x.ID] = true
+			fresh++
+			a.Posts = append(a.Posts, x)
 			if t := time.Unix(x.PostedAt, 0).UTC(); !x.Pinned && (w.Oldest.IsZero() || t.Before(w.Oldest)) {
 				w.Oldest = t
 			}
 		}
+		w.Posts += fresh
+		// The next page: the creator list's cursor is a time (no cursor in
+		// its answer, the C2 run); the app's list returns one.
+		var next any
 		more := p.Get("hasMore").Bool() || p.Get("hasMorePrevious").Bool()
+		if variant == "creator_list" {
+			var c int64
+			c, more = ttclient.NextCreatorCursor(p, cursor)
+			if len(posts) == 0 {
+				w.EmptyPages++
+			}
+			cursor, next = c, c
+		} else {
+			next = p.Get("cursor").String()
+		}
 		switch {
 		case !more:
 			w.Stop = "end"
+			return
+		case len(posts) > 0 && fresh == 0:
+			w.Stop = "stuck"
 			return
 		case w.Pages >= r.o.MaxListPages:
 			w.Stop = "cap"
@@ -383,12 +431,15 @@ func (r *runner) walk(ctx context.Context, id *session.Identity, a *Account, var
 		case r.o.MaxAge > 0 && !w.Oldest.IsZero() && r.o.Now().Sub(w.Oldest) > r.o.MaxAge:
 			w.Stop = "age"
 			return
+		case r.o.MaxAge > 0 && variant == "creator_list" && r.o.Now().Sub(time.UnixMilli(cursor)) > r.o.MaxAge:
+			w.Stop = "age" // empty pages stepped the cursor past the window
+			return
 		}
-		vars := map[string]any{"sec_uid": a.Data.SecUID, "count": 15, "cursor": p.Get("cursor").String()}
+		vars := map[string]any{"sec_uid": a.Data.SecUID, "count": 15, "cursor": next}
 		if variant == "post_list" {
 			vars["count"] = 16
 		}
-		next, s := r.call(ctx, r.o.Client, id, variant+"_page", variant, vars, a.URL)
+		nextResp, s := r.call(ctx, r.o.Client, id, variant+"_page", variant, vars, a.URL)
 		if s.Class == stopped {
 			w.Stop = stopped
 			return
@@ -398,11 +449,38 @@ func (r *runner) walk(ctx context.Context, id *session.Identity, a *Account, var
 			w.Stop, w.Failed = "wall:"+s.Class, &s
 			return
 		}
-		resp = next
+		resp = nextResp
 		if r.o.Progress != nil && w.Pages%progressEvery == 0 {
 			r.o.Progress(fmt.Sprintf("%s: %d posts so far, back to %s", a.Username, w.Posts, w.Oldest.Format("2006-01-02")))
 		}
 	}
+}
+
+// depth reads one creator-list page at each of DepthDays back (T11): the
+// cursor is a time, so how far back the list answers needs no walk.
+func (r *runner) depth(ctx context.Context, id *session.Identity, a *Account, sec string) bool {
+	for _, d := range r.o.DepthDays {
+		cursor := r.o.Now().Add(-time.Duration(d) * 24 * time.Hour).UnixMilli()
+		resp, s := r.call(ctx, r.o.Client, id, "creator_list_depth", "creator_list", map[string]any{"sec_uid": sec, "count": 15, "cursor": cursor}, a.URL)
+		if s.Class == stopped {
+			return true
+		}
+		countStep(&s, resp)
+		dp := Depth{Days: d, Step: s}
+		if resp != nil && len(resp.Parts) > 0 {
+			for _, it := range resp.Parts[0].Get("itemList").Array() {
+				t := time.Unix(it.Get("createTime").Int(), 0).UTC()
+				if dp.Newest.IsZero() || t.After(dp.Newest) {
+					dp.Newest = t
+				}
+				if dp.Oldest.IsZero() || t.Before(dp.Oldest) {
+					dp.Oldest = t
+				}
+			}
+		}
+		a.Depth = append(a.Depth, dp)
+	}
+	return false
 }
 
 // fresh returns a new identity bootstrapped on the account's page, or nil.
@@ -411,8 +489,8 @@ func (r *runner) fresh(ctx context.Context, a *Account) *session.Identity {
 	if err != nil {
 		return nil
 	}
-	p, err := r.o.Loader.Load(ctx, id, a.URL)
-	s, _ := r.pageStep("profile_page_second", p, err)
+	p, took, err := r.load(ctx, id, a.URL)
+	s, _ := r.pageStep("profile_page_second", p, err, took)
 	if s.Class != detect.OK.String() || !id.Bootstrapped() {
 		r.o.Pool.Release(id)
 		return nil
@@ -486,14 +564,15 @@ func (r *runner) postPages(ctx context.Context, id *session.Identity, a *Account
 		if x.p == nil {
 			continue
 		}
-		pl, err := r.o.Loader.Load(ctx, id, x.p.Link)
-		s, _ := r.pageStep(x.kind, pl, err)
+		pl, took, err := r.load(ctx, id, x.p.Link)
+		s, _ := r.pageStep(x.kind, pl, err, took)
 		if pl != nil {
 			if vd, ok := htmlx.Scope(pl.HTML, htmlx.ScopeVideoDetail); ok {
 				st := vd.Get("itemInfo.itemStruct")
 				s.Items = 1
 				if x.kind == "post_page" {
 					a.PostPageStats = st.Get("stats").Exists() || st.Get("statsV2").Exists()
+					a.pageVideoURL = smallestVideo(st.Get("video"))
 				}
 			}
 			if r.pages < r.o.RawPages+2 {
@@ -607,22 +686,28 @@ func (r *runner) comments(ctx context.Context, id *session.Identity, a *Account)
 // get fetches a URL with the identity's cookies (when it has any) and
 // returns the body and its step.
 func (r *runner) get(ctx context.Context, id *session.Identity, kind, raw, referer, accept string) ([]byte, Step) {
+	return r.getWith(ctx, id, kind, raw, [][2]string{
+		{"sec-ch-ua", id.FP.SecChUa}, {"sec-ch-ua-mobile", id.FP.SecChUaMobile}, {"sec-ch-ua-platform", id.FP.SecChUaPlatform},
+		{"user-agent", id.FP.UserAgent}, {"accept", accept}, {"sec-fetch-site", "cross-site"}, {"sec-fetch-mode", "no-cors"},
+		{"sec-fetch-dest", "empty"}, {"referer", referer}, {"accept-encoding", "gzip, deflate, br, zstd"},
+		{"accept-language", r.o.AcceptLanguage}})
+}
+
+// getWith fetches a URL with these headers and the identity's cookies.
+// 200 and 206 (a range) are both answers.
+func (r *runner) getWith(ctx context.Context, id *session.Identity, kind, raw string, hdr [][2]string) ([]byte, Step) {
 	if err := id.Wait(ctx); err != nil {
 		return nil, Step{Class: stopped}
 	}
 	start := time.Now()
-	resp, err := id.Doer.Do(ctx, &transport.Request{Method: "GET", URL: raw, Header: [][2]string{
-		{"sec-ch-ua", id.FP.SecChUa}, {"sec-ch-ua-mobile", id.FP.SecChUaMobile}, {"sec-ch-ua-platform", id.FP.SecChUaPlatform},
-		{"user-agent", id.FP.UserAgent}, {"accept", accept}, {"sec-fetch-site", "cross-site"}, {"sec-fetch-mode", "no-cors"},
-		{"sec-fetch-dest", "empty"}, {"referer", referer}, {"accept-encoding", "gzip, deflate, br, zstd"},
-		{"accept-language", r.o.AcceptLanguage}}})
+	resp, err := id.Doer.Do(ctx, &transport.Request{Method: "GET", URL: raw, Header: hdr})
 	if err != nil {
 		s := Step{Class: detect.Transport.String(), Reason: redact(err.Error()), Ms: time.Since(start).Milliseconds()}
 		r.book(kind, s)
 		return nil, s
 	}
 	s := Step{Class: detect.OK.String(), Status: resp.Status, Ms: time.Since(start).Milliseconds(), WireBytes: resp.BytesIn + resp.BytesOut, Items: len(resp.Body)}
-	if resp.Status != 200 {
+	if resp.Status != 200 && resp.Status != 206 {
 		s.Class = detect.SoftError.String()
 		s.Reason = "http " + strconv.Itoa(resp.Status)
 	}
@@ -657,17 +742,83 @@ func (r *runner) media(ctx context.Context, id *session.Identity, a *Account) {
 		}
 		if r.o.VideoDir != "" && videos < r.o.Videos && p.Kind == "video" && p.VideoURL != "" {
 			videos++
-			body, s := r.get(ctx, id, "video", p.VideoURL, p.Link, "*/*")
-			a.Media["video_with_cookies"] = s
-			if s.Class == detect.OK.String() && len(body) > 0 {
-				r.saveFile(r.o.VideoDir, "", p.ID+".mp4", body)
-			}
-			if bare, err := r.o.Pool.Acquire(ctx, r.o.Tier); err == nil {
-				_, s := r.get(ctx, bare, "video_no_cookies", p.VideoURL, p.Link, "*/*")
-				a.Media["video_without_cookies"] = s
-				r.o.Pool.Release(bare)
-			}
+			r.video(ctx, id, a, p)
 		}
+	}
+}
+
+// mediaHeaders are the headers Chrome sends for a <video> element's file
+// on TikTok's page: same site, a range from the start, the site as referer.
+func mediaHeaders(id *session.Identity, acceptLanguage string) [][2]string {
+	return [][2]string{
+		{"sec-ch-ua", id.FP.SecChUa}, {"sec-ch-ua-mobile", id.FP.SecChUaMobile}, {"sec-ch-ua-platform", id.FP.SecChUaPlatform},
+		{"user-agent", id.FP.UserAgent}, {"accept", "*/*"}, {"sec-fetch-site", "same-site"}, {"sec-fetch-mode", "no-cors"},
+		{"sec-fetch-dest", "video"}, {"referer", "https://www.tiktok.com/"}, {"accept-encoding", "identity;q=1, *;q=0"},
+		{"accept-language", acceptLanguage}, {"range", "bytes=0-"},
+	}
+}
+
+// setHeader replaces a header's value in h.
+func setHeader(h [][2]string, name, value string) {
+	for i := range h {
+		if h[i][0] == name {
+			h[i][1] = value
+		}
+	}
+}
+
+// video downloads one post's video file several ways (T18): the list's
+// link with the identity's cookies and plain headers, the same without
+// cookies, the same with a browser's media headers, and the post page's
+// own link with those headers. A refusal's body is kept under raw/failed.
+func (r *runner) video(ctx context.Context, id *session.Identity, a *Account, p *Post) {
+	if u, err := url.Parse(p.VideoURL); err == nil {
+		for k := range id.Doer.Cookies(u) {
+			a.VideoCookies = append(a.VideoCookies, k)
+		}
+		slices.Sort(a.VideoCookies)
+	}
+	keep := func(kind string, body []byte, s Step) {
+		if s.Class != detect.OK.String() && len(body) > 0 {
+			r.saveRaw("failed/"+kind+"-"+strconv.Itoa(a.Index)+".txt", body[:min(len(body), 4096)])
+		}
+	}
+	saved := false
+	save := func(body []byte, s Step) {
+		if !saved && (s.Status == 200 || s.Status == 206) && len(body) > 0 {
+			saved = true
+			r.saveFile(r.o.VideoDir, "", p.ID+".mp4", body)
+		}
+	}
+	// Once one way brought the file, the others ask for its first KB only:
+	// enough to tell whether they would, without paying for the file again.
+	media := func() [][2]string {
+		h := mediaHeaders(id, r.o.AcceptLanguage)
+		if saved {
+			setHeader(h, "range", "bytes=0-1023")
+		}
+		return h
+	}
+	body, s := r.get(ctx, id, "video", p.VideoURL, p.Link, "*/*")
+	a.Media["video_with_cookies"] = s
+	keep("video_with_cookies", body, s)
+	save(body, s)
+	if bare, err := r.o.Pool.Acquire(ctx, r.o.Tier); err == nil {
+		h := media()
+		setHeader(h, "referer", p.Link)
+		_, s := r.getWith(ctx, bare, "video_no_cookies", p.VideoURL, h)
+		a.Media["video_without_cookies"] = s
+		r.o.Pool.Release(bare)
+	}
+	body, s = r.getWith(ctx, id, "video_media_headers", p.VideoURL, media())
+	a.Media["video_media_headers"] = s
+	keep("video_media_headers", body, s)
+	save(body, s)
+	if a.pageVideoURL != "" {
+		body, s = r.getWith(ctx, id, "video_post_page", a.pageVideoURL, media())
+		a.Media["video_post_page"] = s
+		keep("video_post_page", body, s)
+		save(body, s)
 	}
 }
 
@@ -701,8 +852,12 @@ func (r *runner) embed(ctx context.Context, id *session.Identity, name string, a
 	return sec
 }
 
-// signed repeats the main calls from inside a TikTok page in headless
-// Chromium (T7), then replays each signed URL by plain HTTP (T27).
+// signed is the browser part (T7, T27 and the fallback): a headless Chrome
+// page on the account's profile, through the identity's exit. It records
+// the page's own API calls, repeats tks's calls from the page so its script
+// signs them, asks for the next page of the page's own list, then follows a
+// post's link and records that page's own calls (comments) and asks for
+// their next page. Every signed URL is replayed by plain HTTP.
 func (r *runner) signed(ctx context.Context, id *session.Identity, a *Account, sec string) *Signed {
 	out := &Signed{Calls: map[string]*SignedCall{}}
 	var proxyURL *url.URL
@@ -712,7 +867,7 @@ func (r *runner) signed(ctx context.Context, id *session.Identity, a *Account, s
 	start := time.Now()
 	sess, err := browser.OpenSession(ctx, r.o.BrowserBinary, browser.Options{URL: a.URL, Proxy: proxyURL, UserAgent: id.FP.UserAgent,
 		AcceptLanguage: r.o.AcceptLanguage, Hints: browser.HintsFrom(id.FP.SecChUa, id.FP.SecChUaPlatform, id.FP.SecChUaMobile),
-		BlockMedia: true, NoSandbox: r.o.BrowserNoSandbox, MaxSettle: 15 * time.Second})
+		BlockMedia: true, HideAutomation: true, NoSandbox: r.o.BrowserNoSandbox, MaxSettle: 15 * time.Second})
 	if err != nil {
 		out.Error = redact(err.Error())
 		out.Page = Step{Class: detect.Transport.String(), Reason: out.Error, Ms: time.Since(start).Milliseconds()}
@@ -728,9 +883,27 @@ func (r *runner) signed(ctx context.Context, id *session.Identity, a *Account, s
 		out.Error = "the browser page carried no page values"
 		return out
 	}
-	// An identity holding the browser page's values, to build the calls
-	// the page then makes: the page's own script adds the signatures and
-	// msToken.
+	out.BotType = tok["botType"]
+	if v, err := sess.Evaluate(ctx, `({webdriver: navigator.webdriver === true, time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,`+
+		` screen: screen.width + "x" + screen.height, language: navigator.language, history: history.length})`); err == nil {
+		_ = json.Unmarshal(v, &out.Env)
+	}
+	// The profile page's own calls; a scroll when the load made no list call.
+	own := sess.Captured(ctx, 0)
+	if findCall(own, postListPath, false) == nil {
+		mark := sess.Mark()
+		if err := sess.Scroll(ctx); err == nil {
+			own = append(own, sess.Captured(ctx, mark)...)
+		}
+	}
+	out.PageCalls = r.pageCalls(own)
+	if x := findCall(own, postListPath, true); x != nil && a.AppListPinned == 0 {
+		if parts, _, _ := ttclient.Decode(x.Body); len(parts) > 0 {
+			a.AppListPinned = pinnedIn(parts[0])
+		}
+	}
+	// tks's own calls, built with the browser page's values; the page's
+	// script adds the signatures and msToken.
 	page := &session.Identity{FP: id.FP, Base: id.Base, Doer: noCookies{}}
 	page.SetTokens(tok)
 	builder := ttclient.Builder{AcceptLanguage: r.o.AcceptLanguage, NoMsToken: true}
@@ -743,15 +916,14 @@ func (r *runner) signed(ctx context.Context, id *session.Identity, a *Account, s
 		{"creator_list", map[string]any{"sec_uid": sec, "count": 15, "cursor": nowMs(r.o.Now())}},
 		{"post_list", map[string]any{"sec_uid": sec, "count": 16, "cursor": 0}},
 	}
-	for _, p := range a.Posts {
-		if p.Comments > 0 && !p.Pinned {
-			calls = append(calls, struct {
-				name string
-				vars map[string]any
-			}{"comments", map[string]any{"item_id": p.ID, "count": 20, "cursor": 0}})
-			break
-		}
+	commented := firstCommented(a.Posts)
+	if commented != nil {
+		calls = append(calls, struct {
+			name string
+			vars map[string]any
+		}{"comments", map[string]any{"item_id": commented.ID, "count": 20, "cursor": 0}})
 	}
+	var hdr [][2]string
 	for _, c := range calls {
 		q, err := reg.Get(c.name)
 		if err != nil {
@@ -762,31 +934,201 @@ func (r *runner) signed(ctx context.Context, id *session.Identity, a *Account, s
 			continue
 		}
 		b := builder.Build(page, q, vars, reg.ClientParams(), a.URL)
+		hdr = b.Header
 		raw := q.Endpoint + "?" + b.Query
-		f, err := sess.Fetch(ctx, raw)
-		if err != nil {
-			out.Calls[c.name] = &SignedCall{Status: 0}
-			continue
+		if c.name == "post_list" {
+			if x := findCall(own, postListPath, false); x != nil {
+				out.ParamsMissing, out.ParamsExtra = paramDiff(x.URL, raw)
+			}
 		}
-		sc := &SignedCall{Status: f.Status, Ms: f.Elapsed.Milliseconds(), Empty: len(strings.TrimSpace(string(f.Body))) == 0}
-		if parts, _, _ := ttclient.Decode(f.Body); len(parts) > 0 {
-			if c.name == "post_list" && a.AppListPinned == 0 {
+		body := r.signedCall(ctx, sess, id, out, c.name, raw, hdr)
+		if c.name == "post_list" && a.AppListPinned == 0 {
+			if parts, _, _ := ttclient.Decode(body); len(parts) > 0 {
 				a.AppListPinned = pinnedIn(parts[0])
 			}
-			sc.Items = len(parts[0].Get("itemList").Array()) + len(parts[0].Get("comments").Array())
-			if parts[0].Get("userInfo").Exists() {
-				sc.Items = 1
-			}
 		}
-		r.book("signed_"+c.name, Step{Class: classOfSigned(sc), Status: f.Status, Ms: sc.Ms})
-		if f.SentURL != "" {
-			sc.Added = added(raw, f.SentURL)
-			s := r.replay(ctx, id, f.SentURL, b.Header)
-			sc.Replay = &s
+	}
+	// The next page of the page's own list call.
+	if x := findCall(own, postListPath, true); x != nil {
+		if next := nextPageURL(x, "cursor"); next != "" {
+			r.signedCall(ctx, sess, id, out, "post_list_from_page", next, hdr)
 		}
-		out.Calls[c.name] = sc
+	}
+	// Follow a post's link: the post page loads its comments itself.
+	if commented == nil {
+		return out
+	}
+	mark, before := sess.Mark(), sess.Bytes()
+	start = time.Now()
+	err = sess.Navigate(ctx, commented.Link)
+	vp := Step{Class: detect.OK.String(), Status: sess.Status, Ms: time.Since(start).Milliseconds(), WireBytes: sess.Bytes() - before}
+	if err != nil {
+		vp.Class, vp.Reason = detect.Transport.String(), redact(err.Error())
+	}
+	r.book("browser_video_page", vp)
+	out.VideoPage = &vp
+	if err != nil {
+		return out
+	}
+	vc := sess.Captured(ctx, mark)
+	out.VideoPageCalls = r.pageCalls(vc)
+	if x := findCall(vc, commentListPath, true); x != nil {
+		if next := nextPageURL(x, "cursor"); next != "" {
+			r.signedCall(ctx, sess, id, out, "comments_from_page", next, hdr)
+		}
 	}
 	return out
+}
+
+const (
+	postListPath    = "/api/post/item_list/"
+	commentListPath = "/api/comment/list/"
+)
+
+// ownKinds are the page calls booked under the summary's calls (as
+// browser_own_<name>); the page makes many others, recorded in PageCalls.
+var ownKinds = map[string]string{
+	postListPath: "post_list", "/api/creator/item_list/": "creator_list", commentListPath: "comments",
+	"/api/comment/list/reply/": "replies", "/api/user/detail/": "user_detail", "/api/item/detail/": "item_detail",
+}
+
+// pageCalls records a page's own API calls; the ones tks cares about are
+// booked and their first answers kept under raw/.
+func (r *runner) pageCalls(xs []browser.Exchange) []PageCall {
+	var out []PageCall
+	for _, x := range xs {
+		u, err := url.Parse(x.URL)
+		if err != nil {
+			continue
+		}
+		pc := PageCall{Path: u.Path, Status: x.Status, Bytes: len(x.Body), Items: itemsIn(x.Body),
+			Empty: len(strings.TrimSpace(string(x.Body))) == 0, Signed: u.Query().Get("X-Gnarly") != ""}
+		out = append(out, pc)
+		if kind, ok := ownKinds[u.Path]; ok {
+			cls := detect.OK.String()
+			if pc.Items == 0 {
+				cls = detect.RegistryStale.String()
+			}
+			r.book("browser_own_"+kind, Step{Class: cls, Status: pc.Status, Empty: pc.Empty, WireBytes: int64(pc.Bytes)})
+			r.keepRaw("browser_own_"+kind, x.Body, cls != detect.OK.String())
+		}
+	}
+	return out
+}
+
+// signedCall makes one call from the page and replays the URL the page
+// sent by plain HTTP from the probe's identity (T27). It returns the
+// page's answer.
+func (r *runner) signedCall(ctx context.Context, sess *browser.Session, id *session.Identity, out *Signed, name, raw string, hdr [][2]string) []byte {
+	f, err := sess.Fetch(ctx, raw)
+	if err != nil {
+		out.Calls[name] = &SignedCall{Status: 0}
+		r.book("signed_"+name, Step{Class: detect.Transport.String(), Reason: redact(err.Error())})
+		return nil
+	}
+	sc := &SignedCall{Status: f.Status, Ms: f.Elapsed.Milliseconds(), Empty: len(strings.TrimSpace(string(f.Body))) == 0, Items: itemsIn(f.Body)}
+	cls := classOfSigned(sc)
+	r.book("signed_"+name, Step{Class: cls, Status: f.Status, Ms: sc.Ms, Empty: sc.Empty})
+	r.keepRaw("signed_"+name, f.Body, cls != detect.OK.String())
+	if f.SentURL != "" {
+		sc.Added = added(raw, f.SentURL)
+		s := r.replay(ctx, id, f.SentURL, hdr)
+		sc.Replay = &s
+	}
+	out.Calls[name] = sc
+	return f.Body
+}
+
+// itemsIn counts what an answer carries: list items, comments, or one
+// account or post.
+func itemsIn(body []byte) int {
+	parts, _, _ := ttclient.Decode(body)
+	if len(parts) == 0 {
+		return 0
+	}
+	p := parts[0]
+	switch {
+	case p.Get("userInfo.user.id").String() != "", p.Get("itemInfo.itemStruct.id").String() != "":
+		return 1
+	case p.Get("comments").Exists():
+		return len(p.Get("comments").Array())
+	default:
+		return len(p.Get("itemList").Array())
+	}
+}
+
+// findCall returns the last captured call to path (with items, when
+// withItems), or nil.
+func findCall(xs []browser.Exchange, path string, withItems bool) *browser.Exchange {
+	for i := len(xs) - 1; i >= 0; i-- {
+		u, err := url.Parse(xs[i].URL)
+		if err != nil || u.Path != path {
+			continue
+		}
+		if !withItems || itemsIn(xs[i].Body) > 0 {
+			return &xs[i]
+		}
+	}
+	return nil
+}
+
+// nextPageURL is the page's own call asking for its next page: the same
+// parameters, the signatures removed (the page's script adds new ones) and
+// the cursor its answer gave. Empty when the answer has no more.
+func nextPageURL(x *browser.Exchange, cursorKey string) string {
+	parts, _, _ := ttclient.Decode(x.Body)
+	if len(parts) == 0 {
+		return ""
+	}
+	p := parts[0]
+	if !p.Get("hasMore").Bool() && p.Get("has_more").Int() != 1 {
+		return ""
+	}
+	u, err := url.Parse(x.URL)
+	if err != nil {
+		return ""
+	}
+	q := u.Query()
+	for _, k := range []string{"X-Bogus", "X-Gnarly", "X-Dynosaur", "msToken"} {
+		q.Del(k)
+	}
+	q.Set("cursor", p.Get(cursorKey).String())
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// paramDiff lists the query parameter names the page's call has and tks's
+// does not (signatures aside), and the reverse.
+func paramDiff(pageURL, ours string) (missing, extra []string) {
+	a, err1 := url.Parse(pageURL)
+	b, err2 := url.Parse(ours)
+	if err1 != nil || err2 != nil {
+		return nil, nil
+	}
+	pa, pb := a.Query(), b.Query()
+	for k := range pa {
+		if _, ok := pb[k]; !ok && !slices.Contains([]string{"X-Bogus", "X-Gnarly", "X-Dynosaur", "msToken"}, k) {
+			missing = append(missing, k)
+		}
+	}
+	for k := range pb {
+		if _, ok := pa[k]; !ok {
+			extra = append(extra, k)
+		}
+	}
+	slices.Sort(missing)
+	slices.Sort(extra)
+	return missing, extra
+}
+
+// firstCommented is the newest unpinned post with comments, or nil.
+func firstCommented(posts []Post) *Post {
+	for i := range posts {
+		if !posts[i].Pinned && posts[i].Comments > 0 {
+			return &posts[i]
+		}
+	}
+	return nil
 }
 
 func classOfSigned(sc *SignedCall) string {

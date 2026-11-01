@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -80,7 +81,9 @@ func runProbe(args []string) int {
 	maxPages := fs.Int("max-list-pages", 40, "post-list pages to read per account after the first (15 posts each)")
 	maxAge := fs.Int("max-age-days", 0, "stop an account's list once its posts are older than this many days (0 = no limit; the backfill window is 365)")
 	maxComments := fs.Int("max-comment-pages", 5, "comment pages to read per post (20 comments each)")
-	countChecks := fs.Int("count-checks", 5, "how many accounts get the page-size check (count 5 and 30)")
+	countChecks := fs.Int("count-checks", 5, "how many accounts get the page-size check (count 5, 16, 20 and 30)")
+	depthChecks := fs.Int("depth-checks", 5, "how many accounts get one list page read at each of --depth-days back (how far back the list answers)")
+	depthDays := fs.String("depth-days", "30,90,180,365,730", "days back for the depth check, comma-separated")
 	covers := fs.Int("covers", 12, "covers saved per account (0 = none)")
 	videos := fs.Int("videos", 0, "video files downloaded per account (0 = none)")
 	signer := fs.String("signer", "none", `"browser" repeats the main calls from inside a headless Chromium page (T7, T27); "none" skips it`)
@@ -155,6 +158,11 @@ func runProbe(args []string) int {
 	if *raw {
 		rawDir = filepath.Join(*outDir, "raw")
 	}
+	days, err := parseDays(*depthDays)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "probe: --depth-days:", err)
+		return 2
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	fmt.Fprintf(os.Stderr, "probe: %d accounts, tier %s, %.2f requests/s per identity, signer %s; Ctrl-C stops and keeps what was read\n",
@@ -164,6 +172,7 @@ func runProbe(args []string) int {
 		Client:         &graphql.Client{Registry: registry.NewStatic(seed), Rules: rules, Builder: ttclient.Builder{AcceptLanguage: acceptLanguage}, Decode: ttclient.Decode},
 		AcceptLanguage: acceptLanguage, Fingerprint: *fingerprint, Version: version,
 		MaxListPages: *maxPages, MaxAge: time.Duration(*maxAge) * 24 * time.Hour, MaxCommentPages: *maxComments, CountChecks: *countChecks,
+		DepthChecks: *depthChecks, DepthDays: days,
 		Covers: *covers, Videos: *videos, Signer: *signer, BrowserBinary: bin, BrowserNoSandbox: os.Getenv("TKS_BROWSER_NO_SANDBOX") != "" || os.Geteuid() == 0,
 		OEmbed: *oembed || *dryRun, MaxCaptchas: *maxCaptchas, ImageDir: imageDir, VideoDir: videoDir, RawDir: rawDir, RawPages: 3,
 		Progress: func(line string) { fmt.Fprintln(os.Stderr, "probe:", line) }})
@@ -178,11 +187,13 @@ func runProbe(args []string) int {
 	}
 	s := rep.Summary
 	fmt.Fprintf(os.Stderr, "probe: wrote %s and %s\n  bootstrapped %d/%d; page forms %v; captchas %d, challenges %d\n"+
-		"  calls %v\n  posts %d (with counts %d, pinned %d, ads %d, photos %d); id time matches %d, mismatches %d\n"+
-		"  list stops %v, oldest %s; comments served %d in %d reads, order %v, replies %d; cursor portable %d/%d\n",
+		"  calls %v\n  posts %d (with counts %d, pinned %d, ads %d, photos %d); id time matches %d, scheduled %d, other mismatches %d\n"+
+		"  list stops %v, oldest %s, repeats %d; depth served %v\n"+
+		"  comments served %d in %d reads, order %v, replies %d; cursor portable %d/%d\n",
 		*outDir, bundle, s.Bootstrapped, s.Accounts, s.PageForms, s.Captchas, s.Challenges, s.Calls,
-		s.Posts, s.PostsWithStats, s.PinnedSeen, s.AdSeen, s.PhotoSeen, s.IDTimeMatches, s.IDTimeMismatches,
-		s.WalkStops, s.OldestReached.Format("2006-01-02"), s.CommentsServed, s.CommentReads, s.OrderVerdicts, s.RepliesServed,
+		s.Posts, s.PostsWithStats, s.PinnedSeen, s.AdSeen, s.PhotoSeen, s.IDTimeMatches, s.IDTimeScheduled, s.IDTimeMismatches-s.IDTimeScheduled,
+		s.WalkStops, s.OldestReached.Format("2006-01-02"), s.WalkRepeats, s.DepthServed,
+		s.CommentsServed, s.CommentReads, s.OrderVerdicts, s.RepliesServed,
 		s.CursorPortable, s.CursorPortable+s.CursorNotPortable)
 	if s.StoppedEarly != "" {
 		fmt.Fprintf(os.Stderr, "  stopped early (%s) after %d of %d accounts\n", s.StoppedEarly, s.Accounts, len(names))
@@ -253,4 +264,21 @@ func username(line string) string {
 	line, _, _ = strings.Cut(line, "/")
 	line, _, _ = strings.Cut(line, "?")
 	return strings.TrimSpace(line)
+}
+
+// parseDays reads a comma-separated list of day counts.
+func parseDays(v string) ([]int, error) {
+	var out []int
+	for _, f := range strings.Split(v, ",") {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		n, err := strconv.Atoi(f)
+		if err != nil || n <= 0 {
+			return nil, fmt.Errorf("%q is not a positive number of days", f)
+		}
+		out = append(out, n)
+	}
+	return out, nil
 }

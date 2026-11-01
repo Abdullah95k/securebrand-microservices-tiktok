@@ -35,7 +35,9 @@ func run(t *testing.T, f fakett.Faults, mod func(*probe.Options)) (probe.Report,
 // The whole probe against fakett: every account read, every question
 // answered, and the files written 0600.
 func TestProbeAgainstFakett(t *testing.T) {
-	rep, env, dir := run(t, fakett.Faults{RequireSignature: true, SignedPaths: []string{"/api/post/item_list/"}}, nil)
+	rep, env, dir := run(t, fakett.Faults{RequireSignature: true, SignedPaths: []string{"/api/post/item_list/"}}, func(o *probe.Options) {
+		o.DepthChecks, o.DepthDays = 1, []int{1, 3650}
+	})
 	s := rep.Summary
 	if s.Accounts != 3 || s.Bootstrapped != 3 || s.PageForms["ssr"] != 3 {
 		t.Fatalf("bootstrap: %+v", s)
@@ -48,6 +50,14 @@ func TestProbeAgainstFakett(t *testing.T) {
 	}
 	if s.Posts != 180 || s.PostsWithStats != 180 || s.IDTimeMatches != 180 || s.PhotoSeen != 3 || s.AdSeen != 3 || s.WalkStops["end"] != 3 {
 		t.Fatalf("posts: %+v", s)
+	}
+	// The creator list's time cursor keeps the oldest post's second, so
+	// fakett (which compares in ms) serves it again on the next page.
+	if s.WalkRepeats == 0 {
+		t.Fatalf("walk repeats: %+v", s)
+	}
+	if s.DepthServed["1"] != 1 || s.DepthServed["3650"] != 0 || len(rep.Accounts[0].Depth) != 2 {
+		t.Fatalf("depth: %v %+v", s.DepthServed, rep.Accounts[0].Depth)
 	}
 	if s.CommentsServed == 0 || s.OrderVerdicts["not_time_ordered"] == 0 || s.RepliesServed == 0 || s.CursorPortable != 3 {
 		t.Fatalf("comments: %+v", s)
@@ -103,6 +113,20 @@ func TestProbeFindsTheWalls(t *testing.T) {
 	if rep.Summary.CommentsServed != 0 || rep.Summary.CommentReads == 0 {
 		t.Fatalf("no guest comments: %+v", rep.Summary)
 	}
+	// An unsigned account call is refused with an empty account; the page
+	// still gives the account.
+	rep, _, _ = run(t, fakett.Faults{RequireSignature: true}, nil)
+	if rep.Summary.Calls["user_detail"]["registry_stale"] != 3 || rep.Accounts[0].Data == nil || rep.Accounts[0].Data.Source != "page" {
+		t.Fatalf("refused account call: %v %+v", rep.Summary.Calls, rep.Accounts[0].Data)
+	}
+	// A shell page is kept for a look.
+	rep, _, dir := run(t, fakett.Faults{ShellPages: true}, nil)
+	if rep.Summary.PageForms["shell"] != 3 {
+		t.Fatalf("shell: %v", rep.Summary.PageForms)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "raw", "failed", rep.Accounts[0].Username+"-profile_page.html")); err != nil {
+		t.Fatalf("shell page not kept: %v", err)
+	}
 	rep, _, _ = run(t, fakett.Faults{ListWallAfter: 30}, nil)
 	if rep.Summary.WalkStops["wall:registry_stale"] != 3 {
 		t.Fatalf("list wall: %v", rep.Summary.WalkStops)
@@ -150,5 +174,40 @@ func TestProbeBrowserSigner(t *testing.T) {
 	}
 	if rep.Accounts[0].AppListPinned != 1 {
 		t.Fatalf("pinned from the signed app list: %d", rep.Accounts[0].AppListPinned)
+	}
+	// The page's own calls: the profile page's list, signed by its script;
+	// its next page asked from the page; then the post page's comments.
+	if sg.Env["webdriver"] != false || sg.BotType != "others" {
+		t.Fatalf("browser env %v bot type %q", sg.Env, sg.BotType)
+	}
+	own := false
+	for _, pc := range sg.PageCalls {
+		if pc.Path == "/api/post/item_list/" && pc.Items > 0 && pc.Signed {
+			own = true
+		}
+	}
+	if !own {
+		t.Fatalf("the page's own list call: %+v", sg.PageCalls)
+	}
+	if n := sg.Calls["post_list_from_page"]; n == nil || n.Items == 0 || n.Replay == nil || n.Replay.Class != "ok" {
+		t.Fatalf("the page list's next page: %+v", n)
+	}
+	if len(sg.ParamsExtra) == 0 {
+		t.Fatalf("tks sends parameters fakett's page does not: %v %v", sg.ParamsMissing, sg.ParamsExtra)
+	}
+	if sg.VideoPage == nil || sg.VideoPage.Class != "ok" {
+		t.Fatalf("video page: %+v", sg.VideoPage)
+	}
+	comments := false
+	for _, pc := range sg.VideoPageCalls {
+		if pc.Path == "/api/comment/list/" && pc.Items > 0 {
+			comments = true
+		}
+	}
+	if !comments {
+		t.Fatalf("the post page's own comment call: %+v", sg.VideoPageCalls)
+	}
+	if rep.Summary.Calls["browser_own_post_list"]["ok"] != 1 || rep.Summary.Calls["browser_own_comments"]["ok"] != 1 {
+		t.Fatalf("own calls booked: %v", rep.Summary.Calls)
 	}
 }
