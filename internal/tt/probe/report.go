@@ -156,9 +156,13 @@ type PageCall struct {
 
 // SignedCall is one call made from inside a browser page (T7, T27).
 type SignedCall struct {
-	Status int  `json:"status"`
-	Items  int  `json:"items"`
-	Empty  bool `json:"empty,omitempty"`
+	// Class is how the answer reads, as the client would class it (an
+	// empty body or account is a refusal, an error statusCode an error).
+	Class  string `json:"class"`
+	Reason string `json:"reason,omitempty"`
+	Status int    `json:"status"`
+	Items  int    `json:"items"`
+	Empty  bool   `json:"empty,omitempty"`
 	// Added are the parameters the page's script added to the URL.
 	Added []string `json:"added,omitempty"`
 	Ms    int64    `json:"ms"`
@@ -247,7 +251,8 @@ type Account struct {
 	Stopped      bool      `json:"stopped,omitempty"`
 	Error        string    `json:"error,omitempty"`
 
-	pageVideoURL string // the post page's own video link (T18)
+	pageVideoURL string          // the post page's own video link (T18)
+	commentSeen  map[string]bool // comment ids already kept (addComment)
 }
 
 // Report is a run's result.

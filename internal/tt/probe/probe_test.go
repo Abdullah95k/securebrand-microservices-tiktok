@@ -220,6 +220,16 @@ func TestProbeBrowserSigner(t *testing.T) {
 		c.ReplayLater.Class != "ok" || !strings.Contains(c.ReplayLater.Reason, "after") {
 		t.Fatalf("comment replays: %+v", c)
 	}
+	seen := map[string]bool{}
+	for _, cm := range rep.Accounts[0].Comments {
+		if seen[cm.ID] {
+			t.Fatalf("comment %s kept twice", cm.ID)
+		}
+		seen[cm.ID] = true
+	}
+	if c.Class != "ok" || sg.Calls["post_list"].Class != "ok" {
+		t.Fatalf("signed call classes: comments %q post_list %q", c.Class, sg.Calls["post_list"].Class)
+	}
 	if rep.Accounts[0].Media["video_chain_cookie"].Class != "ok" {
 		t.Fatalf("video with the chain cookie: %+v", rep.Accounts[0].Media)
 	}

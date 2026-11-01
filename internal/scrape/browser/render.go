@@ -71,6 +71,11 @@ type Options struct {
 	// as navigator.webdriver (Blink's AutomationControlled feature), so the
 	// page sees the browser a person would run.
 	HideAutomation bool
+	// CallTimeout bounds each Session call (an evaluation, a page fetch; a
+	// navigation gets twice as long): a request the page never finishes, or
+	// a load event that never comes, fails instead of hanging. 30 s when
+	// zero.
+	CallTimeout time.Duration
 }
 
 // ClientHints is the user-agent metadata of a fingerprint.

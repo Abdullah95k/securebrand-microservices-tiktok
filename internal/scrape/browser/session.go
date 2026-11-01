@@ -62,6 +62,9 @@ func OpenSession(ctx context.Context, binary string, opts Options) (*Session, er
 	if opts.MaxSettle <= 0 {
 		opts.MaxSettle = 5 * time.Second
 	}
+	if opts.CallTimeout <= 0 {
+		opts.CallTimeout = 30 * time.Second
+	}
 	r, stop, err := launchPage(ctx, binary, opts)
 	if err != nil {
 		return nil, err
@@ -105,10 +108,13 @@ func (s *Session) pump() {
 }
 
 // Evaluate runs a JavaScript expression in the page, awaits it when it is
-// a promise, and returns its value as JSON.
+// a promise, and returns its value as JSON. It fails after the session's
+// CallTimeout.
 func (s *Session) Evaluate(ctx context.Context, expr string) (json.RawMessage, error) {
 	s.eval.Lock()
 	defer s.eval.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, s.r.opts.CallTimeout)
+	defer cancel()
 	select {
 	case <-s.quit:
 		return nil, ErrSessionClosed
@@ -128,6 +134,9 @@ func (s *Session) Evaluate(ctx context.Context, expr string) (json.RawMessage, e
 	if err := s.r.c.call(ctx, s.r.s, "Runtime.evaluate", map[string]any{
 		"expression": expr, "returnByValue": true, "awaitPromise": true,
 	}, &out); err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, fmt.Errorf("browser: page script: no answer after %s", s.r.opts.CallTimeout)
+		}
 		return nil, err
 	}
 	if e := out.ExceptionDetails; e != nil {
@@ -179,13 +188,16 @@ func (s *Session) Fetch(ctx context.Context, rawURL string) (*Fetched, error) {
 	}
 	f := &Fetched{Status: res.Status, Body: []byte(res.Body), Elapsed: time.Since(start)}
 	// The request's event may reach the pump just after the call returns.
+	// The page may make its own call to the same path meanwhile, so the sent
+	// URL is the one carrying every parameter this call asked for.
 	deadline := time.Now().Add(time.Second)
 	for f.SentURL == "" {
 		s.mu.Lock()
 		for _, id := range s.r.order[min(before, len(s.r.order)):] {
 			if x := s.r.reqs[id]; x != nil {
-				if u, err := url.Parse(x.URL); err == nil && u.Path == target.Path {
+				if u, err := url.Parse(x.URL); err == nil && SameCall(target, u) {
 					f.SentURL = x.URL
+					break
 				}
 			}
 		}
@@ -249,6 +261,8 @@ func (s *Session) Captured(ctx context.Context, mark int) []Exchange {
 func (s *Session) Navigate(ctx context.Context, rawURL string) error {
 	s.eval.Lock()
 	defer s.eval.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 2*s.r.opts.CallTimeout)
+	defer cancel()
 	select {
 	case <-s.quit:
 		return ErrSessionClosed
@@ -268,6 +282,9 @@ func (s *Session) Navigate(ctx context.Context, rawURL string) error {
 		return fmt.Errorf("browser: navigate %s: %s", rawURL, nav.ErrorText)
 	}
 	if err := s.wait(ctx, func() bool { return s.r.loaded }); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("browser: navigate %s: not loaded after %s", rawURL, 2*s.r.opts.CallTimeout)
+		}
 		return err
 	}
 	if err := s.quiet(ctx); err != nil {
@@ -335,6 +352,28 @@ func (s *Session) wait(ctx context.Context, done func() bool) error {
 		case <-t.C:
 		}
 	}
+}
+
+// SameCall reports whether sent is the request made for asked: the same
+// path, and every query parameter asked for present with the same value
+// (the page's script may only add parameters, such as its signatures).
+func SameCall(asked, sent *url.URL) bool {
+	if asked.Path != sent.Path {
+		return false
+	}
+	have := sent.Query()
+	for k, vs := range asked.Query() {
+		got := have[k]
+		if len(got) < len(vs) {
+			return false
+		}
+		for i, v := range vs {
+			if got[i] != v {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // prune forgets all but the newest captured requests. Callers hold s.mu.

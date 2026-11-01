@@ -163,10 +163,12 @@ func (r *runner) summarise() {
 			if s.DepthServed == nil {
 				s.DepthServed = map[string]int{}
 			}
+			k := strconv.Itoa(d.Days)
+			if _, ok := s.DepthServed[k]; !ok {
+				s.DepthServed[k] = 0 // a depth no account answered still shows, as 0
+			}
 			if d.Step.Items > 0 {
-				s.DepthServed[strconv.Itoa(d.Days)]++
-			} else {
-				s.DepthServed[strconv.Itoa(d.Days)] += 0
+				s.DepthServed[k]++
 			}
 		}
 		for _, c := range a.CommentReads {
