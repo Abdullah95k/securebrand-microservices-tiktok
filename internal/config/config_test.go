@@ -154,8 +154,18 @@ func TestTTDefaults(t *testing.T) {
 	if len(f.MetricsWalks) != 2 || f.MetricsWalks[1].Back != 365*24*time.Hour || len(f.CommentWindows) != 3 {
 		t.Fatalf("tiers: %+v", f)
 	}
-	if tt.Comments.Order != CommentsRanked || !tt.Comments.IncludeReplies {
-		t.Fatalf("comments: %+v", tt.Comments)
+	if tt.Comments.Order != CommentsRanked || !tt.Comments.IncludeReplies || tt.Comments.MaxPerPost != 0 {
+		t.Fatalf("comments (every comment read, owner 2026-11-01): %+v", tt.Comments)
+	}
+	// tks keeps everything (owner, 2026-11-01): no retention of its own,
+	// whatever the copied pipeline's privacy.retention says.
+	if tt.Retention != (Retention{}) || c.Privacy.Retention.CommentsDays == 0 {
+		t.Fatalf("tt.retention %+v (privacy.retention %+v)", tt.Retention, c.Privacy.Retention)
+	}
+	bad := *c
+	bad.TT.Retention.CommentsDays = -1
+	if bad.Validate() == nil {
+		t.Fatal("a negative retention passed")
 	}
 	// The copied Facebook section is still there for the copied pipeline.
 	if c.FB.BaseURL != "https://www.facebook.com" {

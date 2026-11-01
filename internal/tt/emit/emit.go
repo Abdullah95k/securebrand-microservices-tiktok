@@ -2,8 +2,9 @@
 // (docs/tiktok ADR 0007 §3). It is internal/crawl/emit for securebrand.tt.v1:
 // each record is stamped with an Observation (a content hash and an event id
 // that are the same for the same content), and the privacy rules (author
-// keys, pseudonymisation, suppression; ADR 0007 §6) are applied before
-// anything leaves the crawler.
+// keys, pseudonymisation; ADR 0007 §6) are applied before anything leaves
+// the crawler. tks erases nothing and collects every account and person
+// (owner, 2026-11-01; ADR 0007 §14).
 package emit
 
 import (
@@ -22,7 +23,6 @@ import (
 
 	commonv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/common/v1"
 	ttv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/gdpr"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/topics"
 )
@@ -54,10 +54,7 @@ type Emitter struct {
 	Producer     *kafka.Producer
 	HMACKey      []byte
 	Pseudonymize bool
-	// Suppression holds erased authors and accounts (Suppression.ForAccounts:
-	// keyed by the account's user id).
-	Suppression *gdpr.Suppression
-	Now         func() time.Time
+	Now          func() time.Time
 }
 
 func (e *Emitter) now() time.Time {
@@ -69,10 +66,6 @@ func (e *Emitter) now() time.Time {
 
 // Key returns a person's author key under the emitter's secret.
 func (e *Emitter) Key(userID int64) []byte { return AuthorKey(e.HMACKey, userID) }
-
-// AccountSuppressed reports whether an account was erased: nothing of it is
-// published or read again.
-func (e *Emitter) AccountSuppressed(userID int64) bool { return e.Suppression.PageSuppressed(userID) }
 
 var marshal = proto.MarshalOptions{Deterministic: true}
 
@@ -94,11 +87,8 @@ func (e *Emitter) stamp(src Source, entityKey string, msg proto.Message, set fun
 	})
 }
 
-// Account publishes an account, except an erased one.
+// Account publishes an account.
 func (e *Emitter) Account(ctx context.Context, b *kafka.Batch, src Source, a *ttv1.Account) error {
-	if e.AccountSuppressed(a.UserId) {
-		return nil
-	}
 	if len(a.AuthorKey) == 0 {
 		a.AuthorKey = e.Key(a.UserId)
 	}
@@ -108,11 +98,8 @@ func (e *Emitter) Account(ctx context.Context, b *kafka.Batch, src Source, a *tt
 }
 
 // Post publishes a post and its counts at this read (tt.post_metrics.v1,
-// captured now). A post of an erased account is not published.
+// captured now).
 func (e *Emitter) Post(ctx context.Context, b *kafka.Batch, src Source, p *ttv1.Post) error {
-	if e.AccountSuppressed(p.UserId) {
-		return nil
-	}
 	e.people(textPeople(p.TextRanges))
 	key := strconv.FormatInt(p.PostId, 10)
 	e.stamp(src, "post:"+key, p, func(o *commonv1.Observation) { p.Obs = o })
@@ -142,25 +129,17 @@ func (e *Emitter) Music(ctx context.Context, b *kafka.Batch, src Source, m *ttv1
 	return b.AddProto(ctx, topics.Music, key, m)
 }
 
-// Media publishes media metadata, except of an erased account or author.
+// Media publishes media metadata.
 func (e *Emitter) Media(ctx context.Context, b *kafka.Batch, src Source, m *ttv1.Media) error {
-	if e.AccountSuppressed(m.UserId) || e.Suppression.AuthorSuppressed(m.AuthorKey) {
-		return nil
-	}
 	e.stamp(src, "media:"+m.MediaId, m, func(o *commonv1.Observation) { m.Obs = o })
 	return b.AddProto(ctx, topics.Media, m.MediaId, m)
 }
 
-// Comment applies the privacy rules and publishes a comment. It returns
-// false when the comment was redacted (its images must not be downloaded).
-// A comment on an erased account's post is not published at all.
-func (e *Emitter) Comment(ctx context.Context, b *kafka.Batch, src Source, c *ttv1.Comment) (bool, error) {
-	if e.AccountSuppressed(c.UserId) {
-		return false, nil
-	}
-	keep := e.Privatize(c)
+// Comment applies the privacy rules and publishes a comment.
+func (e *Emitter) Comment(ctx context.Context, b *kafka.Batch, src Source, c *ttv1.Comment) error {
+	e.Privatize(c)
 	e.stamp(src, "comment:"+strconv.FormatInt(c.CommentId, 10), c, func(o *commonv1.Observation) { c.Obs = o })
-	return keep, b.AddProto(ctx, topics.Comment, strconv.FormatInt(c.PostId, 10), c)
+	return b.AddProto(ctx, topics.Comment, strconv.FormatInt(c.PostId, 10), c)
 }
 
 // CommentDeleted publishes that a known comment is no longer served: a
@@ -173,32 +152,17 @@ func (e *Emitter) CommentDeleted(ctx context.Context, b *kafka.Batch, src Source
 	return b.AddProto(ctx, topics.Comment, strconv.FormatInt(c.PostId, 10), d)
 }
 
-// Privatize sets the author's key, pseudonymises the author and the people
-// the text mentions when configured, and redacts a comment of an erased
-// author. It returns false if the comment was redacted.
-func (e *Emitter) Privatize(c *ttv1.Comment) bool {
+// Privatize sets the author's key and pseudonymises the author and the
+// people the text mentions when configured.
+func (e *Emitter) Privatize(c *ttv1.Comment) {
 	if c.Author != nil && len(c.Author.AuthorKey) == 0 {
 		c.Author.AuthorKey = e.Key(c.Author.GetUserId())
 	}
-	if e.AccountSuppressed(c.UserId) || e.Suppression.AuthorSuppressed(c.GetAuthor().GetAuthorKey()) {
-		Redact(c)
-		return false
-	}
 	e.people(append(textPeople(c.TextRanges), c.Author))
-	return true
 }
 
-// Redact strips a comment of an erased author to its keys and the author
-// key, as an erasure leaves the stored row.
-func Redact(c *ttv1.Comment) {
-	c.Author = &ttv1.Person{AuthorKey: c.GetAuthor().GetAuthorKey()}
-	c.Text, c.TextRanges, c.ImageMediaIds, c.Labels = "", nil, nil, nil
-	c.Redacted = true
-}
-
-// people sets each person's author key, and clears what identifies them:
-// everyone when pseudonymising, else erased authors (whose mentions keep
-// only the key).
+// people sets each person's author key, and clears what identifies them
+// when pseudonymising (the key stays).
 func (e *Emitter) people(ps []*ttv1.Person) {
 	for _, p := range ps {
 		if p == nil {
@@ -207,8 +171,8 @@ func (e *Emitter) people(ps []*ttv1.Person) {
 		if len(p.AuthorKey) == 0 {
 			p.AuthorKey = e.Key(p.GetUserId())
 		}
-		if e.Pseudonymize || e.Suppression.AuthorSuppressed(p.AuthorKey) {
-			*p = ttv1.Person{AuthorKey: p.AuthorKey}
+		if e.Pseudonymize {
+			*p = ttv1.Person{AuthorKey: p.AuthorKey, PredictedAgeGroup: p.PredictedAgeGroup}
 		}
 	}
 }

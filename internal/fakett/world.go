@@ -40,6 +40,16 @@ type Person struct {
 	Nickname string
 }
 
+// AgeGroup is the age band TikTok infers and serves on some comment
+// authors (predicted_age_group: 234 of 706 in the recordings). The fake
+// serves a synthetic one, derived from the id, on about a third of them.
+func (p Person) AgeGroup() string {
+	if p.UID%3 != 0 {
+		return ""
+	}
+	return []string{"band-a", "band-b", "band-c"}[(p.UID/3)%3]
+}
+
 // Account is one monitored account.
 type Account struct {
 	Person

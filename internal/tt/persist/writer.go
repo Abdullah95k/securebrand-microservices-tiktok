@@ -1,8 +1,8 @@
 // Package persist writes tks's records (securebrand.tt.v1) to schema tt
 // (docs/tiktok ADR 0007 §4): batched upserts by observation time, so a
-// redelivered or replayed record changes nothing, metric rows only when a
-// post's counts changed, and every write checked against the suppression
-// table under the erasure lock (gdpr.GuardAccounts).
+// redelivered or replayed record changes nothing, and metric rows only when
+// a post's counts changed. Every account and person read is written: tks
+// erases nothing (owner, 2026-11-01; ADR 0007 §14).
 //
 // It is internal/persist's Writer for TikTok's tables; the consumer that
 // feeds it (batching, bisection, the quarantine topic) is internal/persist's,
@@ -29,16 +29,11 @@ import (
 
 	commonv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/common/v1"
 	ttv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/gdpr"
 	sharedpersist "github.com/abdullah95k/securebrand-microservices-tiktok/internal/persist"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/store"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/ttstore"
 )
-
-// accountSubject is schema tt's suppression subject type for an account,
-// keyed by its user id (ADR 0007 §6).
-const accountSubject = "account"
 
 // Writer performs batched upserts into schema tt. DB must be a pool pinned
 // to it (ttstore.Open).
@@ -48,12 +43,6 @@ type Writer struct {
 	// older than this are not written, since retention would drop their
 	// partition again. Zero keeps everything.
 	CommentsRetention time.Duration
-}
-
-// guard takes the erasure lock in tx and returns which of the given
-// authors and accounts are erased.
-func guard(ctx context.Context, tx pgx.Tx, keys [][]byte, userIDs []int64) (*gdpr.Suppression, error) {
-	return gdpr.GuardAccounts(ctx, tx, keys, userIDs, accountSubject)
 }
 
 func observed(o *commonv1.Observation) time.Time {
@@ -91,12 +80,6 @@ func latest[T interface {
 		out = append(out, x)
 	}
 	return out
-}
-
-func suppressed(entity string, n int) {
-	if n > 0 {
-		metrics.PersistRows.WithLabelValues(entity, "suppressed").Add(float64(n))
-	}
 }
 
 func written(entity string, n int64, start time.Time) {
@@ -220,7 +203,7 @@ func enumName[E interface{ String() string }](e E, prefix string) string {
 // profile page (T31): an account read from a list (counts rounded) keeps
 // the page's, unless no page was ever read; a list read without a bio
 // keeps the stored one (a removed bio shows at the next page read). A
-// status-only record (private, unavailable, banned) updates the status. An erased account stays erased.
+// status-only record (private, unavailable, banned) updates the status.
 //
 // Every record of a batch is applied, oldest first, not only the newest
 // per account: a check reads the profile page and then the list, whose
@@ -240,14 +223,6 @@ func (w *Writer) Accounts(ctx context.Context, as []*ttv1.Account) error {
 			continue
 		}
 		err := pgx.BeginFunc(ctx, w.DB, func(tx pgx.Tx) error {
-			sup, err := guard(ctx, tx, nil, []int64{a.UserId})
-			if err != nil {
-				return err
-			}
-			if sup.PageSuppressed(a.UserId) {
-				suppressed("account", 1)
-				return nil
-			}
 			n++
 			return writeAccount(ctx, tx, a)
 		})
@@ -271,7 +246,7 @@ func writeAccount(ctx context.Context, tx pgx.Tx, a *ttv1.Account) error {
 	status := accountStatus(a.Status)
 	if status != "active" {
 		tag, err := tx.Exec(ctx, `UPDATE accounts SET status = $2, last_seen_at = $3
-			WHERE user_id = $1 AND status <> 'suppressed' AND last_seen_at <= $3`, a.UserId, status, seen)
+			WHERE user_id = $1 AND last_seen_at <= $3`, a.UserId, status, seen)
 		if err != nil || tag.RowsAffected() > 0 || a.SecUid == "" {
 			return err
 		}
@@ -330,7 +305,7 @@ func writeAccount(ctx context.Context, tx pgx.Tx, a *ttv1.Account) error {
 			last_seen_at = EXCLUDED.last_seen_at,
 			profile_refreshed_at = COALESCE(EXCLUDED.profile_refreshed_at, t.profile_refreshed_at),
 			page_read_at = COALESCE(EXCLUDED.page_read_at, t.page_read_at)
-		WHERE t.status <> 'suppressed' AND t.last_seen_at <= EXCLUDED.last_seen_at
+		WHERE t.last_seen_at <= EXCLUDED.last_seen_at
 		RETURNING old.user_id IS NULL
 			OR old.username IS DISTINCT FROM new.username OR old.nickname IS DISTINCT FROM new.nickname
 			OR old.follower_count IS DISTINCT FROM new.follower_count OR old.following_count IS DISTINCT FROM new.following_count
@@ -342,7 +317,7 @@ func writeAccount(ctx context.Context, tx pgx.Tx, a *ttv1.Account) error {
 		c.Followers, c.Following, c.Hearts, c.Videos, c.LikesGiven, c.Friends,
 		a.AuthorKey, hashOf(a.Obs), seen, refreshed, pageRead, page, exact).Scan(&changed)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil // erased, or an older observation than the stored one
+		return nil // an older observation than the stored one
 	}
 	if err != nil {
 		return err
@@ -408,35 +383,20 @@ var mediaCols = []string{"media_id", "source_media_id", "kind", "variant", "user
 	"position", "author_key", "source_url", "source_expires_at", "width", "height", "duration_ms", "bitrate", "mime",
 	"post_created_at", "discovered_at"}
 
-// Media upserts media metadata without touching download state; media of
-// an erased account or author are dropped.
+// Media upserts media metadata without touching download state.
 func (w *Writer) Media(ctx context.Context, ms []*ttv1.Media) error {
 	ms = latest(ms, func(m *ttv1.Media) string { return m.MediaId })
 	if len(ms) == 0 {
 		return nil
 	}
 	start := time.Now()
-	ids := make([]int64, len(ms))
-	keys := make([][]byte, len(ms))
-	for i, m := range ms {
-		ids[i], keys[i] = m.UserId, m.AuthorKey
-	}
 	var n int64
-	var dropped int
 	err := pgx.BeginFunc(ctx, w.DB, func(tx pgx.Tx) error {
-		sup, err := guard(ctx, tx, keys, ids)
-		if err != nil {
-			return err
-		}
-		n, dropped = 0, 0
+		n = 0
 		rows := make([][]any, 0, len(ms))
 		for _, m := range ms {
 			if mediaUUID(m.MediaId) == nil {
 				metrics.PersistRows.WithLabelValues("media", "rejected").Inc()
-				continue
-			}
-			if sup.PageSuppressed(m.UserId) || sup.AuthorSuppressed(m.AuthorKey) {
-				dropped++
 				continue
 			}
 			var userID *int64
@@ -471,7 +431,6 @@ func (w *Writer) Media(ctx context.Context, ms []*ttv1.Media) error {
 		return fmt.Errorf("persist: media: %w", err)
 	}
 	written("media", n, start)
-	suppressed("media", dropped)
 	return nil
 }
 

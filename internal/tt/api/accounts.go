@@ -15,7 +15,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/erasure"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/task"
 )
 
@@ -206,9 +205,6 @@ func (s *Server) registerAccount(w http.ResponseWriter, r *http.Request) {
 	if known {
 		uid = acc.UserID
 	}
-	if s.refuseErased(w, r, ref, uid) {
-		return
-	}
 	if !known && task.ScopeFromRef(ref).UserId != 0 {
 		problem(w, http.StatusUnprocessableEntity, "unknown account",
 			"an id: reference needs an account tks has read; register it by username or secUid")
@@ -252,28 +248,6 @@ func (s *Server) registerAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"account_ref": schedRef, "created": created, "schedule": v})
-}
-
-// refuseErased answers 409 for an erased account (by its stored user id,
-// or the id of an id: reference: an erasure deletes the names that other
-// references would need) and reports whether it did.
-func (s *Server) refuseErased(w http.ResponseWriter, r *http.Request, ref string, uid int64) bool {
-	if uid == 0 {
-		uid = task.ScopeFromRef(ref).UserId
-	}
-	if uid == 0 {
-		return false
-	}
-	var erased bool
-	if err := s.DB.QueryRow(r.Context(), `SELECT EXISTS (SELECT 1 FROM suppression WHERE subject_type = 'account' AND subject_key = $1)`,
-		strconv.FormatInt(uid, 10)).Scan(&erased); err != nil {
-		serverError(w, err)
-		return true
-	}
-	if erased {
-		problem(w, http.StatusConflict, "erased account", "this account was erased and is not collected again")
-	}
-	return erased
 }
 
 type scheduleView struct {
@@ -497,8 +471,8 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteAccount unregisters the caller; the schedule is disabled once no
-// client is registered. With ?purge=true (admin) it also erases the
-// account (an erasure request: its data deleted, its user id suppressed).
+// client is registered. The account's data stays (tks deletes nothing:
+// ADR 0007 §14).
 func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	ref, ok := accountRef(w, r)
 	if !ok {
@@ -506,11 +480,6 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	c := clientFrom(ctx)
-	purge := boolParam(r, "purge")
-	if purge && !c.Has(ScopeAdmin) {
-		problem(w, http.StatusForbidden, "forbidden", "purge requires the admin scope")
-		return
-	}
 	acc, found, err := dispatch.Resolve(ctx, s.DB, ref)
 	if err != nil {
 		serverError(w, err)
@@ -539,20 +508,7 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if !purge {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if !found {
-		problem(w, http.StatusNotFound, "unknown account", "tks has not read this account: erase it by user id")
-		return
-	}
-	e, err := s.insertErasure(ctx, c, erasure.SubjectAccount, nil, uid, map[string]any{"account": ref})
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusAccepted, e)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // accountUsernames is the account's username history, newest first

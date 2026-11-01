@@ -90,10 +90,6 @@ func (s *AccountStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 	if sc == nil {
 		return Outcome{Result: Fail, Reason: "account task without account scope"}
 	}
-	if d.Emit.AccountSuppressed(sc.UserId) {
-		c["accounts_suppressed"]++
-		return done(c)
-	}
 	id, err := d.identity(ctx, "list", t.Stalls)
 	if err != nil {
 		return noIdentity(t, err, c)
@@ -127,10 +123,6 @@ func (s *AccountStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 	}
 	if sc.SecUid == "" {
 		return Outcome{Result: Fail, Reason: "account unresolved: no secUid", Counters: c}
-	}
-	if d.Emit.AccountSuppressed(sc.UserId) {
-		c["accounts_suppressed"]++
-		return done(c)
 	}
 
 	w, err := s.plan(ctx, t, sc)
@@ -374,10 +366,6 @@ func (s *AccountStage) profile(ctx context.Context, t *tkstaskv1.Task, sc *tksta
 	metrics.ParseTotal.WithLabelValues("profile_page", strconv.Itoa(parse.Version), "ok").Inc()
 	a := res.Account
 	sc.UserId, sc.SecUid, sc.Username = a.UserId, a.SecUid, a.Username
-	if d.Emit.AccountSuppressed(a.UserId) {
-		c["accounts_suppressed"]++
-		return done(c), true
-	}
 	b := d.Producer.NewBatch()
 	src := emit.Source{JobID: t.JobId, Query: "profile_page", ParserVersion: parse.Version, Mode: t.Mode}
 	if err := d.Emit.Account(ctx, b, src, a); err != nil {
@@ -442,10 +430,6 @@ func (s *AccountStage) listAccount(ctx context.Context, b *kafka.Batch, t *tksta
 	}
 	if a.Username != "" {
 		sc.Username = a.Username
-	}
-	if d.Emit.AccountSuppressed(sc.UserId) {
-		c["accounts_suppressed"]++
-		return done(c), true
 	}
 	src := emit.Source{JobID: t.JobId, Query: listQuery, ParserVersion: parse.Version, Mode: t.Mode}
 	if err := d.Emit.Account(ctx, b, src, a); err != nil {

@@ -18,6 +18,6 @@ func NewPersister(cfg *config.Config, db *pgxpool.Pool, linger time.Duration) (*
 	if err != nil {
 		return nil, err
 	}
-	w := &ttpersist.Writer{DB: db, CommentsRetention: time.Duration(cfg.Privacy.Retention.CommentsDays) * 24 * time.Hour}
+	w := &ttpersist.Writer{DB: db, CommentsRetention: time.Duration(cfg.TT.Retention.CommentsDays) * 24 * time.Hour}
 	return ttpersist.NewConsumer(kcfg, w, 2000, linger)
 }

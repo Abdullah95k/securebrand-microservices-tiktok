@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	ttv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/gdpr"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 )
 
@@ -44,30 +43,6 @@ func mentions(rs []*ttv1.TextRange) []*mention {
 			out = append(out, m)
 		}
 		m.offsets = append(m.offsets, r.Offset)
-	}
-	return out
-}
-
-// scrubMentions leaves only the author key of erased people a text
-// mentions (the emitter does the same with the crawler's copy of the
-// suppression list, which may lag).
-func scrubMentions(sup *gdpr.Suppression, rs []*ttv1.TextRange) {
-	for _, r := range rs {
-		if p := r.GetPerson(); p != nil && sup.AuthorSuppressed(p.AuthorKey) {
-			r.Person = &ttv1.Person{AuthorKey: p.AuthorKey}
-			if r.Type == "mention" {
-				r.Name = ""
-			}
-		}
-	}
-}
-
-func mentionKeys(rs []*ttv1.TextRange) [][]byte {
-	var out [][]byte
-	for _, r := range rs {
-		if k := r.GetPerson().GetAuthorKey(); len(k) > 0 {
-			out = append(out, k)
-		}
 	}
 	return out
 }
@@ -105,9 +80,8 @@ func postRow(p *ttv1.Post) []any {
 }
 
 // Posts upserts posts, their index rows and the people their captions
-// mention. Posts of an erased account are dropped; erased people's
-// mentions are cleared. The pinned and ad flags, known only from lists,
-// are kept when a read does not carry them.
+// mention. The pinned and ad flags, known only from lists, are kept when a
+// read does not carry them.
 func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 	ps = latest(ps, func(p *ttv1.Post) string { return strconv.FormatInt(p.PostId, 10) })
 	kept := ps[:0]
@@ -122,39 +96,21 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 		return nil
 	}
 	start := time.Now()
-	ids := make([]int64, len(ps))
 	times := make([]time.Time, len(ps))
-	var keys [][]byte
 	for i, p := range ps {
-		ids[i], times[i] = p.UserId, p.CreatedAt.AsTime()
-		keys = append(keys, mentionKeys(p.TextRanges)...)
+		times[i] = p.CreatedAt.AsTime()
 	}
 	var n int64
-	var dropped int
 	err := w.withPartitions(ctx, "posts", times, func() error {
-		n, dropped = 0, 0
+		n = 0
 		return pgx.BeginFunc(ctx, w.DB, func(tx pgx.Tx) error {
-			sup, err := guard(ctx, tx, keys, ids)
-			if err != nil {
-				return err
-			}
 			rows := make([][]any, 0, len(ps))
 			var mrows [][]any
 			for _, p := range ps {
-				if sup.PageSuppressed(p.UserId) {
-					dropped++
-					continue
-				}
-				scrubMentions(sup, p.TextRanges)
 				rows = append(rows, postRow(p))
 				for _, m := range mentions(p.TextRanges) {
-					if !sup.AuthorSuppressed(m.key) {
-						mrows = append(mrows, []any{p.PostId, m.key, m.userID, m.offsets, observed(p.Obs)})
-					}
+					mrows = append(mrows, []any{p.PostId, m.key, m.userID, m.offsets, observed(p.Obs)})
 				}
-			}
-			if len(rows) == 0 {
-				return nil
 			}
 			if err := copyTemp(ctx, tx, "tmp_posts", "posts", postCols, rows); err != nil {
 				return err
@@ -193,8 +149,7 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 		return fmt.Errorf("persist: posts: %w", err)
 	}
 	written("post", n, start)
-	metrics.PersistRows.WithLabelValues("post", "unchanged").Add(float64(int64(len(ps)) - n - int64(dropped)))
-	suppressed("post", dropped)
+	metrics.PersistRows.WithLabelValues("post", "unchanged").Add(float64(int64(len(ps)) - n))
 	return nil
 }
 
@@ -215,35 +170,19 @@ func (w *Writer) PostMetrics(ctx context.Context, ms []*ttv1.PostMetrics) error 
 	}
 	sort.Slice(ms, func(i, j int) bool { return ms[i].CapturedAt.AsTime().Before(ms[j].CapturedAt.AsTime()) })
 	start := time.Now()
-	ids := make([]int64, len(ms))
-	for i, m := range ms {
-		ids[i] = m.UserId
-	}
 	var n int64
-	var dropped int
 	err := pgx.BeginFunc(ctx, w.DB, func(tx pgx.Tx) error {
-		sup, err := guard(ctx, tx, nil, ids)
-		if err != nil {
-			return err
-		}
-		dropped = 0
 		cols := []string{"post_id", "captured_at", "user_id", "play_count", "like_count", "comment_count", "share_count",
 			"save_count", "repost_count"}
 		rows := make([][]any, 0, len(ms))
 		for _, m := range ms {
-			if sup.PageSuppressed(m.UserId) {
-				dropped++
-				continue
-			}
 			c := m.Counts
 			rows = append(rows, []any{m.PostId, m.CapturedAt.AsTime(), m.UserId, c.Plays, c.Likes, c.Comments, c.Shares, c.Saves, c.Reposts})
-		}
-		if len(rows) == 0 {
-			return nil
 		}
 		if err := copyTemp(ctx, tx, "tmp_metrics", "post_metrics", cols, rows); err != nil {
 			return err
 		}
+		var err error
 		n, err = optionalInsert(ctx, tx, `INSERT INTO post_metrics (`+strings.Join(cols, ",")+`)
 			SELECT m.post_id, m.captured_at, m.user_id, m.play_count, m.like_count, m.comment_count, m.share_count,
 				m.save_count, m.repost_count
@@ -262,7 +201,6 @@ func (w *Writer) PostMetrics(ctx context.Context, ms []*ttv1.PostMetrics) error 
 		return fmt.Errorf("persist: post metrics: %w", err)
 	}
 	written("post_metrics", n, start)
-	metrics.PersistRows.WithLabelValues("post_metrics", "unchanged").Add(float64(int64(len(ms)) - n - int64(dropped)))
-	suppressed("post_metrics", dropped)
+	metrics.PersistRows.WithLabelValues("post_metrics", "unchanged").Add(float64(int64(len(ms)) - n))
 	return nil
 }

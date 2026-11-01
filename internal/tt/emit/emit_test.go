@@ -60,37 +60,32 @@ func person(id int64) *ttv1.Person {
 	return &ttv1.Person{UserId: proto.Int64(id), SecUid: "sec", Username: "name", Nickname: "nick", AvatarUrl: "https://a/x.jpg"}
 }
 
-// Pseudonymising leaves people only their author key: comment authors and
-// mentioned users alike. An erased author's comment is redacted; an erased
-// account's comment is not published at all (Comment checks it first).
+// Pseudonymising leaves people only their author key (and TikTok's age
+// band, which does not identify them): comment authors and mentioned users
+// alike. Without it everything is kept, the age band included.
 func TestPrivatize(t *testing.T) {
 	e := &Emitter{HMACKey: secret, Pseudonymize: true}
-	c := &ttv1.Comment{CommentId: 1, UserId: 9, Text: "hi @name", Author: person(5),
+	author := person(5)
+	author.PredictedAgeGroup = "band"
+	c := &ttv1.Comment{CommentId: 1, UserId: 9, Text: "hi @name", Author: author,
 		TextRanges: []*ttv1.TextRange{{Offset: 3, Length: 5, Type: "mention", Person: person(6)}}}
-	if !e.Privatize(c) {
-		t.Fatal("redacted")
-	}
-	if !proto.Equal(c.Author, &ttv1.Person{AuthorKey: AuthorKey(secret, 5)}) || !proto.Equal(c.TextRanges[0].Person, &ttv1.Person{AuthorKey: AuthorKey(secret, 6)}) {
+	e.Privatize(c)
+	if !proto.Equal(c.Author, &ttv1.Person{AuthorKey: AuthorKey(secret, 5), PredictedAgeGroup: "band"}) ||
+		!proto.Equal(c.TextRanges[0].Person, &ttv1.Person{AuthorKey: AuthorKey(secret, 6)}) {
 		t.Errorf("people kept identifying fields: %v %v", c.Author, c.TextRanges[0].Person)
 	}
 	if c.Text == "" {
 		t.Error("the text went")
 	}
 
-	supp := gdpr.NewSuppression(nil).ForAccounts()
-	e = &Emitter{HMACKey: secret, Suppression: supp}
-	supp.Add(AuthorKey(secret, 5), 0)
-	c = &ttv1.Comment{CommentId: 2, UserId: 9, Text: "secret", Author: person(5)}
-	if e.Privatize(c) || !c.Redacted || c.Text != "" || c.Author.GetUsername() != "" || !bytes.Equal(c.Author.AuthorKey, AuthorKey(secret, 5)) {
-		t.Errorf("an erased author's comment: %v", c)
-	}
-	c = &ttv1.Comment{CommentId: 3, UserId: 9, Text: "x", Author: person(7),
-		TextRanges: []*ttv1.TextRange{{Type: "mention", Person: person(5)}}}
-	if !e.Privatize(c) || c.TextRanges[0].Person.GetUsername() != "" || c.Author.GetUsername() != "name" {
-		t.Errorf("an erased author's mention: %v", c)
-	}
-	supp.Add(nil, 9)
-	if !e.AccountSuppressed(9) || e.Privatize(&ttv1.Comment{UserId: 9, Author: person(8)}) {
-		t.Error("an erased account's comment passed")
+	e = &Emitter{HMACKey: secret}
+	author = person(5)
+	author.PredictedAgeGroup = "band"
+	c = &ttv1.Comment{CommentId: 2, UserId: 9, Text: "kept", Author: author,
+		TextRanges: []*ttv1.TextRange{{Type: "mention", Person: person(7)}}}
+	e.Privatize(c)
+	if c.Text != "kept" || c.Redacted || c.Author.GetUsername() != "name" || c.Author.PredictedAgeGroup != "band" ||
+		!bytes.Equal(c.Author.AuthorKey, AuthorKey(secret, 5)) || c.TextRanges[0].Person.GetUsername() != "name" {
+		t.Errorf("a comment lost data: %v", c)
 	}
 }

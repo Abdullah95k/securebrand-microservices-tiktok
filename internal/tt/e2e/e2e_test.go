@@ -1,10 +1,7 @@
 package e2e
 
 import (
-	"context"
-	"encoding/hex"
 	"fmt"
-	"strconv"
 	"testing"
 	"time"
 
@@ -40,9 +37,8 @@ func round(t *testing.T, s *Stack, name string, mode commonv1.CrawlMode, refs ..
 //     comment and reply call signed, none of the list calls);
 //  2. an incremental round after new posts, a rename and changed counts;
 //  3. a round with nothing new: no row changes, no metrics row;
-//  4. a round after new comments on a post, with one commenter and one
-//     account erased in between: the account's data is not written again,
-//     the commenter's comments are stored redacted, without a person.
+//  4. a round after new comments and replies on a post, one by a commenter
+//     seen before: everything is stored, nothing is redacted.
 func TestStoreEqualsGroundTruth(t *testing.T) {
 	s := Start(t, Options{Spec: fakett.Spec{Seed: 5, Accounts: 3, PostsPerAccount: 24, MaxComments: 30, MaxReplies: 5,
 		PostSpacing: 20 * time.Hour}})
@@ -111,48 +107,20 @@ func TestStoreEqualsGroundTruth(t *testing.T) {
 		t.Errorf("%d comments, %d before a quiet round", got, commentsSeen)
 	}
 
-	// 4. Erasures, then new comments on the new post (past its 6 h comment
-	// window), one by the erased commenter. The eraser (M6) removes the
-	// account's rows and redacts the commenter's; here the test does.
-	ctx := context.Background()
-	erased := np.Comments[0].Author
-	key := emit.AuthorKey([]byte(s.Cfg.Privacy.AuthorHMACKey), erased.UID)
-	for _, q := range []struct {
-		sql  string
-		args []any
-	}{
-		{`INSERT INTO suppression (subject_type, subject_key) VALUES ('author', $1), ('account', $2)`,
-			[]any{hex.EncodeToString(key), strconv.FormatInt(accs[2].UID, 10)}},
-		{`UPDATE comments SET text = NULL, text_ranges = NULL, author_user_id = NULL, redacted = true WHERE author_key = $1`, []any{key}},
-		{`DELETE FROM people WHERE author_key = $1`, []any{key}},
-	} {
-		if _, err := s.DB.Exec(ctx, q.sql, q.args...); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, tb := range []string{"comments", "post_metrics", "posts", "post_index", "media", "account_usernames", "accounts"} {
-		if _, err := s.DB.Exec(ctx, `DELETE FROM `+tb+` WHERE user_id = $1`, accs[2].UID); err != nil {
-			t.Fatal(err)
-		}
-	}
-	time.Sleep(3 * s.Cfg.Crawler.SuppressionRefresh) // the crawler's copy of the list
+	// 4. New comments on the new post (past its 6 h comment window), one by
+	// a commenter seen before, and new replies: everything is stored, the
+	// commenter's earlier comments too (tks erases no one).
+	again := np.Comments[0].Author
 	w.Advance(7 * time.Hour)
 	w.AddComments(np, 4)
-	w.Mutate(func() { np.Comments[len(np.Comments)-1].Author = erased })
+	w.Mutate(func() { np.Comments[len(np.Comments)-1].Author = again })
 	w.AddReplies(np.Comments[1], 3)
-	round(t, s, "erasure", incremental, refs()...)
-	tr := truth{erasedAuthors: map[int64]bool{erased.UID: true}}
-	sameStore(t, s, accs[0], tr)
-	sameStore(t, s, accs[1], none)
-	for _, tb := range []string{"accounts", "posts", "post_metrics", "comments", "media"} {
-		if n := count(t, s, `SELECT count(*) FROM `+tb+` WHERE user_id = $1`, accs[2].UID); n != 0 {
-			t.Errorf("%d rows of the erased account in %s after a re-scrape", n, tb)
-		}
+	round(t, s, "more comments", incremental, refs()...)
+	for _, a := range accs {
+		sameStore(t, s, a, none)
 	}
-	if n := count(t, s, `SELECT count(*) FROM people WHERE author_key = $1`, key); n != 0 {
-		t.Errorf("the erased commenter is in people again")
-	}
-	if n := count(t, s, `SELECT count(*) FROM comments WHERE author_key = $1 AND NOT redacted`, key); n != 0 {
-		t.Errorf("%d comments of the erased commenter stored unredacted", n)
+	key := emit.AuthorKey([]byte(s.Cfg.Privacy.AuthorHMACKey), again.UID)
+	if n := count(t, s, `SELECT count(*) FROM comments WHERE author_key = $1 AND text IS NOT NULL`, key); n < 2 {
+		t.Errorf("%d comments of the returning commenter stored, want both", n)
 	}
 }

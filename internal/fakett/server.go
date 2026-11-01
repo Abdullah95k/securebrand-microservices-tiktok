@@ -455,11 +455,14 @@ func (s *Server) commentPage(w http.ResponseWriter, q url.Values, list []*Commen
 }
 
 func comment(c *Comment, item int64, parent string) map[string]any {
+	user := map[string]any{"uid": strconv.FormatInt(c.Author.UID, 10), "unique_id": c.Author.Username, "sec_uid": c.Author.SecUID,
+		"nickname": c.Author.Nickname, "avatar_thumb": map[string]any{"url_list": []string{"/fake-cdn/avatar/" + strconv.FormatInt(c.Author.UID, 10) + ".jpg"}}}
+	if g := c.Author.AgeGroup(); g != "" {
+		user["predicted_age_group"] = g
+	}
 	return map[string]any{"cid": strconv.FormatInt(c.ID, 10), "text": c.Text, "create_time": c.Created.Unix(), "digg_count": c.Likes,
 		"reply_comment_total": len(c.Replies), "aweme_id": strconv.FormatInt(item, 10), "reply_id": parent, "reply_to_reply_id": "0",
-		"is_author_digged": false, "stick_position": 0, "author_pin": false, "status": 1, "comment_language": "ar",
-		"user": map[string]any{"uid": strconv.FormatInt(c.Author.UID, 10), "unique_id": c.Author.Username, "sec_uid": c.Author.SecUID,
-			"nickname": c.Author.Nickname, "avatar_thumb": map[string]any{"url_list": []string{"/fake-cdn/avatar/" + strconv.FormatInt(c.Author.UID, 10) + ".jpg"}}}}
+		"is_author_digged": false, "stick_position": 0, "author_pin": false, "status": 1, "comment_language": "ar", "user": user}
 }
 
 func (s *Server) userInfo(acc *Account, host string) map[string]any {

@@ -104,9 +104,6 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusBadRequest, "invalid mode", "mode must be auto, full, incremental or refresh")
 		return
 	}
-	if s.refuseErased(w, r, ref, 0) {
-		return
-	}
 	lim, err := s.limits(req.CrawlOptions, req.Mode == dispatch.ModeFull)
 	if err != nil {
 		problem(w, http.StatusBadRequest, "invalid options", err.Error())

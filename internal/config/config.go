@@ -213,6 +213,11 @@ type TT struct {
 	Freshness Freshness  `koanf:"freshness"`
 	Comments  TTComments `koanf:"comments"`
 	Media     TTMedia    `koanf:"media"`
+	// Retention is tks's own (privacy.retention stays the copied Facebook
+	// pipeline's): every value 0 by default, so tks keeps everything it
+	// collects (owner, 2026-11-01; docs/tiktok ADR 0007 §14). A positive
+	// value turns that retention step back on.
+	Retention Retention `koanf:"retention"`
 }
 
 // TTMedia is tks's media download switch (build brief D5). tks's tasks
@@ -711,6 +716,10 @@ func (t TT) validate() []error {
 	}
 	if t.Comments.MaxPerPost < 0 {
 		errs = append(errs, errors.New("tt.comments.max_per_post must be >= 0 (0: no cap)"))
+	}
+	r := t.Retention
+	if r.CommentsDays < 0 || r.MetricsDays < 0 || r.AuthorsInactiveDays < 0 || r.JobsDays < 0 || r.MediaRowsDays < 0 || r.RawPayloadDays < 0 {
+		errs = append(errs, errors.New("tt.retention values must be >= 0 (0: kept for good)"))
 	}
 	return errs
 }

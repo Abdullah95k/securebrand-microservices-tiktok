@@ -7,6 +7,7 @@ info:
     username history, posts (videos and photo posts) with their metrics, comments and replies.
     All endpoints require `Authorization: Bearer tks_<prefix>_<secret>` (`tksctl apikey create`).
     Scopes: `jobs:write`, `accounts:write`, `data:read`, `pii:read`, `admin` (implies all).
+    tks deletes nothing it collects and erases no one (owner, 2026-11-01; ADR 0007 §14).
     Errors use RFC 9457 problem documents (`application/problem+json`).
 
     **Ids are strings.** TikTok's user, post, comment and music ids do not fit a JavaScript
@@ -49,7 +50,6 @@ paths:
         "202": {description: Job accepted, content: {application/json: {schema: {$ref: '#/components/schemas/Job'}}}}
         "200": {description: Existing job for this Idempotency-Key, content: {application/json: {schema: {$ref: '#/components/schemas/Job'}}}}
         "400": {$ref: '#/components/responses/Problem'}
-        "409": {description: "An id: reference to an erased account"}
         "422": {description: "An id: reference to an account tks has not read (TikTok cannot be read by user id alone)", content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
         "429":
           description: >-
@@ -132,7 +132,6 @@ paths:
                   created: {type: boolean, description: The account was not registered before}
                   schedule: {$ref: '#/components/schemas/Schedule'}
         "400": {$ref: '#/components/responses/Problem'}
-        "409": {description: "The account was erased and is not collected again (known by its user id: an id: reference, or a name tks still resolves)"}
         "422": {description: "An id: reference to an account tks has not read"}
     get:
       summary: List registered accounts (the caller's; every account with admin), by reference
@@ -194,17 +193,10 @@ paths:
         "404": {$ref: '#/components/responses/Problem'}
         "409": {$ref: '#/components/responses/Problem'}
     delete:
-      summary: Unregister the caller; with purge (admin), also erase the account
-      description: >-
-        The schedule is disabled once no client is registered. `purge=true` queues an account erasure
-        (its posts, metrics, comments, media, snapshots and username history deleted; its comments on
-        other accounts' posts redacted; its user id suppressed so it is never collected again).
-      parameters:
-        - {in: query, name: purge, schema: {type: boolean}}
+      summary: Unregister the caller
+      description: The schedule is disabled once no client is registered. The account's data stays.
       responses:
         "204": {description: Unregistered}
-        "202": {description: Erasure queued, content: {application/json: {schema: {$ref: '#/components/schemas/Erasure'}}}}
-        "403": {$ref: '#/components/responses/Problem'}
   /accounts/{account}/usernames:
     parameters: [{$ref: '#/components/parameters/Account'}, {$ref: '#/components/parameters/Limit'}]
     get:
@@ -364,41 +356,6 @@ paths:
       summary: A media item and its download state
       responses:
         "200": {description: Media, content: {application/json: {schema: {$ref: '#/components/schemas/Media'}}}}
-        "404": {$ref: '#/components/responses/Problem'}
-  /erasure-requests:
-    post:
-      summary: Queue an erasure (admin)
-      description: >-
-        An `author` (a commenter or a mentioned person) by `author_key`, `user_id`, `sec_uid` or
-        `username`; an `account` by `user_id`, `sec_uid` or `username`. Names are resolved from what tks
-        stores; no TikTok request is made. A user id works even for a subject tks never stored: it is
-        suppressed from then on. An author's comments keep only their ids and the author key, their
-        identity and media are deleted and their mentions cleared. An account's data is deleted, and it
-        is erased as an author too (on TikTok they are the same user). Both are suppressed: the crawler
-        and the persister never collect them again. The request keeps no trace of the names once done.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [subject_type]
-              properties:
-                subject_type: {type: string, enum: [author, account]}
-                author_key: {type: string, description: 64 hex characters, as the API shows it}
-                user_id: {$ref: '#/components/schemas/ID'}
-                sec_uid: {type: string}
-                username: {type: string}
-      responses:
-        "202": {description: Queued, content: {application/json: {schema: {$ref: '#/components/schemas/Erasure'}}}}
-        "400": {$ref: '#/components/responses/Problem'}
-  /erasure-requests/{id}:
-    get:
-      summary: An erasure's state (admin)
-      parameters:
-        - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
-      responses:
-        "200": {description: Erasure, content: {application/json: {schema: {$ref: '#/components/schemas/Erasure'}}}}
         "404": {$ref: '#/components/responses/Problem'}
   /admin/operations:
     get:
@@ -626,7 +583,7 @@ components:
         author_key: {type: string, description: Hex HMAC of the author's user id (pseudonymous)}
         author:
           type: object
-          description: "pii:read; absent when stored pseudonymized or redacted"
+          description: "pii:read; absent when stored pseudonymized"
           properties:
             user_id: {$ref: '#/components/schemas/ID'}
             sec_uid: {type: string}
@@ -634,6 +591,7 @@ components:
             nickname: {type: string}
             avatar_url: {type: string}
             verified: {type: boolean}
+            predicted_age_group: {type: string, description: "TikTok's inference of the person's age band, when it serves one"}
         text: {type: string, description: "pii:read"}
         text_ranges: {type: array, items: {type: object}, description: "pii:read"}
         created_at: {type: string, format: date-time}
@@ -654,7 +612,6 @@ components:
         deleted_at: {type: string, format: date-time}
         edit_count: {type: integer, description: Text changes seen across reads}
         edited_at: {type: string, format: date-time}
-        redacted: {type: boolean, description: The author was erased}
         first_seen_at: {type: string, format: date-time}
         last_seen_at: {type: string, format: date-time}
     Media:
@@ -687,14 +644,3 @@ components:
         stored_at: {type: string, format: date-time}
         ready_at: {type: string, format: date-time}
         deleted_at: {type: string, format: date-time}
-    Erasure:
-      type: object
-      properties:
-        id: {type: string, format: uuid}
-        subject_type: {type: string, enum: [author, account]}
-        status: {type: string, enum: [pending, done, failed]}
-        stats: {type: object, description: Rows deleted or redacted per table}
-        error: {type: string}
-        attempts: {type: integer}
-        created_at: {type: string, format: date-time}
-        completed_at: {type: string, format: date-time}

@@ -10,8 +10,8 @@ package securebrand.tt.v1;
 option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1;ttv1";
 
 // Person is a TikTok user met in passing: a comment author or a mentioned
-// user. Everything but author_key is personal data, empty when
-// privacy.pii_mode is pseudonymized or the person was erased.
+// user. Everything but author_key and predicted_age_group is personal data,
+// empty when privacy.pii_mode is pseudonymized.
 message Person {
   // HMAC-SHA256(tks secret, "tt:user:" + user id): the stable pseudonymous
   // key (ADR 0007 §1). Never empty.
@@ -23,6 +23,11 @@ message Person {
   string nickname = 5;
   string avatar_url = 6;
   optional bool verified = 7;
+  // TikTok's inference of the person's age band (predicted_age_group), as
+  // served on some comment authors. Stored by the owner's choice
+  // (2026-11-01, ADR 0007 §14); kept when pseudonymized, since it does not
+  // identify the person.
+  string predicted_age_group = 8;
 }
 
 // TextRange marks a hashtag or a mention inside a caption or a comment, in

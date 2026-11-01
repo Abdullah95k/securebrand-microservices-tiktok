@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"google.golang.org/protobuf/encoding/protojson"
-
 	ttv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/parse"
 )
@@ -159,11 +157,8 @@ func TestComments(t *testing.T) {
 	if res.Dropped[parse.DropNoUserID] != 1 {
 		t.Fatalf("a commenter without a numeric id is dropped and counted: %v", res.Dropped)
 	}
-	for _, b := range res.Comments {
-		out, _ := protojson.Marshal(b.Comment)
-		if strings.Contains(string(out), "secret-band") {
-			t.Fatal("predicted_age_group is never read")
-		}
+	if c.Author.PredictedAgeGroup != "secret-band" {
+		t.Fatalf("predicted_age_group not read: %q", c.Author.PredictedAgeGroup)
 	}
 	m := res.Comments[0].Media[0]
 	if m.GetCommentId() != c.CommentId || m.Width != 10 || string(m.AuthorKey) != string(c.Author.AuthorKey) {

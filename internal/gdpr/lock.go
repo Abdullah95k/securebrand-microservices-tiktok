@@ -43,10 +43,6 @@ func lockExclusive(ctx context.Context, tx pgx.Tx) error {
 	return err
 }
 
-// LockExclusive is the erasure's side of GuardAccounts, for an eraser of
-// another schema (tks's schema tt): writers wait while tx holds it.
-func LockExclusive(ctx context.Context, tx pgx.Tx) error { return lockExclusive(ctx, tx) }
-
 // Querier runs a query: a pool or a transaction.
 type Querier interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)

@@ -60,9 +60,7 @@ type due struct {
 
 // Tick claims the accounts that are due, moves their next check on by
 // their interval (doubled per consecutive failure, at most 30 days; with
-// jitter) and dispatches a job for each. Suppressed accounts are skipped:
-// their erasure disables the schedule, and the crawler and the persister
-// drop them too.
+// jitter) and dispatches a job for each.
 func (p *Planner) Tick(ctx context.Context) error {
 	stretch, stretchTiers := 1.0, []string{}
 	if p.Budget != nil {
@@ -74,7 +72,6 @@ func (p *Planner) Tick(ctx context.Context) error {
 		WITH d AS (
 			SELECT account_ref FROM account_schedule s
 			WHERE enabled AND next_run_at <= $5 AND (paused_until IS NULL OR paused_until < $5)
-			  AND NOT EXISTS (SELECT 1 FROM suppression x WHERE x.subject_type = 'account' AND x.subject_key = s.user_id::text)
 			ORDER BY next_run_at LIMIT $1 FOR UPDATE SKIP LOCKED
 		)
 		UPDATE account_schedule s SET
@@ -246,7 +243,7 @@ func (p *Planner) TierGauges(ctx context.Context) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	for _, st := range []string{"active", "private", "unavailable", "banned", "suppressed", "unknown"} {
+	for _, st := range []string{"active", "private", "unavailable", "banned", "unknown"} {
 		metrics.ScheduledAccounts.WithLabelValues(st).Set(seen[st])
 	}
 	var oldest float64

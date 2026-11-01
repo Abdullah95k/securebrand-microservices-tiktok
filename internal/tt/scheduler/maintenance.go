@@ -14,9 +14,10 @@ import (
 )
 
 // Maintenance keeps schema tt's partitions ahead of time and applies
-// retention (privacy.retention; ADR 0007 §4, §6): comment and metrics
-// partitions are dropped whole; finished jobs, media rows never handed
-// over, inactive people and old canary runs are deleted in batches.
+// retention when it is configured (tt.retention, every value 0 by default:
+// tks keeps everything, ADR 0007 §14): comment and metrics partitions are
+// then dropped whole; finished jobs, media rows never handed over, inactive
+// people and old canary runs deleted in batches.
 type Maintenance struct {
 	DB  *pgxpool.Pool
 	Cfg *config.Config
@@ -32,7 +33,7 @@ func (m *Maintenance) Tick(ctx context.Context) error {
 	if m.Now != nil {
 		now = m.Now().UTC()
 	}
-	ret := m.Cfg.Privacy.Retention
+	ret := m.Cfg.TT.Retention
 	// Posts go back as far as a backfill reads (or an account's own window,
 	// at most the cap), and one month more for the month in progress.
 	monthsBack := max(m.Cfg.TT.Freshness.BackfillDays, m.Cfg.Limits.MaxAgeCapDays)/30 + 1
@@ -53,8 +54,7 @@ func (m *Maintenance) Tick(ctx context.Context) error {
 	if n > 0 {
 		slog.Info("partitions created", "count", n)
 	}
-	// Comments are kept as long as a backfill reaches back (365 days); the
-	// metrics history and the daily account snapshots as long as metrics.
+	// Only the steps given a number of days run; by default none does.
 	drops := []struct {
 		table string
 		days  int
