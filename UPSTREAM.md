@@ -35,6 +35,18 @@ igs has not done its M2 (at `8ed9c61`, 2026-11-01, only probe changes since `946
 
 **Not ported:** Facebook-only fixes (parsers, `internal/fb/htmlx` beyond `NamesNothing`, the pilot and its Compose and Makefile targets, the Phase 0 report and dry run, the fixture scrubber, the release workflow). fbs `8711934` (after `b50b4a7`: comment authors kept for good by default, `privacy.retention.authors_inactive_days: 0`) is a retention choice, left for tks's privacy settings in M6 (ADR 0007 §6).
 
+## tks's own copies of shared code
+
+igs has not generalised the crawl pipeline (igs main `670a762`, 2026-11-01), so M5a gave tks its own, on tks's envelope (`securebrand.tks.task.v1`) and TikTok's records (`tt.v1`), copied from the shared packages and retargeted. **Until M9 removes the Facebook code, a fix to one belongs in the other too:**
+
+| tks package | Copied from | What changed |
+|---|---|---|
+| `internal/tt/task` | `internal/crawl/task` | TikTok's scopes (account, post, thread, media) and references (`u:`, `sec:`, `id:`); `DefaultLimits` reads `tt.media.include` (off: D5), `tt.freshness.backfill_days` and `tt.comments` |
+| `internal/tt/emit` | `internal/crawl/emit` | `tt.v1` records, `common.v1` observations with `platform`; author keys on `"tt:user:" + id`; signed links' queries, link expiries and capture times left out of the content hash |
+| `internal/tt/stage` (`worker.go`, `deps.go`) | `internal/crawl/stage` (`worker.go`, `deps.go`) | The worker's lifecycle (leases, retries, stalls and waits, dead letters, job accounting, the retry relay with its own group `tks-tt-retry-relay`) unchanged on tks's envelope; the account replaces the page in suppression checks; watermarks in `tt.crawl_cursors` (`account_list`) |
+
+Additions to shared code for them (no change for the copied pipeline): `gdpr.Suppression.ForAccounts` (tks's `account` subjects where fbs has `page`), `checkpoint.State.Stuck`, `checkpoint.PostCache.ReadAt`, the metric `tks_list_stops_total`.
+
 ## tks fixes igs or fbs may want
 
 Fixes made in tks's copy of shared code that igs or fbs still lack. Their own sessions decide whether to port them.
