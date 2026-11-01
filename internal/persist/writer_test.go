@@ -289,3 +289,85 @@ func TestRestoreBringsBackRepliesDeletedWithTheComment(t *testing.T) {
 		}
 	}
 }
+
+// Data still in flight when an erasure ran never lands after it: posts,
+// comments, media and profiles of a suppressed page are dropped, and a
+// suppressed author's new comments are stored redacted, without an author
+// row. Before M2 only the crawlers checked suppression (ported from fbs).
+func TestSuppressedDataInFlight(t *testing.T) {
+	db := testenv.Postgres(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	if _, err := store.EnsurePartitions(ctx, db, now, store.PartitionWindow{MonthsBack: 2, MonthsAhead: 1, DaysBack: 1, DaysAhead: 1}); err != nil {
+		t.Fatal(err)
+	}
+	w := &Writer{DB: db}
+	created := timestamppb.New(now.Add(-time.Hour))
+	erasedAuthor := []byte{0xab, 0xcd}
+	f := int64(5)
+	// Page 7 was erased: its row is left suppressed and stripped.
+	if _, err := db.Exec(ctx, `INSERT INTO suppression (subject_type, subject_key) VALUES ('page', '7'), ('author', 'abcd');
+		INSERT INTO pages (page_id, status) VALUES (7, 'suppressed')`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := w.Posts(ctx, []*fbv1.Post{
+		{Obs: obs(now, "p7"), PostId: 70, PageId: 7, CreatedAt: created, Text: "erased page"},
+		{Obs: obs(now, "p8"), PostId: 80, PageId: 8, CreatedAt: created, Text: "kept"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Comments(ctx, []*fbv1.Comment{
+		{Obs: obs(now, "c7"), CommentId: 700, PostId: 70, PageId: 7, PostCreatedAt: created, Text: "on an erased page",
+			Author: &fbv1.Author{Id: "x", AuthorKey: []byte{1}}},
+		{Obs: obs(now, "c8"), CommentId: 800, PostId: 80, PageId: 8, PostCreatedAt: created, Text: "by an erased author", Url: "u",
+			TextRanges: []*fbv1.TextRange{{EntityType: "User", Name: "n"}}, Author: &fbv1.Author{Id: "erased", Name: "E", AuthorKey: erasedAuthor}},
+		{Obs: obs(now, "c9"), CommentId: 801, PostId: 80, PageId: 8, PostCreatedAt: created, Text: "kept",
+			Author: &fbv1.Author{Id: "y", Name: "Y", AuthorKey: []byte{2}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Media(ctx, []*fbv1.Media{
+		{Obs: obs(now, "m7"), MediaId: "00000000-0000-0000-0000-000000000007", Variant: "orig", OwnerType: "post", PostId: 70, PageId: 7, SourceUrl: "https://cdn.example/7"},
+		{Obs: obs(now, "m8"), MediaId: "00000000-0000-0000-0000-000000000008", Variant: "orig", OwnerType: "post", PostId: 80, PageId: 8, SourceUrl: "https://cdn.example/8"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Pages(ctx, []*fbv1.Page{{Obs: obs(now, "pg7"), PageId: 7, Name: "Erased", FollowersCount: &f}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Pages(ctx, []*fbv1.Page{{Obs: obs(now, "pg7u"), PageId: 7, Status: fbv1.PageStatus_PAGE_STATUS_UNAVAILABLE}}); err != nil {
+		t.Fatal(err)
+	}
+	// Page 6 was erased before its profile was ever stored.
+	if _, err := db.Exec(ctx, `INSERT INTO suppression (subject_type, subject_key) VALUES ('page', '6')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Pages(ctx, []*fbv1.Page{{Obs: obs(now, "pg6"), PageId: 6, Name: "Never stored", FollowersCount: &f}}); err != nil {
+		t.Fatal(err)
+	}
+
+	for q, want := range map[string]int{
+		`SELECT count(*) FROM posts WHERE page_id = 7`:                           0,
+		`SELECT count(*) FROM posts WHERE page_id = 8`:                           1,
+		`SELECT count(*) FROM comments WHERE page_id = 7`:                        0,
+		`SELECT count(*) FROM comments WHERE comment_id = 801 AND text = 'kept'`: 1,
+		`SELECT count(*) FROM comments WHERE comment_id = 800 AND redacted AND text IS NULL AND url IS NULL
+			AND text_ranges IS NULL AND author_id IS NULL AND author_key = '\xabcd'::bytea`: 1,
+		`SELECT count(*) FROM comment_authors WHERE author_key = '\xabcd'::bytea`:                 0,
+		`SELECT count(*) FROM comment_authors WHERE author_key = '\x02'::bytea`:                   1,
+		`SELECT count(*) FROM media WHERE page_id = 7`:                                            0,
+		`SELECT count(*) FROM media WHERE page_id = 8`:                                            1,
+		`SELECT count(*) FROM pages WHERE page_id = 7 AND status = 'suppressed' AND name IS NULL`: 1,
+		`SELECT count(*) FROM page_snapshots WHERE page_id = 7`:                                   0,
+		`SELECT count(*) FROM pages WHERE page_id = 6`:                                            0,
+	} {
+		var n int
+		if err := db.QueryRow(ctx, q).Scan(&n); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+		if n != want {
+			t.Errorf("%s = %d, want %d", q, n, want)
+		}
+	}
+}

@@ -66,6 +66,28 @@ redis.call('SET', KEYS[5], ARGV[2], 'PX', ARGV[1])
 return pending
 `)
 
+// reopenScript takes a finished task back out of the job's done set:
+// pending again, and no longer counted as failed (a dead letter counted
+// itself in tasks_failed when it finished). -1: the job never spawned the
+// task, or its state is gone; 0: the task is not done.
+var reopenScript = redis.NewScript(`
+if redis.call('SISMEMBER', KEYS[1], ARGV[3]) == 0 then
+  return -1
+end
+if redis.call('SREM', KEYS[2], ARGV[3]) == 0 then
+  return 0
+end
+redis.call('INCR', KEYS[3])
+if tonumber(redis.call('HGET', KEYS[4], 'tasks_failed') or '0') > 0 then
+  redis.call('HINCRBY', KEYS[4], 'tasks_failed', -1)
+end
+redis.call('SET', KEYS[5], ARGV[2], 'PX', ARGV[1])
+for i = 1, #KEYS do
+  redis.call('PEXPIRE', KEYS[i], ARGV[1])
+end
+return 1
+`)
+
 // Tracker records spawns and completions.
 type Tracker struct {
 	r *redis.Client
@@ -109,6 +131,29 @@ func (t *Tracker) Done(ctx context.Context, job, taskID string, counters map[str
 		}
 	}
 	return pending, nil
+}
+
+// Reopen counts a finished task of job as pending again, for a dead letter
+// replayed on purpose (fbctl dlq replay): the job then waits for the task,
+// no longer counts it as failed, and is finalised again once it finishes.
+// The job's keys get their full retention back (a finalised job's were
+// shortened). It reports false when there is nothing to reopen: the task
+// is not done, or the job's state is gone (it expired a day after the job
+// was finalised; the task then runs outside job accounting).
+func (t *Tracker) Reopen(ctx context.Context, job, taskID string) (bool, error) {
+	if job == "" {
+		return false, nil
+	}
+	keys := []string{key(job, "spawned"), key(job, "done"), key(job, "pending"), key(job, "counters"), key(job, "last"),
+		key(job, "posts"), key(job, "passes"), key(job, "passed")}
+	n, err := reopenScript.Run(ctx, t.r, keys, ttl.Milliseconds(), time.Now().Unix(), taskID).Int64()
+	if err != nil || n != 1 {
+		return false, err
+	}
+	// A job waiting for the finalizer must wait for the task too; one the
+	// finalizer already took finds it pending and leaves it (see
+	// scheduler.Finalizer). The task's Done adds it back at zero.
+	return true, t.r.SRem(ctx, FinalizeSet, job).Err()
 }
 
 // AddCounters adds to the job's counters outside of a task (the finalizer).

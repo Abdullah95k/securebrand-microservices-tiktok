@@ -70,6 +70,9 @@ fb:
   registry_seed: "queries.seed.yaml"
   registry_refresh: 30s
   fingerprint_profile: chrome_146
+  # Profiles new identities pick from at random (configs/fingerprints.yaml),
+  # e.g. [chrome_152, chrome_146]; empty: fingerprint_profile alone.
+  fingerprint_profiles: []
   locale: en_US
   accept_language: "en-US,en;q=0.9"
   request_timeout: 30s
@@ -154,6 +157,17 @@ fb:
     cooldown: 2m
     max_cooldown: 30m
     probe_successes: 3
+  # Replaces parts of the built-in detect rules (internal/scrape/detect), so
+  # a new error code, marker or HTTP status is classed without a deploy. A
+  # list that is set replaces the built-in one; one left unset keeps it.
+  # Lists: rate_limit_codes, soft_codes, login_codes, checkpoint_codes,
+  # unavailable_codes, stale_messages (regular expressions), login_markers,
+  # block_markers, checkpoint_paths, login_paths, checkpoint_page_markers,
+  # login_page_markers. statuses classes HTTP statuses before the built-in
+  # rules (429 rate limited, 401 login wall, 403 blocked, 400 stale on API
+  # calls, 404 unavailable on page loads, other 4xx soft errors), e.g.
+  #   statuses: {"403": checkpoint, "html:400": content_unavailable}
+  detect: {}
 
 crawler:
   stages: [page, post, thread]

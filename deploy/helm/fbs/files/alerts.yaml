@@ -245,6 +245,17 @@ groups:
           summary: "The persister is {{ $value }} records behind on {{ $labels.topic }}"
           description: Results reach Postgres late. Check tks_persist_batch_seconds and the database.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#kafka-lag
+      - alert: TksPersisterQuarantine
+        expr: sum by (entity, reason) (increase(tks_persist_quarantined_total[1h])) > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "The persister set aside {{ $value }} {{ $labels.entity }} records in an hour ({{ $labels.reason }})"
+          description: >-
+            Records it could not write are in the quarantine topic. Read the
+            log lines for their SQLSTATE, fix the cause, then replay them with
+            fbctl dlq replay --topic fbs.persist.dlq.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#persister-quarantine
       - alert: TksDLQGrowing
         expr: sum by (stage, reason) (increase(tks_dlq_total[1h])) > 100
         for: 15m

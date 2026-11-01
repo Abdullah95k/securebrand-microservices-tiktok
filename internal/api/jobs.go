@@ -133,14 +133,29 @@ func (s *Server) jobID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool)
 	return id, true
 }
 
-func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
+// ownJob loads job id if the caller may access it as asked (see
+// dispatch.Access); admins may do anything. Any other job is reported as
+// not found.
+func (s *Server) ownJob(w http.ResponseWriter, r *http.Request, a dispatch.Access) (*dispatch.Job, bool) {
 	id, ok := s.jobID(w, r)
 	if !ok {
-		return
+		return nil, false
 	}
-	j, err := s.Dispatch.Get(r.Context(), id)
+	var client *uuid.UUID
+	if c := clientFrom(r.Context()); !c.Has(ScopeAdmin) {
+		client = &c.ID
+	}
+	j, err := s.Dispatch.GetFor(r.Context(), id, client, a)
 	if err != nil {
 		serverError(w, err)
+		return nil, false
+	}
+	return j, true
+}
+
+func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
+	j, ok := s.ownJob(w, r, dispatch.Read)
+	if !ok {
 		return
 	}
 	writeJSON(w, http.StatusOK, j)
@@ -178,10 +193,11 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.jobID(w, r)
+	j, ok := s.ownJob(w, r, dispatch.Write)
 	if !ok {
 		return
 	}
+	id := j.ID
 	if err := s.Dispatch.Cancel(r.Context(), id); err != nil {
 		serverError(w, err)
 		return
@@ -193,13 +209,8 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
 // then posts seen during the job, each followed by its comments when
 // include=comments.
 func (s *Server) jobResults(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.jobID(w, r)
+	j, ok := s.ownJob(w, r, dispatch.Read)
 	if !ok {
-		return
-	}
-	j, err := s.Dispatch.Get(r.Context(), id)
-	if err != nil {
-		serverError(w, err)
 		return
 	}
 	if j.PageID == nil {

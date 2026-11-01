@@ -52,13 +52,18 @@ func (s *PostStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 		return retry(t, t.Cursor, "30s", "bootstrap: "+err.Error(), c)
 	}
 
-	st, _, err := d.Ckpt.Load(ctx, t.LineageId, t.Seq)
+	st, saved, err := d.Ckpt.Load(ctx, t.LineageId, t.Seq)
 	if err != nil {
 		return retry(t, "", "30s", "checkpoint: "+err.Error(), c)
 	}
 	st.Resume(c)
 	if st.Cursor == "" {
 		st.Cursor = t.Cursor
+	}
+	if !saved {
+		// A segment's checkpoint is its own: the comments the stream read
+		// before it come with the task, so the cap is per post.
+		st.ItemsSeen = sc.ItemsSeen
 	}
 
 	query := "comments"
@@ -206,6 +211,7 @@ func (s *PostStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 		return out
 	}
 	next := task.Continuation(t, st.Cursor)
+	next.GetPost().ItemsSeen = st.ItemsSeen
 	metrics.TaskYields.WithLabelValues("post").Inc()
 	return Outcome{Result: Continue, Next: next, Counters: c}
 }
@@ -252,6 +258,7 @@ func topLevelSeen(res parse.CommentsResult) []jobs.SeenComment {
 func cloneScope(sc *taskv1.PostScope) *taskv1.PostScope {
 	cp := proto.Clone(sc).(*taskv1.PostScope)
 	cp.CommentsWatermark = nil
+	cp.ItemsSeen = 0 // a new stream
 	return cp
 }
 

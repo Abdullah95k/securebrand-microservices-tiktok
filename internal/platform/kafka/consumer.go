@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"runtime/debug"
 	"sync/atomic"
 	"time"
 
@@ -248,7 +249,7 @@ func acquire(ctx context.Context, sem chan struct{}) bool {
 func (c *Consumer) process(ctx context.Context, r *kgo.Record) bool {
 	backoff := 200 * time.Millisecond
 	for attempt := 1; ; attempt++ {
-		err := c.h(ctx, r)
+		err := c.call(ctx, r)
 		if err == nil {
 			return true
 		}
@@ -267,6 +268,22 @@ func (c *Consumer) process(ctx context.Context, r *kgo.Record) bool {
 			backoff *= 2
 		}
 	}
+}
+
+// call runs the handler, turning a panic into an error: the record is
+// retried with backoff and its partition waits (visible as lag), while the
+// process and its other partitions go on. Unrecovered, the panic would kill
+// the process, and the uncommitted record would kill it again on restart.
+func (c *Consumer) call(ctx context.Context, r *kgo.Record) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			slog.Error("kafka: handler panicked", "group", c.cfg.Group, "topic", r.Topic, "partition", r.Partition,
+				"offset", r.Offset, "panic", fmt.Sprint(p), "stack", string(debug.Stack()))
+			metrics.KafkaHandlerPanics.WithLabelValues(c.cfg.Group).Inc()
+			err = fmt.Errorf("handler panic: %v", p)
+		}
+	}()
+	return c.h(ctx, r)
 }
 
 func (c *Consumer) commit(ctx context.Context, only map[string][]int32) {

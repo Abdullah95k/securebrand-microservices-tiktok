@@ -86,6 +86,49 @@ func TestTransportFailuresRetireAnIdentity(t *testing.T) {
 	}
 }
 
+// Rate limits in a row send an identity to ever longer cooldowns before
+// they retire it; an answer between them starts the count again. Before
+// M2 the second one in a row retired the identity, so the cooldown never
+// grew past a minute (fbs reference, chapter 1 §15).
+func TestRateLimitCooldownGrows(t *testing.T) {
+	id := newIdentity("x", proxy.Endpoint{Tier: "isp"}, Fingerprint{}, nil, nil, 1, 1, 0)
+	cooldown := func() time.Duration {
+		id.mu.Lock()
+		defer id.mu.Unlock()
+		return time.Until(id.cooldown).Round(time.Minute)
+	}
+	for range 3 {
+		if retire, _ := id.Record(detect.RateLimited); retire || cooldown() != time.Minute {
+			t.Fatalf("a rate limit after an answer: retire=%v cooldown=%s, want 1m", retire, cooldown())
+		}
+		id.Record(detect.OK)
+	}
+	for i, want := range []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute} {
+		if retire, reason := id.Record(detect.RateLimited); retire {
+			t.Fatalf("rate limit %d in a row retired the identity (%s)", i+1, reason)
+		}
+		if got := cooldown(); got != want {
+			t.Fatalf("rate limit %d in a row: cooldown %s, want %s", i+1, got, want)
+		}
+		if !id.coolingDown() {
+			t.Fatal("not cooling down")
+		}
+	}
+	if retire, reason := id.Record(detect.RateLimited); !retire || reason != "blocked" {
+		t.Fatalf("rate limit %d in a row: retire=%v reason=%q", RateLimitStreak, retire, reason)
+	}
+	if RateLimitCooldown(5) != 15*time.Minute || RateLimitCooldown(9) != 15*time.Minute || RateLimitCooldown(0) != time.Minute {
+		t.Fatalf("cooldown bounds: %s %s %s", RateLimitCooldown(0), RateLimitCooldown(5), RateLimitCooldown(9))
+	}
+	// Login walls and checkpoints still retire at once.
+	for _, c := range []detect.Class{detect.LoginWall, detect.Checkpoint} {
+		id := newIdentity("y", proxy.Endpoint{Tier: "isp"}, Fingerprint{}, nil, nil, 1, 1, 0)
+		if retire, _ := id.Record(c); !retire {
+			t.Fatalf("%s did not retire", c)
+		}
+	}
+}
+
 // doer fails every request with the error fail returns.
 type doer struct {
 	transport.Doer

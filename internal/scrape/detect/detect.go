@@ -89,6 +89,21 @@ type Rules struct {
 	// no login page markers: its logged-out pages carry a login form anyway.
 	CheckpointPageMarkers [][]byte
 	LoginPageMarkers      [][]byte
+	// Statuses classes HTTP statuses before the built-in rules, by kind of
+	// request: for example 403 on a platform that answers a refused
+	// request with it. Built in: 429 rate limited, 401 a login wall, 403
+	// blocked (rate limited), 400 a stale request on an API call, 404
+	// unavailable on a page load, any other 4xx a soft error.
+	Statuses []StatusRule
+}
+
+// StatusRule classes one HTTP status.
+type StatusRule struct {
+	Status int
+	// Expect limits the rule to API calls ("graphql") or page loads
+	// ("html"); empty applies it to both.
+	Expect string
+	Class  Class
 }
 
 // DefaultRules returns the built-in rules.
@@ -141,6 +156,11 @@ func (r Rules) Classify(in Input) (Class, string) {
 			}
 		}
 	}
+	for _, s := range r.Statuses {
+		if s.Status == in.Status && (s.Expect == "" || s.Expect == in.Expect) {
+			return s.Class, "http " + itoa(in.Status)
+		}
+	}
 	switch {
 	case in.Status == 429:
 		return RateLimited, "http 429"
@@ -150,6 +170,20 @@ func (r Rules) Classify(in Input) (Class, string) {
 		return SoftError, "http " + itoa(in.Status)
 	case in.Status == 404 && in.Expect == "html":
 		return ContentUnavailable, "http 404"
+	case in.Status == 401:
+		// Authentication wanted: logged-out access stopped here.
+		return LoginWall, "http 401"
+	case in.Status == 403:
+		// Refused outright (a WAF's "Access Denied", a blocked exit): back
+		// off this identity, as for a block page.
+		return RateLimited, "http 403"
+	case in.Status == 400 && in.Expect == "graphql":
+		// The request as built is no longer accepted (parameters, doc_id
+		// or variant): the client falls back to the next variant.
+		return RegistryStale, "http 400"
+	case in.Status >= 400 && in.Status < 500:
+		// Before M2 these read as OK when the body held no error.
+		return SoftError, "http " + itoa(in.Status)
 	case in.Status >= 300 && in.Status < 400:
 		// Unknown redirect (consent, locale); treat as soft so the caller
 		// re-bootstraps once.

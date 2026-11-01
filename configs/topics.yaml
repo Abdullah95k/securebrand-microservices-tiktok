@@ -18,6 +18,9 @@ topics:
   - {name: fbs.task.retry.5m,  partitions: 12, retention: 48h}
   - {name: fbs.task.retry.1h,  partitions: 12, retention: 48h}
   - {name: fbs.task.dlq,       partitions: 6,  retention: 336h}
+  # Records the persister set aside (undecodable, or refused by Postgres):
+  # entity records, so personal data, kept no longer than their topics.
+  - {name: fbs.persist.dlq,    partitions: 3,  retention: 168h}
   # Public contract (securebrand.fb.v1 protobuf). PII topics use delete
   # retention, never compaction, so erased data ages out.
   - {name: fb.page.v1,            partitions: 12, retention: 168h}

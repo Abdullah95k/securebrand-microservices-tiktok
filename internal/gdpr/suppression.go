@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	fbv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1"
 )
 
 // AuthorKey is the stable pseudonymous key of a Facebook author id.
@@ -121,4 +123,12 @@ func (s *Suppression) Run(ctx context.Context, every time.Duration) error {
 			}
 		}
 	}
+}
+
+// Redact strips a comment by a suppressed author down to its ids and the
+// author key, as an erasure leaves the stored row.
+func Redact(c *fbv1.Comment) {
+	c.Author = &fbv1.Author{AuthorKey: c.GetAuthor().GetAuthorKey()}
+	c.Text, c.TextRanges, c.Attachments, c.Url, c.ExtraJson = "", nil, nil, "", ""
+	c.Redacted = true
 }

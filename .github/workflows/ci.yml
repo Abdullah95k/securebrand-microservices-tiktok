@@ -79,7 +79,9 @@ jobs:
           TKS_TEST_KAFKA_BROKERS: localhost:19092
           TKS_TEST_SCHEMA_REGISTRY: http://localhost:18081
           TKS_BROWSER_NO_SANDBOX: "1"
-        run: go test -count=1 -timeout 20m ./internal/persist/... ./internal/e2e/... ./internal/spike/... ./internal/registrysync/... ./internal/platform/schemareg/...
+        # Every package: a test needing Postgres, Redis or Kafka skips without
+        # them, so listing packages here let new integration tests go unrun.
+        run: go test -count=1 -timeout 25m ./...
 
   deploy:
     runs-on: ubuntu-latest

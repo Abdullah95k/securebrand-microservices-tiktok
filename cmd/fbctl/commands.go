@@ -11,14 +11,19 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v3"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/configs"
 	fbv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1"
+	taskv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fbs/task/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/api"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/app"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/checkpoint"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/jobs"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/stage"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fixtures"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/pg"
@@ -185,12 +190,21 @@ func registrySet(ctx context.Context, cfg *config.Config, args []string) error {
 }
 
 // dlqReplay re-produces dead-lettered tasks to their original topics.
+// Each task is readied first (stage.Replayer): its done mark cleared, its
+// retry budget reset and its job reopened, so it runs again instead of
+// being skipped as done.
 func dlqReplay(ctx context.Context, cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("dlq replay", flag.ExitOnError)
 	reason := fs.String("reason", "", "only replay this x-reason")
 	max := fs.Int("max", 1000, "maximum records")
 	idle := fs.Duration("idle", 10*time.Second, "stop after this long without records")
+	from := fs.String("topic", topics.DLQ, "dead letters to replay: "+topics.DLQ+" (tasks) or "+topics.PersistQuarantine+
+		" (records the persister set aside, replayed as they are)")
 	_ = fs.Parse(args)
+	tasks := *from == topics.DLQ
+	if !tasks && *from != topics.PersistQuarantine {
+		return fmt.Errorf("--topic must be %s or %s", topics.DLQ, topics.PersistQuarantine)
+	}
 	kcfg, err := app.KafkaClient(cfg, "-fbctl")
 	if err != nil {
 		return err
@@ -200,13 +214,24 @@ func dlqReplay(ctx context.Context, cfg *config.Config, args []string) error {
 		return err
 	}
 	defer p.Close()
+	rdb, err := app.OpenRedis(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rdb.Close() }()
+	db, err := pg.Open(ctx, cfg.Postgres.DSN, 2)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	rp := &stage.Replayer{Ckpt: checkpoint.New(rdb), Jobs: jobs.New(rdb), DB: db}
 	cl, err := kgo.NewClient(append(kcfg.Opts(), kgo.ConsumerGroup(cfg.Kafka.TopicPrefix+"tks-dlq-replay"),
-		kgo.ConsumeTopics(cfg.Kafka.TopicPrefix+topics.DLQ), kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()), kgo.DisableAutoCommit())...)
+		kgo.ConsumeTopics(cfg.Kafka.TopicPrefix+*from), kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()), kgo.DisableAutoCommit())...)
 	if err != nil {
 		return err
 	}
 	defer cl.Close()
-	n, skipped := 0, 0
+	n, skipped, reopened := 0, 0, 0
 	for n < *max {
 		pctx, cancel := context.WithTimeout(ctx, *idle)
 		f := cl.PollRecords(pctx, 100)
@@ -226,7 +251,30 @@ func dlqReplay(ctx context.Context, cfg *config.Config, args []string) error {
 				skipped++
 				continue
 			}
-			out = append(out, &kgo.Record{Topic: p.Topic(strings.TrimPrefix(orig, cfg.Kafka.TopicPrefix)), Key: r.Key, Value: r.Value})
+			base := strings.TrimPrefix(orig, cfg.Kafka.TopicPrefix)
+			var t taskv1.Task
+			if !tasks || proto.Unmarshal(r.Value, &t) != nil || t.TaskId == "" {
+				// A record the persister set aside, or a task dead-lettered
+				// as received (it did not decode): it goes back as it is.
+				out = append(out, &kgo.Record{Topic: p.Topic(base), Key: r.Key, Value: r.Value, Headers: typeHeaders(r)})
+				continue
+			}
+			rep, err := rp.Prepare(ctx, &t)
+			if err != nil {
+				return err
+			}
+			if rep.Task == nil {
+				skipped++ // its job was cancelled
+				continue
+			}
+			if rep.Reopened {
+				reopened++
+			}
+			rec, err := p.Record(base, string(r.Key), rep.Task)
+			if err != nil {
+				return err
+			}
+			out = append(out, rec)
 		}
 		if err := p.ProduceSync(ctx, out...); err != nil {
 			return err
@@ -236,7 +284,7 @@ func dlqReplay(ctx context.Context, cfg *config.Config, args []string) error {
 		}
 		n += len(out)
 	}
-	fmt.Printf("replayed %d task(s), skipped %d\n", n, skipped)
+	fmt.Printf("replayed %d task(s) (%d job(s) reopened), skipped %d\n", n, reopened, skipped)
 	return nil
 }
 
@@ -294,4 +342,16 @@ func fixturesScrub(args []string) error {
 	keep := fs.String("keep-ids", "", "comma separated ids to keep (page ids)")
 	_ = fs.Parse(args)
 	return fixtures.ScrubDir(*dir, strings.Split(*keep, ","))
+}
+
+// typeHeaders returns the record's type headers, which a record replayed as
+// it is keeps.
+func typeHeaders(r *kgo.Record) []kgo.RecordHeader {
+	var out []kgo.RecordHeader
+	for _, h := range r.Headers {
+		if h.Key == kafka.HeaderType || h.Key == kafka.HeaderContentType {
+			out = append(out, h)
+		}
+	}
+	return out
 }
