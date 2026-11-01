@@ -176,7 +176,7 @@ Then download the bundle on your **Mac** as in step 9.
 
 ## The full pass (checkpoint C3), when the session asks for it
 
-The whole list, back one year, through your `isp` tier (or the tier the session names, once there are two). It takes about a day: at one request every 3 seconds, a busy news account reads about 100 list pages plus comments.
+The whole list, back one year, through your `isp` tier (or the tier the session names, once there are two). It reads **10 accounts at a time**, each through its own IP of the tier and still one request every 3 seconds per IP, so it takes **about 2 to 4 hours** instead of a day. If your tier has fewer than 10 IPs, the probe lowers the number to match and says so. To change it: `make tks-probe-all TKS_PROBE_PARALLEL=5`.
 
 ```bash
 tmux new -s tks-all
@@ -236,6 +236,7 @@ To compare what another country sees (T23, T30), add a second ISP tier to `phase
 | Tiers | `isp` | `TKS_PROBE_TIERS=isp,isp_eu` once you add a second tier (names as in your proxies file; `direct` = the droplet's own IP) |
 | Output | `phase0/out-tt/` | `TKS_PROBE_OUT=...` |
 | Proxies | `phase0/proxies.yaml` | `PHASE0_CONFIG=...` |
+| Accounts at a time (full pass) | 10 (at most the tier's IP count) | `TKS_PROBE_PARALLEL=5` |
 | Anything else | | `TKS_PROBE_ARGS="--max-list-pages 20 --videos 2"` |
 
 All options: `go run ./cmd/tks-spike probe --help`.

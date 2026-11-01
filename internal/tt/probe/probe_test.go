@@ -211,3 +211,27 @@ func TestProbeBrowserSigner(t *testing.T) {
 		t.Fatalf("own calls booked: %v", rep.Summary.Calls)
 	}
 }
+
+// Accounts read in parallel give the same answers as one after another,
+// in the accounts file's order (run with -race).
+func TestProbeParallel(t *testing.T) {
+	seq, _, _ := run(t, fakett.Faults{}, nil)
+	par, env, _ := run(t, fakett.Faults{}, func(o *probe.Options) { o.Parallel = 3 })
+	if par.Summary.Accounts != 3 || par.Summary.Posts != seq.Summary.Posts || par.Summary.CommentsServed != seq.Summary.CommentsServed ||
+		par.Summary.WalkStops["end"] != 3 || par.Summary.StoppedEarly != "" {
+		t.Fatalf("parallel %+v\nsequential %+v", par.Summary, seq.Summary)
+	}
+	for i, a := range env.World.Accounts() {
+		if par.Accounts[i].Username != a.Username || par.Accounts[i].Index != i+1 {
+			t.Fatalf("account %d: %s, want %s", i, par.Accounts[i].Username, a.Username)
+		}
+	}
+	if par.Summary.Calls["creator_list"]["ok"] != 3 || par.Summary.Requests["creator_list"].N != 3 {
+		t.Fatalf("booked calls: %v", par.Summary.Calls)
+	}
+	// Captchas still stop the run.
+	rep, _, _ := run(t, fakett.Faults{CaptchaAfter: 2}, func(o *probe.Options) { o.MaxCaptchas, o.Parallel = 2, 2 })
+	if rep.Summary.StoppedEarly != "captchas" || rep.Summary.Captchas < 2 || rep.Summary.Accounts == 3 {
+		t.Fatalf("captchas in parallel: %+v", rep.Summary)
+	}
+}

@@ -195,6 +195,9 @@ TKS_PROBE_ACCOUNTS_ALL ?= phase0/tt-accounts-all.txt
 TKS_PROBE_TIERS ?= isp
 TKS_PROBE_OUT ?= phase0/out-tt
 TKS_PROBE_ARGS ?=
+# Accounts the full pass reads at once, each through its own exit IP (the
+# owner chose 10 on 2026-11-01; capped at the tier's IP count).
+TKS_PROBE_PARALLEL ?= 10
 
 ## tks probe against real TikTok, test pass (checkpoint C2, docs/runbooks/tks-probe.md):
 ## 3 to 5 accounts, one run per tier in TKS_PROBE_TIERS (the owner's ISP tiers;
@@ -208,12 +211,13 @@ tks-probe:
 	    --tier $$t --out-dir $(TKS_PROBE_OUT)/$$t --max-list-pages 60 --videos 1 --signer browser --oembed $(TKS_PROBE_ARGS) || exit 1; \
 	done
 
-## tks probe, full pass (checkpoint C3): the whole list, back a year, few covers, no videos.
+## tks probe, full pass (checkpoint C3): the whole list, back a year, few covers, no videos,
+## TKS_PROBE_PARALLEL accounts at a time.
 tks-probe-all:
 	@test -f $(TKS_PROBE_ACCOUNTS_ALL) || { echo "missing $(TKS_PROBE_ACCOUNTS_ALL): copy your full accounts file there (docs/runbooks/tks-probe.md)"; exit 2; }
 	@for t in $$(echo $(TKS_PROBE_TIERS) | tr , ' '); do \
 	  $(GO) run ./cmd/tks-spike probe --accounts $(TKS_PROBE_ACCOUNTS_ALL) $(if $(wildcard $(PHASE0_CONFIG)),--config $(PHASE0_CONFIG)) \
-	    --tier $$t --out-dir $(TKS_PROBE_OUT)-all/$$t --max-age-days 365 --max-list-pages 100 --covers 3 --videos 0 --count-checks 0 --depth-checks 100000 --depth-days 365 $(TKS_PROBE_ARGS) || exit 1; \
+	    --tier $$t --out-dir $(TKS_PROBE_OUT)-all/$$t --max-age-days 365 --max-list-pages 100 --covers 3 --videos 0 --count-checks 0 --depth-checks 100000 --depth-days 365 --parallel $(TKS_PROBE_PARALLEL) $(TKS_PROBE_ARGS) || exit 1; \
 	done
 
 ## Rehearse the probe against a built-in fake TikTok: no traffic, no proxies.
