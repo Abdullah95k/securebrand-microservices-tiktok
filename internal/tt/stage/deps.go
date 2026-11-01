@@ -195,6 +195,10 @@ func classOutcome(t *tkstaskv1.Task, cls detect.Class, reason, cursor string, c 
 	}
 }
 
+// Start registers a job's root task and produces it: how the API and the
+// scheduler start an account check.
+func (d *Deps) Start(ctx context.Context, root *tkstaskv1.Task) error { return d.spawn(ctx, root) }
+
 // spawn registers child tasks with the job and produces them.
 func (d *Deps) spawn(ctx context.Context, children ...*tkstaskv1.Task) error {
 	if len(children) == 0 {

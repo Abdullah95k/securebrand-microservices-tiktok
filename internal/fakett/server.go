@@ -507,7 +507,7 @@ func (s *Server) item(p *Post, host string) map[string]any {
 		"id": id, "desc": p.Desc, "createTime": p.Created.Unix(), "isAd": p.Ad, "AIGCDescription": "", "ShowAIGC": false,
 		"CategoryType": 120, "textLanguage": "ar", "itemCommentStatus": 0, "privateItem": false,
 		"author": map[string]any{"id": strconv.FormatInt(p.Owner.UID, 10), "uniqueId": p.Owner.Username, "nickname": p.Owner.Nickname,
-			"secUid": p.Owner.SecUID, "verified": p.Owner.Verified},
+			"secUid": p.Owner.SecUID, "verified": p.Owner.Verified, "signature": p.Owner.Bio, "privateAccount": p.Owner.Private},
 		"music": map[string]any{"id": strconv.FormatInt(p.Music.ID, 10), "title": p.Music.Title, "authorName": p.Music.Author,
 			"original": p.Music.Original, "duration": p.Music.Duration},
 		"stats": map[string]any{"playCount": p.Plays, "diggCount": p.Likes, "commentCount": p.CommentCount(), "shareCount": p.Shares, "collectCount": p.Saves},

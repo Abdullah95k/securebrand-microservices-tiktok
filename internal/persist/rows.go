@@ -48,7 +48,7 @@ func extraJSON(s string) []byte {
 	if s == "" || !json.Valid([]byte(s)) {
 		return nil
 	}
-	return jsonbSafe([]byte(s))
+	return JSONBSafe([]byte(s))
 }
 
 func observed(o *fbv1.Observation) time.Time {

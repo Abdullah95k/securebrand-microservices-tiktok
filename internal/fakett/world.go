@@ -222,6 +222,13 @@ func (w *World) Mutate(f func()) {
 	f()
 }
 
+// Clock returns the world's present, for a crawler whose clock follows it.
+func (w *World) Clock() time.Time {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.Now
+}
+
 // Advance moves the world's present forward.
 func (w *World) Advance(d time.Duration) { w.Mutate(func() { w.Now = w.Now.Add(d) }) }
 
@@ -309,4 +316,3 @@ func (w *World) Rename(acc *Account, username string) {
 		w.byName[username] = acc
 	})
 }
-

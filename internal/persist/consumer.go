@@ -24,20 +24,47 @@ const Group = "tks-persister"
 
 // Consumer reads entity topics in batches and writes them.
 type Consumer struct {
-	cl       *kgo.Client
-	w        *Writer
-	prefix   string
-	maxBatch int
-	linger   time.Duration
+	cl         *kgo.Client
+	sink       Sink
+	prefix     string
+	quarantine string
+	maxBatch   int
+	linger     time.Duration
+}
+
+// Sink is one schema's side of the consumer: which topics it reads, the
+// message each holds, and the writer of a batch. fbs's is the Writer
+// (NewConsumer); tks's schema tt has its own (internal/tt/persist).
+type Sink interface {
+	// Topics are the entity topics, without the prefix.
+	Topics() []string
+	// New returns an empty message for a topic's records (nil: skipped).
+	New(topic string) proto.Message
+	// Entity names a topic's records in metrics.
+	Entity(topic string) string
+	// Write writes a batch of decoded records, in the order read.
+	Write(ctx context.Context, msgs []proto.Message) error
+}
+
+// SinkConfig names a sink's consumer group and quarantine topic.
+type SinkConfig struct {
+	Group      string
+	Quarantine string
 }
 
 func NewConsumer(cfg kafka.ClientConfig, w *Writer, maxBatch int, linger time.Duration) (*Consumer, error) {
-	ts := make([]string, len(topics.Entity))
-	for i, t := range topics.Entity {
-		ts[i] = cfg.TopicPrefix + t
+	return NewSinkConsumer(cfg, fbSink{w}, SinkConfig{Group: Group, Quarantine: topics.PersistQuarantine}, maxBatch, linger)
+}
+
+// NewSinkConsumer reads sink's topics with group sc.Group, setting aside
+// what cannot be written to sc.Quarantine.
+func NewSinkConsumer(cfg kafka.ClientConfig, sink Sink, sc SinkConfig, maxBatch int, linger time.Duration) (*Consumer, error) {
+	ts := make([]string, 0, len(sink.Topics()))
+	for _, t := range sink.Topics() {
+		ts = append(ts, cfg.TopicPrefix+t)
 	}
 	cl, err := kgo.NewClient(append(cfg.Opts(),
-		kgo.ConsumerGroup(cfg.TopicPrefix+Group),
+		kgo.ConsumerGroup(cfg.TopicPrefix+sc.Group),
 		kgo.ConsumeTopics(ts...),
 		kgo.DisableAutoCommit(),
 		kgo.BlockRebalanceOnPoll(),
@@ -51,7 +78,7 @@ func NewConsumer(cfg kafka.ClientConfig, w *Writer, maxBatch int, linger time.Du
 	if maxBatch <= 0 {
 		maxBatch = 2000
 	}
-	return &Consumer{cl: cl, w: w, prefix: cfg.TopicPrefix, maxBatch: maxBatch, linger: linger}, nil
+	return &Consumer{cl: cl, sink: sink, prefix: cfg.TopicPrefix, quarantine: sc.Quarantine, maxBatch: maxBatch, linger: linger}, nil
 }
 
 // Run consumes until ctx is done. A batch is committed only after every
@@ -120,7 +147,7 @@ type entry struct {
 
 // batch is one poll's records, decoded once. A record that does not decode,
 // or that Postgres refuses for what it holds, is set aside: produced to the
-// quarantine topic (topics.PersistQuarantine) and skipped. A batch retried
+// quarantine topic (SinkConfig.Quarantine) and skipped. A batch retried
 // after another failure skips what it set aside before, instead of setting
 // it aside twice.
 type batch struct {
@@ -145,17 +172,8 @@ const maxRefused = 3
 func (c *Consumer) decode(recs []*kgo.Record) *batch {
 	b := &batch{aside: map[*kgo.Record]bool{}}
 	for _, r := range recs {
-		var m proto.Message
-		switch strings.TrimPrefix(r.Topic, c.prefix) {
-		case topics.Page:
-			m = &fbv1.Page{}
-		case topics.Post:
-			m = &fbv1.Post{}
-		case topics.Comment:
-			m = &fbv1.Comment{}
-		case topics.Media:
-			m = &fbv1.Media{}
-		default:
+		m := c.sink.New(strings.TrimPrefix(r.Topic, c.prefix))
+		if m == nil {
 			continue
 		}
 		// A record that does not decode is set aside, not written as far
@@ -236,7 +254,7 @@ func (c *Consumer) setAside(ctx context.Context, b *batch, a aside) error {
 		return nil
 	}
 	r := a.rec
-	out := &kgo.Record{Topic: c.prefix + topics.PersistQuarantine, Key: r.Key, Value: r.Value, Headers: []kgo.RecordHeader{
+	out := &kgo.Record{Topic: c.prefix + c.quarantine, Key: r.Key, Value: r.Value, Headers: []kgo.RecordHeader{
 		{Key: kafka.HeaderOrigTopic, Value: []byte(r.Topic)},
 		{Key: kafka.HeaderReason, Value: []byte(a.reason)},
 		{Key: kafka.HeaderError, Value: []byte(fmt.Sprintf("%s (partition %d, offset %d)", a.detail, r.Partition, r.Offset))},
@@ -250,12 +268,41 @@ func (c *Consumer) setAside(ctx context.Context, b *batch, a aside) error {
 		return fmt.Errorf("persist: set aside: %w", err)
 	}
 	b.aside[r] = true
-	entity := entityOf(strings.TrimPrefix(r.Topic, c.prefix))
+	entity := c.sink.Entity(strings.TrimPrefix(r.Topic, c.prefix))
 	metrics.PersistQuarantined.WithLabelValues(entity, a.reason).Inc()
 	slog.Error("persist: record set aside", "topic", r.Topic, "partition", r.Partition, "offset", r.Offset,
 		"reason", a.reason, "detail", a.detail)
 	return nil
 }
+
+func (c *Consumer) write(ctx context.Context, es []entry) error {
+	msgs := make([]proto.Message, len(es))
+	for i, e := range es {
+		msgs[i] = e.msg
+	}
+	return c.sink.Write(ctx, msgs)
+}
+
+// fbSink is fbs's schema: the Writer on fb.*.v1.
+type fbSink struct{ w *Writer }
+
+func (fbSink) Topics() []string { return topics.Entity }
+
+func (fbSink) New(topic string) proto.Message {
+	switch topic {
+	case topics.Page:
+		return &fbv1.Page{}
+	case topics.Post:
+		return &fbv1.Post{}
+	case topics.Comment:
+		return &fbv1.Comment{}
+	case topics.Media:
+		return &fbv1.Media{}
+	}
+	return nil
+}
+
+func (fbSink) Entity(topic string) string { return entityOf(topic) }
 
 func entityOf(topic string) string {
 	switch topic {
@@ -271,15 +318,15 @@ func entityOf(topic string) string {
 	return "unknown"
 }
 
-func (c *Consumer) write(ctx context.Context, es []entry) error {
+func (s fbSink) Write(ctx context.Context, msgs []proto.Message) error {
 	var (
 		pages    []*fbv1.Page
 		posts    []*fbv1.Post
 		comments []*fbv1.Comment
 		media    []*fbv1.Media
 	)
-	for _, e := range es {
-		switch m := e.msg.(type) {
+	for _, m := range msgs {
+		switch m := m.(type) {
 		case *fbv1.Page:
 			pages = append(pages, m)
 		case *fbv1.Post:
@@ -292,16 +339,16 @@ func (c *Consumer) write(ctx context.Context, es []entry) error {
 	}
 	// Order matters only for references the API joins on; posts before
 	// comments keeps post_index ahead of comment lookups.
-	if err := c.w.Pages(ctx, pages); err != nil {
+	if err := s.w.Pages(ctx, pages); err != nil {
 		return err
 	}
-	if err := c.w.Posts(ctx, posts); err != nil {
+	if err := s.w.Posts(ctx, posts); err != nil {
 		return err
 	}
-	if err := c.w.Comments(ctx, comments); err != nil {
+	if err := s.w.Comments(ctx, comments); err != nil {
 		return err
 	}
-	if err := c.w.Media(ctx, media); err != nil {
+	if err := s.w.Media(ctx, media); err != nil {
 		return fmt.Errorf("media: %w", err)
 	}
 	return nil

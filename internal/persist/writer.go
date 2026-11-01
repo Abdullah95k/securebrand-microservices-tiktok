@@ -56,7 +56,7 @@ func suppressed(entity string, n int) {
 }
 
 // latest keeps the most recently observed message per key.
-// It also removes NUL characters, which Postgres can't store (stripNUL).
+// It also removes NUL characters, which Postgres can't store (StripNUL).
 func latest[T interface {
 	GetObs() *fbv1.Observation
 	proto.Message
@@ -64,7 +64,7 @@ func latest[T interface {
 	idx := map[string]int{}
 	out := make([]T, 0, len(xs))
 	for _, x := range xs {
-		stripNUL(x.ProtoReflect())
+		StripNUL(x.ProtoReflect())
 		k := key(x)
 		if i, ok := idx[k]; ok {
 			if observed(x.GetObs()).After(observed(out[i].GetObs())) {

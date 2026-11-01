@@ -12,9 +12,9 @@ import (
 // UTF-8 and can come in Facebook text. One would make every batch it is in
 // fail for good, so it is removed from every string before writing.
 
-// stripNUL removes NUL characters from every string of m, nested messages,
+// StripNUL removes NUL characters from every string of m, nested messages,
 // lists and maps included.
-func stripNUL(m protoreflect.Message) {
+func StripNUL(m protoreflect.Message) {
 	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
 		switch {
 		case fd.IsList():
@@ -26,7 +26,7 @@ func stripNUL(m protoreflect.Message) {
 						l.Set(i, protoreflect.ValueOfString(strings.ReplaceAll(s, "\x00", "")))
 					}
 				case protoreflect.MessageKind, protoreflect.GroupKind:
-					stripNUL(l.Get(i).Message())
+					StripNUL(l.Get(i).Message())
 				}
 			}
 		case fd.IsMap():
@@ -40,7 +40,7 @@ func stripNUL(m protoreflect.Message) {
 						fix = append(fix, kv{k.String(), strings.ReplaceAll(s, "\x00", "")})
 					}
 				case protoreflect.MessageKind:
-					stripNUL(mv.Message())
+					StripNUL(mv.Message())
 				}
 				return true
 			})
@@ -52,14 +52,14 @@ func stripNUL(m protoreflect.Message) {
 				m.Set(fd, protoreflect.ValueOfString(strings.ReplaceAll(s, "\x00", "")))
 			}
 		case fd.Kind() == protoreflect.MessageKind || fd.Kind() == protoreflect.GroupKind:
-			stripNUL(v.Message())
+			StripNUL(v.Message())
 		}
 		return true
 	})
 }
 
-// jsonbSafe returns JSON without \u0000 escapes, which jsonb rejects.
-func jsonbSafe(b []byte) []byte {
+// JSONBSafe returns JSON without \u0000 escapes, which jsonb rejects.
+func JSONBSafe(b []byte) []byte {
 	if !bytes.Contains(b, []byte(`\u0000`)) {
 		return b
 	}
