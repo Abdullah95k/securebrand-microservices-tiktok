@@ -42,6 +42,9 @@ keda:
 
 hooks:
   topicReplicas: 1
+  # One small broker: production's partition counts (about 250) would leave
+  # no room for __consumer_offsets, and no consumer group could start.
+  topicPartitionsCap: 3
 
 components:
   api: {replicas: 1, pdb: null, resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 512Mi}}}

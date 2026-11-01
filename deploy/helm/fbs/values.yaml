@@ -112,6 +112,10 @@ hooks:
   migrate: true
   topics: true
   topicReplicas: 3
+  # Caps every topic's partition count (0: configs/topics.yaml's counts,
+  # sized for production). A small rehearsal broker needs a cap: a 1 GB
+  # Redpanda holds 256 partitions, Kafka's own topics included.
+  topicPartitionsCap: 0
   # `fbctl schemas apply`: registers the fb.v1 schemas with
   # config.kafka.schema_registry.url (BACKWARD_TRANSITIVE). An incompatible
   # contract change fails the hook, and with it the upgrade.

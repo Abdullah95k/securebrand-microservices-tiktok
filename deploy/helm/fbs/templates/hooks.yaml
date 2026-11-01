@@ -1,7 +1,7 @@
 {{- $root := . -}}
 {{- $jobs := list -}}
 {{- if .Values.hooks.migrate }}{{ $jobs = append $jobs (dict "name" "migrate" "args" (list "migrate" "up")) }}{{ end -}}
-{{- if .Values.hooks.topics }}{{ $jobs = append $jobs (dict "name" "topics" "args" (list "kafka" "apply" "--replicas" (toString .Values.hooks.topicReplicas))) }}{{ end -}}
+{{- if .Values.hooks.topics }}{{ $jobs = append $jobs (dict "name" "topics" "args" (list "kafka" "apply" "--replicas" (toString .Values.hooks.topicReplicas) "--partitions-cap" (toString (.Values.hooks.topicPartitionsCap | default 0)))) }}{{ end -}}
 {{- if .Values.hooks.schemas }}{{ $jobs = append $jobs (dict "name" "schemas" "args" (list "schemas" "apply")) }}{{ end -}}
 {{- range $jobs }}
 ---
