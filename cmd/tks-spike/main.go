@@ -81,7 +81,7 @@ func runProbe(args []string) int {
 	maxPages := fs.Int("max-list-pages", 40, "post-list pages to read per account after the first (15 posts each)")
 	maxAge := fs.Int("max-age-days", 0, "stop an account's list once its posts are older than this many days (0 = no limit; the backfill window is 365)")
 	maxComments := fs.Int("max-comment-pages", 5, "comment pages to read per post (20 comments each)")
-	countChecks := fs.Int("count-checks", 5, "how many accounts get the page-size check (count 5, 16, 20 and 30)")
+	countChecks := fs.Int("count-checks", 5, "how many accounts get the small-page check (count 5; 15 is the largest TikTok takes)")
 	depthChecks := fs.Int("depth-checks", 5, "how many accounts get one list page read at each of --depth-days back (how far back the list answers)")
 	depthDays := fs.String("depth-days", "30,90,180,365,730", "days back for the depth check, comma-separated")
 	covers := fs.Int("covers", 12, "covers saved per account (0 = none)")

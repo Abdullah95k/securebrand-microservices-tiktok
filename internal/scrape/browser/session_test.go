@@ -151,3 +151,55 @@ func TestSessionCapturesThePagesOwnCalls(t *testing.T) {
 		t.Fatalf("fetch after navigating: %v %v", f, err)
 	}
 }
+
+// A call the page never finishes, and a page that never loads, fail after
+// the session's CallTimeout instead of hanging.
+func TestSessionCallsTimeOut(t *testing.T) {
+	bin := chromium(t)
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/hang", "/never":
+			<-release
+		default:
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<!doctype html><html><body>page</body></html>`))
+		}
+	}))
+	defer srv.Close()
+	defer close(release) // runs before srv.Close, so the handlers return
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	s, err := OpenSession(ctx, bin, Options{URL: srv.URL + "/@someone", NoSandbox: true, CallTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	start := time.Now()
+	if _, err := s.Fetch(ctx, "/api/hang"); err == nil || !strings.Contains(err.Error(), "no answer") {
+		t.Fatalf("a hung fetch: %v", err)
+	}
+	if err := s.Navigate(ctx, srv.URL+"/never"); err == nil {
+		t.Fatal("a page that never loads must fail")
+	}
+	if took := time.Since(start); took > 15*time.Second {
+		t.Fatalf("timeouts took %s", took)
+	}
+}
+
+// The sent URL is the request carrying every parameter asked for, not
+// another call to the same path.
+func TestSameCall(t *testing.T) {
+	asked, _ := url.Parse("https://x/api/comment/list/?aweme_id=1&cursor=0")
+	for raw, want := range map[string]bool{
+		"https://x/api/comment/list/?aweme_id=1&cursor=0&X-Gnarly=g&msToken=m": true,
+		"https://x/api/comment/list/?aweme_id=1&cursor=20&X-Gnarly=g":          false,
+		"https://x/api/comment/list/?cursor=0":                                 false,
+		"https://x/api/post/item_list/?aweme_id=1&cursor=0":                    false,
+	} {
+		sent, _ := url.Parse(raw)
+		if got := SameCall(asked, sent); got != want {
+			t.Errorf("%s: %v, want %v", raw, got, want)
+		}
+	}
+}

@@ -338,7 +338,9 @@ func (r *runner) account(ctx context.Context, index int, name string) Account {
 	}
 	if index < r.o.CountChecks {
 		a.CountChecks = map[string]Step{}
-		for _, n := range []int{5, 16, 20, 30} {
+		// 15 is the largest page TikTok takes (16, 20 and 30 were refused in
+		// C2 run 2); the smaller one costs less per frequent check.
+		for _, n := range []int{5} {
 			resp, s := r.call(ctx, r.o.Client, id, "creator_list_count", "creator_list", map[string]any{"sec_uid": sec, "count": n, "cursor": nowMs(r.o.Now())}, a.URL)
 			countStep(&s, resp)
 			a.CountChecks["creator_count_"+strconv.Itoa(n)] = s
@@ -686,6 +688,21 @@ func (r *runner) comments(ctx context.Context, id *session.Identity, a *Account)
 	return r.readComments(a, "plain", r.plainFetch(ctx, id))
 }
 
+// addComment keeps a comment or reply once per account: the plain and the
+// browser path may read the same ones.
+func addComment(a *Account, c Comment) {
+	if c.ID != "" {
+		if a.commentSeen == nil {
+			a.commentSeen = map[string]bool{}
+		}
+		if a.commentSeen[c.ID] {
+			return
+		}
+		a.commentSeen[c.ID] = true
+	}
+	a.Comments = append(a.Comments, c)
+}
+
 // readComments reads up to MaxCommentPages comment pages of the 3 newest
 // posts that have comments, then up to 3 reply pages (3 a page, as the web
 // app asks) of the first 3 comments with replies, through fetch. It reports
@@ -722,7 +739,7 @@ func (r *runner) readComments(a *Account, via string, fetch fetchFn) bool {
 				}
 				seen[cid] = true
 				cm := comment(p.ID, "", c, page)
-				a.Comments = append(a.Comments, cm)
+				addComment(a, cm)
 				times = append(times, cm.CreatedAt)
 				read.ReplySum += 1 + cm.Replies
 				if cm.Replies > 0 && len(threads) < 3 {
@@ -762,7 +779,7 @@ func (r *runner) readComments(a *Account, via string, fetch fetchFn) bool {
 			read.Pages++
 			read.Total = body.Get("total").Int()
 			for _, c := range body.Get("comments").Array() {
-				a.Comments = append(a.Comments, comment(th.post, th.cid, c, page))
+				addComment(a, comment(th.post, th.cid, c, page))
 				read.Read++
 			}
 			if body.Get("has_more").Int() != 1 {
@@ -1036,6 +1053,9 @@ func (r *runner) signed(ctx context.Context, id *session.Identity, a *Account, s
 	page.SetTokens(tok)
 	builder := ttclient.Builder{AcceptLanguage: r.o.AcceptLanguage, NoMsToken: true}
 	reg := r.o.Client.Registry
+	// The page's script signs what the browser really is: tks's URLs say the
+	// same (time zone, screen, history) instead of the plain path's values.
+	params := pageParams(reg.ClientParams(), out.Env)
 	calls := []struct {
 		name string
 		vars map[string]any
@@ -1061,7 +1081,7 @@ func (r *runner) signed(ctx context.Context, id *session.Identity, a *Account, s
 		if err != nil {
 			continue
 		}
-		b := builder.Build(page, q, vars, reg.ClientParams(), a.URL)
+		b := builder.Build(page, q, vars, params, a.URL)
 		hdr = b.Header
 		raw := q.Endpoint + "?" + b.Query
 		if c.name == "post_list" {
@@ -1085,7 +1105,7 @@ func (r *runner) signed(ctx context.Context, id *session.Identity, a *Account, s
 	// Comments and replies read from the page, which signs each call (T12
 	// for a crawler, T13-T15 on a browser's answers).
 	if commented != nil {
-		r.signedComments(ctx, sess, id, a, out, page, builder, hdr)
+		r.signedComments(ctx, sess, id, a, out, page, builder, params, hdr)
 	}
 	// Follow a post's link: does the post page load its comments itself?
 	if commented == nil {
@@ -1159,14 +1179,15 @@ func (r *runner) signedCall(ctx context.Context, sess *browser.Session, id *sess
 	}
 	f, err := sess.Fetch(ctx, raw)
 	if err != nil {
-		out.Calls[name] = &SignedCall{Status: 0}
+		out.Calls[name] = &SignedCall{Class: detect.Transport.String(), Reason: redact(err.Error())}
 		r.book("signed_"+name, Step{Class: detect.Transport.String(), Reason: redact(err.Error())})
 		return nil
 	}
-	sc := &SignedCall{Status: f.Status, Ms: f.Elapsed.Milliseconds(), Empty: len(strings.TrimSpace(string(f.Body))) == 0, Items: itemsIn(f.Body)}
-	cls := classOfSigned(sc)
-	r.book("signed_"+name, Step{Class: cls, Status: f.Status, Ms: sc.Ms, Empty: sc.Empty})
-	r.keepRaw("signed_"+name, f.Body, cls != detect.OK.String())
+	cls, reason := r.classifyAnswer(f.Status, "", "application/json", f.Body)
+	sc := &SignedCall{Class: cls.String(), Reason: reason, Status: f.Status, Ms: f.Elapsed.Milliseconds(),
+		Empty: len(strings.TrimSpace(string(f.Body))) == 0, Items: itemsIn(f.Body)}
+	r.book("signed_"+name, Step{Class: sc.Class, Status: f.Status, Reason: reason, Ms: sc.Ms, Empty: sc.Empty})
+	r.keepRaw("signed_"+name, f.Body, sc.Class != detect.OK.String())
 	if f.SentURL != "" {
 		sc.sentURL = f.SentURL
 		sc.Added = added(raw, f.SentURL)
@@ -1222,16 +1243,75 @@ func nextPageURL(x *browser.Exchange, cursorKey string) string {
 	if !p.Get("hasMore").Bool() && p.Get("has_more").Int() != 1 {
 		return ""
 	}
-	u, err := url.Parse(x.URL)
+	return editQuery(x.URL, map[string]string{"cursor": p.Get(cursorKey).String()}, signatureParams)
+}
+
+// pageParams returns the client params with the values the browser page
+// reported (time zone, screen, history length) in place of the defaults.
+func pageParams(base map[string]string, env map[string]any) map[string]string {
+	out := make(map[string]string, len(base))
+	for k, v := range base {
+		out[k] = v
+	}
+	if tz, ok := env["time_zone"].(string); ok && tz != "" {
+		out["tz_name"] = tz
+	}
+	if sc, ok := env["screen"].(string); ok {
+		if w, h, ok := strings.Cut(sc, "x"); ok && w != "" && h != "" {
+			out["screen_width"], out["screen_height"] = w, h
+		}
+	}
+	if n, ok := env["history"].(float64); ok && n > 0 {
+		out["history_len"] = strconv.Itoa(int(n))
+	}
+	return out
+}
+
+// signatureParams are the parameters TikTok's script adds to a call.
+var signatureParams = []string{"X-Bogus", "X-Gnarly", "X-Dynosaur", "msToken"}
+
+// editQuery changes a URL's query in place: each parameter in set gets its
+// new value where it stands (or is added at the end), each in drop is
+// removed, and every other parameter keeps its position and its encoding,
+// so the only difference from the URL the page built is the one asked for.
+func editQuery(raw string, set map[string]string, drop []string) string {
+	u, err := url.Parse(raw)
 	if err != nil {
-		return ""
+		return raw
 	}
-	q := u.Query()
-	for _, k := range []string{"X-Bogus", "X-Gnarly", "X-Dynosaur", "msToken"} {
-		q.Del(k)
+	done := map[string]bool{}
+	var out []string
+	for _, pair := range strings.Split(u.RawQuery, "&") {
+		if pair == "" {
+			continue
+		}
+		k, _, _ := strings.Cut(pair, "=")
+		name, err := url.QueryUnescape(k)
+		if err != nil {
+			name = k
+		}
+		switch v, ok := set[name]; {
+		case slices.Contains(drop, name):
+		case ok:
+			if !done[name] {
+				out = append(out, k+"="+url.QueryEscape(v))
+				done[name] = true
+			}
+		default:
+			out = append(out, pair)
+		}
 	}
-	q.Set("cursor", p.Get(cursorKey).String())
-	u.RawQuery = q.Encode()
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		if !done[k] {
+			keys = append(keys, k)
+		}
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		out = append(out, url.QueryEscape(k)+"="+url.QueryEscape(set[k]))
+	}
+	u.RawQuery = strings.Join(out, "&")
 	return u.String()
 }
 
@@ -1245,7 +1325,7 @@ func paramDiff(pageURL, ours string) (missing, extra []string) {
 	}
 	pa, pb := a.Query(), b.Query()
 	for k := range pa {
-		if _, ok := pb[k]; !ok && !slices.Contains([]string{"X-Bogus", "X-Gnarly", "X-Dynosaur", "msToken"}, k) {
+		if _, ok := pb[k]; !ok && !slices.Contains(signatureParams, k) {
 			missing = append(missing, k)
 		}
 	}
@@ -1274,7 +1354,7 @@ func firstCommented(posts []Post) *Post {
 // and once more now that time has passed (T27: can a few pages sign for the
 // whole fleet, and for how long?).
 func (r *runner) signedComments(ctx context.Context, sess *browser.Session, id *session.Identity, a *Account, out *Signed,
-	page *session.Identity, builder ttclient.Builder, hdr [][2]string) {
+	page *session.Identity, builder ttclient.Builder, params map[string]string, hdr [][2]string) {
 	first := out.Calls["comments"]
 	sent := ""
 	if first != nil {
@@ -1286,11 +1366,8 @@ func (r *runner) signedComments(ctx context.Context, sess *browser.Session, id *
 			first.ReplayOther = &s
 			r.o.Pool.Release(bare)
 		}
-		if u, err := url.Parse(sent); err == nil {
-			q := u.Query()
-			q.Set("cursor", "20")
-			u.RawQuery = q.Encode()
-			s := r.replayAs(ctx, id, "signed_replay_modified", u.String(), hdr)
+		if modified := editQuery(sent, map[string]string{"cursor": "20"}, nil); modified != sent {
+			s := r.replayAs(ctx, id, "signed_replay_modified", modified, hdr)
 			first.ReplayModified = &s
 		}
 	}
@@ -1305,7 +1382,7 @@ func (r *runner) signedComments(ctx context.Context, sess *browser.Session, id *
 		if err != nil {
 			return gjson.Result{}, Step{Class: detect.Transport.String(), Reason: err.Error()}, false
 		}
-		b := builder.Build(page, q, rv, reg.ClientParams(), referer)
+		b := builder.Build(page, q, rv, params, referer)
 		if err := id.Wait(ctx); err != nil {
 			return gjson.Result{}, Step{Class: stopped}, false
 		}
@@ -1318,17 +1395,12 @@ func (r *runner) signedComments(ctx context.Context, sess *browser.Session, id *
 			r.book("browser_"+kind, s)
 			return gjson.Result{}, s, false
 		}
-		s := Step{Class: detect.OK.String(), Status: f.Status, Ms: f.Elapsed.Milliseconds(), WireBytes: int64(len(f.Body)),
+		cls, reason := r.classifyAnswer(f.Status, "", "application/json", f.Body)
+		s := Step{Class: cls.String(), Reason: reason, Status: f.Status, Ms: f.Elapsed.Milliseconds(), WireBytes: int64(len(f.Body)),
 			Empty: len(strings.TrimSpace(string(f.Body))) == 0, Items: itemsIn(f.Body)}
-		parts, errs, _ := ttclient.Decode(f.Body)
-		switch {
-		case len(parts) == 0:
-			s.Class, s.Reason = detect.RegistryStale.String(), "empty answer"
-		case len(errs) > 0:
-			s.Class, s.Reason = detect.SoftError.String(), "statusCode "+strconv.FormatInt(errs[0].Code, 10)
-		}
-		if p := parts; len(p) > 0 {
-			s.HasMore = p[0].Get("has_more").Int() == 1
+		parts, _, _ := ttclient.Decode(f.Body)
+		if len(parts) > 0 {
+			s.HasMore = parts[0].Get("has_more").Int() == 1
 		}
 		r.book("browser_"+kind, s)
 		r.keepRaw("browser_"+kind, f.Body, s.Class != detect.OK.String())
@@ -1357,46 +1429,30 @@ func (r *runner) replayAs(ctx context.Context, id *session.Identity, kind, raw s
 		r.book(kind, s)
 		return s
 	}
-	s := Step{Class: detect.OK.String(), Status: resp.Status, Ms: time.Since(start).Milliseconds(), WireBytes: resp.BytesIn + resp.BytesOut,
+	cls, reason := r.classifyAnswer(resp.Status, resp.Location, resp.Header.Get("Content-Type"), resp.Body)
+	s := Step{Class: cls.String(), Status: resp.Status, Reason: reason, Ms: time.Since(start).Milliseconds(), WireBytes: resp.BytesIn + resp.BytesOut,
 		Empty: len(strings.TrimSpace(string(resp.Body))) == 0, Items: itemsIn(resp.Body)}
-	if s.Items == 0 {
-		if parts, _, _ := ttclient.Decode(resp.Body); len(parts) == 0 {
-			s.Class, s.Reason = detect.RegistryStale.String(), "empty answer"
-		}
-	}
 	r.book(kind, s)
 	return s
 }
 
-func classOfSigned(sc *SignedCall) string {
-	if sc.Status == 200 && !sc.Empty {
-		return detect.OK.String()
+// classifyAnswer classes a TikTok API answer read outside the client (from
+// the page, or a replay) as the client would: an error statusCode is a
+// soft error or a captcha (which the run counts), an empty body or an
+// empty account a refusal.
+func (r *runner) classifyAnswer(status int, location, contentType string, body []byte) (detect.Class, string) {
+	parts, errs, hasData := ttclient.Decode(body)
+	cls, reason := r.o.Client.Rules.Classify(detect.Input{Status: status, Location: location, ContentType: contentType,
+		Body: body, Errors: errs, HasData: hasData, Expect: "graphql"})
+	if cls == detect.OK && len(parts) == 0 {
+		cls, reason = detect.RegistryStale, "empty answer"
 	}
-	return detect.RegistryStale.String()
+	return cls, reason
 }
 
 // replay sends a page-signed URL by plain HTTP from the probe's identity.
 func (r *runner) replay(ctx context.Context, id *session.Identity, raw string, hdr [][2]string) Step {
-	if err := id.Wait(ctx); err != nil {
-		return Step{Class: stopped}
-	}
-	start := time.Now()
-	resp, err := id.Doer.Do(ctx, &transport.Request{Method: "GET", URL: raw, Header: hdr})
-	if err != nil {
-		s := Step{Class: detect.Transport.String(), Reason: redact(err.Error())}
-		r.book("signed_replay", s)
-		return s
-	}
-	parts, errs, hasData := ttclient.Decode(resp.Body)
-	cls, reason := r.o.Client.Rules.Classify(detect.Input{Status: resp.Status, Location: resp.Location, ContentType: resp.Header.Get("Content-Type"),
-		Body: resp.Body, Errors: errs, HasData: hasData, Expect: "graphql"})
-	if cls == detect.OK && len(parts) == 0 {
-		cls, reason = detect.RegistryStale, "empty answer"
-	}
-	s := Step{Class: cls.String(), Status: resp.Status, Reason: reason, Ms: time.Since(start).Milliseconds(), WireBytes: resp.BytesIn + resp.BytesOut,
-		Empty: len(strings.TrimSpace(string(resp.Body))) == 0}
-	r.book("signed_replay", s)
-	return s
+	return r.replayAs(ctx, id, "signed_replay", raw, hdr)
 }
 
 // added lists the query parameters the page added to a URL.
