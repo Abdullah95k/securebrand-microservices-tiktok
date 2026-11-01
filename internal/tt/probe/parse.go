@@ -172,6 +172,10 @@ func (r *runner) summarise() {
 		for _, c := range a.CommentReads {
 			s.CommentReads++
 			s.CommentsServed += c.Read
+			if s.CommentsByVia == nil {
+				s.CommentsByVia = map[string]int{}
+			}
+			s.CommentsByVia[c.Via] += c.Read
 			if c.Order != "" {
 				s.OrderVerdicts[c.Order]++
 			}
