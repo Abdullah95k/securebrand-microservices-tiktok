@@ -15,6 +15,7 @@ Each build session updates this file at the end of its work. The plan and rules 
 | **Method (G1, 2026-11-01)**, from C2 and C3 | **Plain HTTP plus a browser signer** (recommended) | D11 confirmed: plain HTTP for accounts, posts, metrics, pinned flags and the backfill; a few browser pages sign each comment and reply request, sent by plain-HTTP workers from any identity; video files with the `tt_chain_token` cookie, off by default. Not chosen: the browser for everything (3–19 MB a page load), a provider for comments, or deciding after Phase 0 |
 | How fast should the full pass (C3) run? (asked 2026-11-01, after the owner raised speed) | **10 accounts at a time**, each through its own IP of the US ISP tier (recommended: 5) | `--parallel` in the probe (M1g); `make tks-probe-all` uses 10, capped at the tier's IP count: about 2 to 4 hours instead of a day. Production speed comes from the same lever (parallel identities, one call per account per check); see Findings |
 | fbs's later review fixes (asked 2026-11-01, after M2 found them) | **Port them now, as M2b, before M3** (recommended) | Brief §6 gains M2b; the next build session ports them from `UPSTREAM.md`'s list. Not chosen: area by area during M5 and M6, or not at all |
+| Who starts build sessions? (owner, 2026-11-01) | **The sessions do**: each starts the next one when its milestone is merged and the next needs nothing from the owner | Brief §7 and the prompt (step 7). The owner starts one only after a checkpoint (C4, C5) or a decision, or when the platform's limit on sessions started by sessions (8 deep) is reached |
 | The account list | **273 public accounts** (media, brands, public figures), sent in the session on 2026-10-31 | Kept only in a git-ignored folder and on the owner's Mac; never committed. The test pass uses 3 to 5 of them |
 
 ## Milestones
@@ -93,7 +94,7 @@ From the kickoff research (public sources only; details and citations in [`metho
 
 ## What the owner needs to do
 
-Nothing to run now. The next owner checkpoint is Phase 0 (C4), after the Phase 0 kit (M7).
+Nothing to run now. Build sessions now start each other (brief §7): the M2 session started the M2b session, whose link is in the Log; follow it in the Claude app. The next owner checkpoint is Phase 0 (C4), after the Phase 0 kit (M7).
 
 **Legal:** share [`methods.md` §5](methods.md#5-legal-and-terms-of-service-notes-for-the-legal-team) with the legal team.
 

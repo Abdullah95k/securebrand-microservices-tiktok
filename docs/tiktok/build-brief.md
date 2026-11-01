@@ -4,7 +4,7 @@ This brief drives the sessions that **build** tks, the logged-out scraper of pub
 
 **How to use it:**
 - Every build session starts by reading this brief and [`build-status.md`](build-status.md). It then does the next unfinished milestone (§6), opens one draft PR for it, merges it once CI is green, and updates `build-status.md`.
-- The same prompt ([end of this file](#prompt-for-a-build-session)) starts every build session. It always picks up where the last one stopped.
+- The same prompt ([end of this file](#prompt-for-a-build-session)) starts every build session. It always picks up where the last one stopped. **Each session starts the next one itself** when its milestone is merged and the next needs nothing from the owner (§7); the owner starts one only after a checkpoint or decision.
 - Sessions stop at **owner checkpoints**, which only the owner can do: recordings, probe runs, proxies, legal. They say exactly what is needed, in numbered steps.
 
 ---
@@ -143,6 +143,7 @@ A milestone is done only when CI is green, its acceptance criteria are met, its 
 - **Owner steps:** numbered, one command per block; files reach the droplet by `scp` from the Mac and come back by `scp` run on the Mac; no editing files on the droplet. **Always give all the steps, every time** (the owner's rule, 2026-11-01): from logging in (`ssh root@<droplet>`) and `cd` to the folder, through every command, to downloading the result on the Mac and uploading it, with what each step should show and what to do if it does not, even when earlier messages gave some of them. Never say "as before" or "steps 2 to 5 from last time".
 - **Ask the owner** (AskUserQuestion, with a recommendation) only for decisions that are theirs. §2 is settled once approved.
 - **At the end of each session,** update `build-status.md` (milestone states, PR links, findings, next step, what the owner must do) and reply with a short summary.
+- **Start the next session yourself** (the owner's rule, 2026-11-01). When your milestone's PR is merged and the next milestone needs nothing from the owner first, start the next build session before you finish: `create_session` with the prompt at the end of this file, in this session's environment, on this repository, with this session's model and permission mode (never `plan`, which would wait for an approval no one gives). First check with `list_sessions` that no other tks build session is running; start exactly one; give its link in your summary and in the Log of `build-status.md`. **Do not start one** when you stop at an owner checkpoint (C-items) or decision (G-items, or a question to the owner still unanswered), when your PR is not merged, or when your milestone is unfinished: then the owner starts the next one. Sessions can start each other only to a limited depth (8 on the platform today); if `create_session` refuses, say so, and the owner starts the next one by hand, which starts the count again.
 
 ---
 
@@ -174,4 +175,5 @@ You are a build session for "tks", the logged-out scraper of public TikTok accou
 4. Stop at owner checkpoints and decisions (C1–C5, G1) and tell me exactly what to do, in simple numbered steps with one command per block, always all the steps from logging in to sending the result back; I copy files to the droplet with scp from my Mac and do not edit files there.
 5. Rules: no live requests to TikTok from this session; no paid services; never commit HARs, probe output, credentials or any real usernames, names, ids or comment text; never re-implement TikTok's request signatures; decisions in §2 of the brief are settled, so ask me (AskUserQuestion, with a recommendation) only about genuinely open trade-offs.
 6. Before finishing, update docs/tiktok/build-status.md (milestone states, PR links, findings, next step, what I need to do) and give me a short summary.
+7. If your milestone is merged and the next one needs nothing from me first, start the next build session yourself with this same prompt (brief §7: check no other tks build session is running, start one only, never at an owner checkpoint or decision) and give me its link.
 ```
