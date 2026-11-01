@@ -31,9 +31,9 @@ config:
     global_rps: 200     # AIMD's starting ceiling; fb.aimd.max_rps (500) caps how far it grows
     capture_raw: failures
     proxy:
+      # Keys: default, timeline, comments, replies, registry_sync.
       routing:
         default: [isp, residential]
-        bootstrap_html: [residential]
     # The browser fallback needs image.browserTag. Pods drop every
     # capability, which leaves Chromium's sandbox unusable, hence no_sandbox.
     browser:
