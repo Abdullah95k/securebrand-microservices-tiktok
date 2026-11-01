@@ -70,8 +70,13 @@ func (e *Emitter) Page(ctx context.Context, b *kafka.Batch, src Source, p *fbv1.
 	return b.AddProto(ctx, topics.Page, strconv.FormatInt(p.PageId, 10), p)
 }
 
-// Post publishes a post and an engagement sample.
+// Post publishes a post and an engagement sample. A post of an erased page
+// is not published (a task already running when the erasure came).
 func (e *Emitter) Post(ctx context.Context, b *kafka.Batch, src Source, p *fbv1.Post) error {
+	if e.Suppression.PageSuppressed(p.PageId) {
+		return nil
+	}
+	e.scrubMentions(p.TextRanges)
 	e.stamp(src, "post:"+strconv.FormatInt(p.PostId, 10), p, func(o *fbv1.Observation) { p.Obs = o })
 	key := strconv.FormatInt(p.PostId, 10)
 	if err := b.AddProto(ctx, topics.Post, key, p); err != nil {
@@ -86,8 +91,12 @@ func (e *Emitter) Post(ctx context.Context, b *kafka.Batch, src Source, p *fbv1.
 }
 
 // Comment applies privacy rules and publishes a comment. It returns false
-// when the comment was redacted (its media must not be downloaded).
+// when the comment was redacted (its media must not be downloaded). A
+// comment of an erased page is not published at all, as its post isn't.
 func (e *Emitter) Comment(ctx context.Context, b *kafka.Batch, src Source, c *fbv1.Comment) (bool, error) {
+	if e.Suppression.PageSuppressed(c.PageId) {
+		return false, nil
+	}
 	keep := e.Privatize(c)
 	e.stamp(src, "comment:"+strconv.FormatInt(c.CommentId, 10), c, func(o *fbv1.Observation) { c.Obs = o })
 	return keep, b.AddProto(ctx, topics.Comment, strconv.FormatInt(c.PostId, 10), c)
@@ -103,17 +112,31 @@ func (e *Emitter) CommentDeleted(ctx context.Context, b *kafka.Batch, src Source
 	return b.AddProto(ctx, topics.Comment, strconv.FormatInt(c.PostId, 10), d)
 }
 
+// scrubMentions clears person mentions: all of them when pseudonymising,
+// else those of erased authors.
+func (e *Emitter) scrubMentions(rs []*fbv1.TextRange) {
+	if e.Pseudonymize {
+		gdpr.ScrubMentions(rs)
+		return
+	}
+	gdpr.ScrubSuppressedMentions(e.Suppression, rs, gdpr.MentionedKeys(e.HMACKey, rs))
+}
+
 // Privatize sets the author key, applies pseudonymisation and redacts
-// suppressed authors. It returns false if the comment was redacted.
+// comments of suppressed authors and pages. It returns false if the comment
+// was redacted.
 func (e *Emitter) Privatize(c *fbv1.Comment) bool {
+	if e.Suppression.PageSuppressed(c.PageId) {
+		gdpr.Redact(c)
+		return false
+	}
+	e.scrubMentions(c.TextRanges)
 	if c.Author == nil {
 		return true
 	}
 	c.Author.AuthorKey = gdpr.AuthorKey(e.HMACKey, c.Author.Id)
 	if e.Suppression.AuthorSuppressed(c.Author.AuthorKey) {
-		c.Author = &fbv1.Author{AuthorKey: c.Author.AuthorKey}
-		c.Text, c.TextRanges, c.Attachments, c.Url = "", nil, nil, ""
-		c.Redacted = true
+		gdpr.Redact(c)
 		return false
 	}
 	if e.Pseudonymize {
@@ -122,8 +145,11 @@ func (e *Emitter) Privatize(c *fbv1.Comment) bool {
 	return true
 }
 
-// Media publishes discovered media metadata.
+// Media publishes discovered media metadata, except of an erased page.
 func (e *Emitter) Media(ctx context.Context, b *kafka.Batch, src Source, m *fbv1.Media) error {
+	if e.Suppression.PageSuppressed(m.PageId) {
+		return nil
+	}
 	e.stamp(src, "media:"+m.MediaId, m, func(o *fbv1.Observation) { m.Obs = o })
 	return b.AddProto(ctx, topics.Media, m.MediaId, m)
 }

@@ -241,7 +241,11 @@ func newPool(cfg *config.Config, base, fingerprint string, rps float64, parallel
 	if _, ok := fps[fingerprint]; !ok {
 		return nil, fmt.Errorf("unknown fingerprint %q (configs/fingerprints.yaml)", fingerprint)
 	}
-	proxies, err := proxy.New(cfg.FB.Proxy)
+	// The probe paces itself and measures what TikTok does at that pace, so
+	// the pipeline's page-load pacing per exit (fb.proxy.page_loads) is off.
+	pc := cfg.FB.Proxy
+	pc.PageLoads = config.PageLoads{}
+	proxies, err := proxy.New(pc)
 	if err != nil {
 		return nil, err
 	}

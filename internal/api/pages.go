@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math/rand/v2"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	taskv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fbs/task/v1"
@@ -142,17 +144,45 @@ func (s *Server) registerPage(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{"page_ref": ref, "created": created, "schedule": map[string]any{"enabled": enabled,
 		"interval_seconds": intervalSeconds, "next_run_at": next, "adaptive": adaptive}}
 	if (req.Backfill == nil && neverRun) || (req.Backfill != nil && *req.Backfill) {
-		j, _, err := s.Dispatch.Create(r.Context(), dispatch.Request{ClientID: &c.ID, Kind: dispatch.KindBackfill,
-			Lane: taskv1.Lane_LANE_P2, Mode: "full", PageRef: ref, Limits: backfillLim,
-			Params: map[string]any{"page": req.Page}}, 0)
+		// The client's own backfill of the page still under way is returned
+		// (backfill_reused), not started again: each is a full read of up to
+		// years of posts. Requests racing each other (a retry, a parallel
+		// import) share an idempotency key for the minute and start one.
+		j, created, err := s.ownBackfill(r.Context(), c.ID, ref)
+		if err == nil && j == nil {
+			j, created, err = s.Dispatch.Create(r.Context(), dispatch.Request{ClientID: &c.ID, Kind: dispatch.KindBackfill,
+				Lane: taskv1.Lane_LANE_P2, Mode: "full", PageRef: ref, Limits: backfillLim,
+				Params:         map[string]any{"page": req.Page},
+				IdempotencyKey: "backfill:" + ref + ":" + strconv.FormatInt(time.Now().Unix()/60, 10)}, 0)
+		}
 		if err != nil {
 			serverError(w, err)
 			return
 		}
 		resp["backfill_job"] = j
-		_, _ = s.DB.Exec(r.Context(), `UPDATE page_schedule SET last_job_id = $2 WHERE page_ref = $1`, ref, j.ID)
+		if !created {
+			resp["backfill_reused"] = true
+		} else {
+			_, _ = s.DB.Exec(r.Context(), `UPDATE page_schedule SET last_job_id = $2 WHERE page_ref = $1`, ref, j.ID)
+		}
 	}
 	writeJSON(w, http.StatusCreated, resp)
+}
+
+// ownBackfill returns the client's backfill of the page still under way,
+// or nil.
+func (s *Server) ownBackfill(ctx context.Context, client uuid.UUID, ref string) (*dispatch.Job, bool, error) {
+	var id uuid.UUID
+	err := s.DB.QueryRow(ctx, `SELECT job_id FROM jobs WHERE page_ref = $1 AND api_client_id = $2 AND kind = 'backfill'
+		AND status IN ('queued','running','finalizing') ORDER BY created_at DESC LIMIT 1`, ref, client).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	j, err := s.Dispatch.Get(ctx, id)
+	return j, false, err
 }
 
 type scheduleView struct {
@@ -247,6 +277,36 @@ func (s *Server) updatePage(w http.ResponseWriter, r *http.Request) {
 		v := *req.IntervalHours * 3600
 		interval = &v
 	}
+	// The schedule is shared by every client registered to the page: only
+	// a registered client (or an admin) may change it, and while others are
+	// registered too, it may only crawl more (enable, shorten), as a second
+	// registration does; disabling or slowing it down is the admin's.
+	c := clientFrom(r.Context())
+	if !c.Has(ScopeAdmin) {
+		var mine *bool
+		var others, current int
+		// The same rows the update below matches: by reference, or by page
+		// id for a page registered under its vanity.
+		if err := s.DB.QueryRow(r.Context(), `SELECT bool_or(g.api_client_id = $1),
+				count(DISTINCT g.api_client_id) FILTER (WHERE g.api_client_id <> $1), coalesce(min(p.interval_seconds), 0)
+			FROM page_schedule p LEFT JOIN page_registrations g ON g.page_ref = p.page_ref
+			WHERE p.page_ref = $2 OR p.page_id::text = $3`,
+			c.ID, ref, strings.TrimPrefix(ref, "id:")).Scan(&mine, &others, &current); err != nil {
+			serverError(w, err)
+			return
+		}
+		if mine == nil || !*mine {
+			problem(w, http.StatusNotFound, "not registered", "page is not registered")
+			return
+		}
+		slower := (req.Enabled != nil && !*req.Enabled) || (interval != nil && *interval > current) ||
+			(req.Adaptive != nil && *req.Adaptive)
+		if others > 0 && slower {
+			problem(w, http.StatusConflict, "shared schedule",
+				"other clients are registered to this page: only an admin may disable it or crawl it less often")
+			return
+		}
+	}
 	adaptive := req.Adaptive
 	if interval != nil && adaptive == nil {
 		f := false
@@ -276,6 +336,11 @@ func (s *Server) deletePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := clientFrom(r.Context())
+	purge := boolParam(r, "purge")
+	if purge && !c.Has(ScopeAdmin) {
+		problem(w, http.StatusForbidden, "forbidden", "purge requires the admin scope")
+		return
+	}
 	if _, err := s.DB.Exec(r.Context(), `DELETE FROM page_registrations WHERE api_client_id = $1 AND page_ref = $2`, c.ID, ref); err != nil {
 		serverError(w, err)
 		return
@@ -286,11 +351,7 @@ func (s *Server) deletePage(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if boolParam(r, "purge") {
-		if !c.Has(ScopeAdmin) {
-			problem(w, http.StatusForbidden, "forbidden", "purge requires the admin scope")
-			return
-		}
+	if purge {
 		id, ok := s.Dispatch.ResolvePageID(r.Context(), ref)
 		if !ok {
 			problem(w, http.StatusNotFound, "unknown page", "page id unknown")

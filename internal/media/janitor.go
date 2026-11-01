@@ -8,9 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/lifecycle"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -81,7 +83,9 @@ func (j *Janitor) retry(ctx context.Context, mediaID string) error {
 	var failures int
 	var bucket, key *string
 	var size *int64
-	err := j.DB.QueryRow(ctx, `UPDATE media SET retryable_failures = retryable_failures + 1 WHERE media_id = $1 AND status = 'ready'
+	// stored too: an ack can come before the downloader marks the media
+	// ready, right after its event went out.
+	err := j.DB.QueryRow(ctx, `UPDATE media SET retryable_failures = retryable_failures + 1 WHERE media_id = $1 AND status IN ('stored','ready')
 		RETURNING retryable_failures, s3_bucket, s3_key, size_bytes`, mediaID).Scan(&failures, &bucket, &key, &size)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
@@ -131,7 +135,7 @@ func (j *Janitor) fillReady(ctx context.Context, r *fbv1.MediaReady) error {
 
 func (j *Janitor) delete(ctx context.Context, mediaID string, reason fbv1.DeleteReason) error {
 	var bucket, key *string
-	err := j.DB.QueryRow(ctx, `SELECT s3_bucket, s3_key FROM media WHERE media_id = $1 AND status = 'ready'`, mediaID).Scan(&bucket, &key)
+	err := j.DB.QueryRow(ctx, `SELECT s3_bucket, s3_key FROM media WHERE media_id = $1 AND status IN ('stored','ready')`, mediaID).Scan(&bucket, &key)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -143,22 +147,32 @@ func (j *Janitor) delete(ctx context.Context, mediaID string, reason fbv1.Delete
 			return err
 		}
 	}
-	status := "deleted"
-	if reason == fbv1.DeleteReason_DELETE_REASON_TTL_EXPIRED {
-		status = "expired"
-	}
-	if _, err := j.DB.Exec(ctx, `UPDATE media SET status = $2, deleted_at = now(),
-		processed_at = CASE WHEN $2 = 'deleted' THEN now() ELSE processed_at END WHERE media_id = $1`, mediaID, status); err != nil {
-		return err
-	}
+	// The event goes out before the row changes: a failure in between
+	// leaves the row as it was, and the retry (redelivery, next sweep)
+	// removes the object again (a no-op) and sends the event.
 	name := strings.ToLower(strings.TrimPrefix(reason.String(), "DELETE_REASON_"))
-	metrics.MediaDeleted.WithLabelValues(name).Inc()
 	b := j.Producer.NewBatch()
 	if err := b.AddProto(ctx, topics.MediaDeleted, mediaID, &fbv1.MediaDeleted{EventId: mediaID + ":" + name, MediaId: mediaID,
 		Object: &fbv1.S3Object{Bucket: deref(bucket), Key: deref(key)}, Reason: reason, DeletedAt: timestamppb.Now()}); err != nil {
 		return err
 	}
-	return b.Wait(ctx)
+	if err := b.Wait(ctx); err != nil {
+		return err
+	}
+	status := "deleted"
+	if reason == fbv1.DeleteReason_DELETE_REASON_TTL_EXPIRED {
+		status = "expired"
+	}
+	tag, err := j.DB.Exec(ctx, `UPDATE media SET status = $2, deleted_at = now(),
+		processed_at = CASE WHEN $2 = 'deleted' THEN now() ELSE processed_at END WHERE media_id = $1 AND status IN ('stored','ready')`,
+		mediaID, status)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() > 0 {
+		metrics.MediaDeleted.WithLabelValues(name).Inc()
+	}
+	return nil
 }
 
 // Sweep deletes ready objects past delete_after (no ack in time).
@@ -195,11 +209,19 @@ func (j *Janitor) Orphans(ctx context.Context) error {
 			continue
 		}
 		base := obj.Key[strings.LastIndexByte(obj.Key, '/')+1:]
-		id := strings.SplitN(base, ".", 2)[0]
-		var ready bool
-		_ = j.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM media WHERE media_id::text = $1 AND status = 'ready')`, id).Scan(&ready)
-		if ready {
-			continue
+		id, err := uuid.Parse(strings.SplitN(base, ".", 2)[0])
+		if err == nil {
+			// A stored (announcement pending) or ready row keeps its object.
+			// A failed lookup keeps it too: deleting on a database error
+			// would lose media still in use.
+			var used bool
+			if err := j.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM media WHERE media_id = $1 AND status IN ('stored','ready'))`,
+				id).Scan(&used); err != nil {
+				return err
+			}
+			if used {
+				continue
+			}
 		}
 		if err := j.S3.RemoveObject(ctx, j.Bucket, obj.Key, minio.RemoveObjectOptions{}); err != nil {
 			return err
@@ -234,8 +256,17 @@ func derefInt32(v *int32) int32 {
 // Lifecycle installs the bucket lifecycle rule (whole days only) that backs
 // up the janitor's TTL. Stores without lifecycle support log and continue.
 func Lifecycle(ctx context.Context, s3 *minio.Client, bucket string, ttl time.Duration) {
-	days := int(ttl.Hours()/24) + 1
-	cfg := lifecycleConfig(days)
+	setLifecycle(ctx, s3, bucket, lifecycleConfig("tks-media-ttl", "media/", int(ttl.Hours()/24)+1))
+}
+
+// RawLifecycle expires every object of the raw bucket (raw/ and
+// raw-failures/: Facebook responses, with comment text and authors) after
+// days.
+func RawLifecycle(ctx context.Context, s3 *minio.Client, bucket string, days int) {
+	setLifecycle(ctx, s3, bucket, rawLifecycleConfig(days))
+}
+
+func setLifecycle(ctx context.Context, s3 *minio.Client, bucket string, cfg *lifecycle.Configuration) {
 	if err := s3.SetBucketLifecycle(ctx, bucket, cfg); err != nil {
 		slog.Warn("media: bucket lifecycle not applied (store may not support it)", "bucket", bucket, "err", err)
 	}

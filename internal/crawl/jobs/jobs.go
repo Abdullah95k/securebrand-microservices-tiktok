@@ -18,6 +18,10 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/redisx"
 )
 
+// ErrNeverSpawned: Done for a task the job never spawned (a task produced
+// outside job accounting, e.g. a DLQ replay of an old job).
+var ErrNeverSpawned = errors.New("jobs: task was never spawned for the job")
+
 // FinalizeSet holds job ids whose pending count reached zero.
 const FinalizeSet = redisx.KeyPrefix + "jobs:finalize"
 
@@ -123,7 +127,7 @@ func (t *Tracker) Done(ctx context.Context, job, taskID string, counters map[str
 		return 0, err
 	}
 	if pending == -1 {
-		return 0, fmt.Errorf("jobs: task %s was never spawned for job %s", taskID, job)
+		return 0, fmt.Errorf("%w: task %s, job %s", ErrNeverSpawned, taskID, job)
 	}
 	if pending == 0 {
 		if err := t.r.SAdd(ctx, FinalizeSet, job).Err(); err != nil {

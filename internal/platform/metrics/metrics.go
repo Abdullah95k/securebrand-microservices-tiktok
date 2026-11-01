@@ -58,7 +58,10 @@ var (
 	// Identities.
 	IdentityActive  = gaugeVec("identity_active", "Live identities in this pod.", "tier")
 	IdentityRetired = counterVec("identity_retired_total", "Retired identities by reason.", "tier", "reason")
-	Bootstraps      = counterVec("bootstrap_total", "Identity bootstraps.", "method", "outcome")
+	// PageLoadsDeferred counts page loads an exit put off: "paced" (the
+	// minimum interval) or "backoff" (after a walled or failed page load).
+	PageLoadsDeferred = counterVec("proxy_page_loads_deferred_total", "Page loads put off by an exit's page-load gate, by reason.", "tier", "reason")
+	Bootstraps        = counterVec("bootstrap_total", "Identity bootstraps.", "method", "outcome")
 
 	// Tasks.
 	Tasks       = counterVec("tasks_total", "Crawl tasks by stage, lane and outcome.", "stage", "lane", "outcome")

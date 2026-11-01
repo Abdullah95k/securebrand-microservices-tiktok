@@ -188,18 +188,7 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 			slog.Warn("finalizer: adaptive schedule", "job", id, "page", *pageID, "err", err)
 		}
 	}
-	cb, _ := json.Marshal(st.Counters)
-	compb, _ := json.Marshal(comp)
 	now := time.Now().UTC()
-	if _, err := f.DB.Exec(ctx, `UPDATE jobs SET status = $2, counters = $3, completeness = $4, finished_at = $5 WHERE job_id = $1`,
-		jid, final, cb, compb, now); err != nil {
-		return err
-	}
-	if _, err := f.DB.Exec(ctx, `UPDATE page_schedule SET page_id = COALESCE(page_id, $2),
-		consecutive_failures = CASE WHEN $3 IN ('completed','partial') THEN 0 ELSE consecutive_failures + 1 END
-		WHERE last_job_id = $1`, jid, pageID, final); err != nil {
-		return err
-	}
 	ev := &fbv1.JobEvent{
 		EventId: id + ":" + final, JobId: id, Status: jobStatus(final), Kind: kind, PageRef: pageRef,
 		CreatedAt: timestamppb.New(created), FinishedAt: timestamppb.New(now), Counters: st.Counters,
@@ -210,11 +199,27 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 	if pageID != nil {
 		ev.PageId = *pageID
 	}
+	// The event goes out before the job turns terminal: a failure after it
+	// leaves the job to finalize again, which sends the same event (same
+	// id) once more. Turning terminal first would lose it, since a
+	// terminal job is never finalized again.
 	b := f.Producer.NewBatch()
 	if err := b.AddProto(ctx, topics.Job, id, ev); err != nil {
 		return err
 	}
 	if err := b.Wait(ctx); err != nil {
+		return err
+	}
+	cb, _ := json.Marshal(st.Counters)
+	compb, _ := json.Marshal(comp)
+	// Guarded: a job something else made terminal meanwhile keeps that.
+	if _, err := f.DB.Exec(ctx, `UPDATE jobs SET status = $2, counters = $3, completeness = $4, finished_at = $5
+		WHERE job_id = $1 AND status IN ('running','cancelling','finalizing')`, jid, final, cb, compb, now); err != nil {
+		return err
+	}
+	if _, err := f.DB.Exec(ctx, `UPDATE page_schedule SET page_id = COALESCE(page_id, $2),
+		consecutive_failures = CASE WHEN $3 IN ('completed','partial') THEN 0 ELSE consecutive_failures + 1 END
+		WHERE last_job_id = $1`, jid, pageID, final); err != nil {
 		return err
 	}
 	metrics.Jobs.WithLabelValues(final, topics.LaneName(taskLane(lane))).Inc()
@@ -276,7 +281,12 @@ func (f *Finalizer) deletions(ctx context.Context, job string, cancelled bool) (
 				return 0, err
 			}
 			// The persister may apply the records first; either way they are
-			// marked once.
+			// marked once, all at the same time (a row without an observation
+			// would get its own now(), and its replies wouldn't come back with
+			// the comment).
+			for _, d := range dels {
+				d.Obs = &fbv1.Observation{ObservedAt: timestamppb.New(at)}
+			}
 			if _, err := persist.MarkDeleted(ctx, f.DB, dels); err != nil {
 				return 0, err
 			}

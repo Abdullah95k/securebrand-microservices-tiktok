@@ -436,7 +436,11 @@ func newStack(cfg *config.Config, f flags) (spike.Stack, error) {
 	if err != nil {
 		return spike.Stack{}, err
 	}
-	proxies, err := proxy.New(cfg.FB.Proxy)
+	// The spike measures what Facebook does at the rate it is given, so the
+	// pipeline's page-load pacing is off here.
+	pc := cfg.FB.Proxy
+	pc.PageLoads = config.PageLoads{}
+	proxies, err := proxy.New(pc)
 	if err != nil {
 		return spike.Stack{}, err
 	}

@@ -47,6 +47,9 @@ message Media {
   string dash_manifest_url = 18;
   string thumbnail_url = 19;
   google.protobuf.Timestamp post_created_at = 20;
+  // Pseudonymous key of the comment's author, for comment media: an erased
+  // author's media is never stored or downloaded.
+  bytes author_key = 21;
 }
 
 message S3Object {

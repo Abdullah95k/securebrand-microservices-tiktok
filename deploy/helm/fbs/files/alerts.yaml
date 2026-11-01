@@ -256,6 +256,18 @@ groups:
             log lines for their SQLSTATE, fix the cause, then replay them with
             fbctl dlq replay --topic fbs.persist.dlq.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#persister-quarantine
+      - alert: TksHandlerPanics
+        expr: sum by (group) (increase(tks_kafka_handler_panics_total[10m])) > 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.group }}: a record handler keeps panicking"
+          description: >-
+            The record is retried with backoff and its partition waits behind
+            it (its lag grows). The handler's log line "kafka: handler
+            panicked" names the topic, partition and offset and has the stack.
+            Fix the bug; the record goes through once it no longer panics.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#kafka-lag
       - alert: TksDLQGrowing
         expr: sum by (stage, reason) (increase(tks_dlq_total[1h])) > 100
         for: 15m

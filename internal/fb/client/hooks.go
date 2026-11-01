@@ -33,6 +33,10 @@ func Hooks(acceptLanguage string) session.Hooks {
 			}
 			return false
 		},
+		// The consent wall names nothing either; it is answered above.
+		Unavailable: func(html []byte, _ session.Tokens) bool {
+			return !htmlx.ConsentWall(html) && htmlx.NamesNothing(html)
+		},
 	}
 }
 

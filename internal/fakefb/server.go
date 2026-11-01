@@ -39,6 +39,9 @@ type Faults struct {
 	// NoPageID serves page HTML that names no page id (no userID, no
 	// pageID, no fb:// link), as a few real pages do.
 	NoPageID bool `json:"no_page_id"`
+	// Restricted serves every page as Facebook serves a page restricted to
+	// logged-in viewers: a shell with session tokens, naming nothing.
+	Restricted bool `json:"restricted"`
 }
 
 // Options configures a Server.
@@ -262,9 +265,14 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 		consent = false
 	}
 	rd := s.renderer(r)
-	s.World.mu.RLock()
-	body := rd.pageHTML(p, lsd, datr, consent)
-	s.World.mu.RUnlock()
+	var body []byte
+	if s.opts.Faults.Restricted && !consent {
+		body = rd.restrictedHTML(lsd)
+	} else {
+		s.World.mu.RLock()
+		body = rd.pageHTML(p, lsd, datr, consent)
+		s.World.mu.RUnlock()
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(body)
 }

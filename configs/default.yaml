@@ -12,8 +12,8 @@ log:
 http:
   addr: ":8080"            # API listener (fbs-api)
   ops_addr: ":9090"        # /metrics, /healthz, /readyz on every binary
-  read_timeout: 15s
-  write_timeout: 60s
+  read_timeout: 15s       # reading a whole request (fbs-api)
+  write_timeout: 60s      # handling an API request; job results stream without it
 
 postgres:
   dsn: "postgres://fbs:fbs@localhost:5432/fbs?sslmode=disable"
@@ -79,8 +79,12 @@ fb:
   # Cap applied to every identity (requests per second) and burst.
   identity_rps: 0.33
   identity_burst: 2
-  identity_max_requests_min: 150
-  identity_max_requests_max: 400
+  # Requests an identity serves before it is replaced. Each replacement
+  # starts with a page load, the request Facebook walls (the pilot retired
+  # 580 identities for this in 7 hours, more than for any block); GraphQL
+  # was not rate limited more on long-lived ones.
+  identity_max_requests_min: 400
+  identity_max_requests_max: 800
   # Per page, fleet wide (Redis GCRA).
   page_rps: 3
   page_rps_p0: 6
@@ -136,7 +140,8 @@ fb:
     #   country: us
     routing:
       default: [direct]
-    # Circuit breaker per exit bucket (a static endpoint's /24, or a gateway
+    # Circuit breaker per exit bucket (a static IP endpoint's /24, a hostname
+    # endpoint's host:port (one static IP per port), or a gateway
     # and country): one blocked or failing too often gets no new identities
     # until its cooldown ends, then a single probe identity.
     breaker:
@@ -146,6 +151,17 @@ fb:
       cooldown: 2m
       max_cooldown: 30m
       probe_successes: 3
+    # Page loads (HTML) are what Facebook walls for logged-out sessions that
+    # view many pages; GraphQL is rarely limited (the pilot: ~80% of ISP page
+    # loads walled after a day, almost no GraphQL). Each static exit loads at
+    # most one page per interval. After a walled or failed page load it loads
+    # none for backoff, doubling up to max_backoff; a page that loads resets
+    # it. Page-load walls don't count against the exit's breaker, so its
+    # sessions keep serving GraphQL. Per crawler process. Zeros turn it off.
+    page_loads:
+      interval: 2m
+      backoff: 15m
+      max_backoff: 2h
   # Circuit breaker per (query, doc_id): when responses keep failing to parse
   # (schema drift) or the doc_id is rejected, stop sending that query (tasks
   # retry later) instead of spending requests until a registry or parser
@@ -189,14 +205,23 @@ crawler:
   consecutive_old_stop: 3
   # Retries a task gets without its stream moving forward (a stream that
   # saves new pages between rate limits starts counting again), and in all.
-  # Exhausted tasks go to the DLQ with reason max_attempts or
-  # max_total_attempts.
+  # Waits for proxy exits (every exit cooling down, or pacing its page
+  # loads; 30s or 5m each) count toward neither: max_waits bounds them.
+  # Exhausted tasks go to the DLQ with reason max_attempts,
+  # max_total_attempts or max_waits.
   max_attempts: 5
   max_total_attempts: 50
+  max_waits: 480
   lease_ttl: 120s
   freshness_p0: 15m
   freshness_p1: 6h
   suppression_refresh: 60s
+  # A scheduled run reads the page's HTML (its profile: name, followers)
+  # once per profile_refresh; in between it goes straight to the timeline.
+  # Page loads are what Facebook walls when a logged-out session views many
+  # pages (the pilot: 48% of ISP page loads walled, ~0% of GraphQL). 0 reads
+  # the HTML on every run.
+  profile_refresh: 24h
 
 limits:            # defaults applied to jobs that do not override them
   max_age_days: 365
@@ -217,7 +242,11 @@ scheduler:
   jitter: 0.1
   finalizer_interval: 2s
   finalize_timeout: 10m
+  # A job without progress for reaper_after is closed as partial, unless
+  # tasks wait in its lane's topics (its own are queued behind them, as in a
+  # burst of backfills); then only once it is older than reaper_max_age.
   reaper_after: 30m
+  reaper_max_age: 24h
   partition_months_ahead: 3
   incremental_overlap: 24h
   # Adaptive tiers for pages registered without schedule.interval_hours:

@@ -63,6 +63,6 @@ func serve(ctx context.Context, cfg *config.Config) error {
 	ops.AddCheck("redis", func(ctx context.Context) error { return rdb.Ping(ctx).Err() })
 	ops.AddCheck("kafka", producer.Ping)
 	return run.Group(ctx, ops.Run, func(ctx context.Context) error {
-		return httpserver.Serve(ctx, cfg.HTTP.Addr, srv.Handler())
+		return httpserver.Serve(ctx, cfg.HTTP.Addr, srv.Handler(), httpserver.WithReadTimeout(cfg.HTTP.ReadTimeout))
 	})
 }

@@ -69,7 +69,11 @@ func runScheduler(ctx context.Context, cfg *config.Config) error {
 	fin := &scheduler.Finalizer{DB: db, Jobs: tracker, Producer: producer, Timeout: cfg.Scheduler.FinalizeTimeout, Adaptive: adaptive,
 		Deletions: scheduler.DeletionsFrom(cfg)}
 	planner := &scheduler.Planner{DB: db, Dispatch: disp, Cfg: cfg, Adaptive: adaptive}
-	reaper := &scheduler.Reaper{DB: db, Jobs: tracker, Producer: producer, After: cfg.Scheduler.ReaperAfter}
+	admin := kadm.NewClient(producer.Client())
+	reaper := &scheduler.Reaper{DB: db, Jobs: tracker, Producer: producer, After: cfg.Scheduler.ReaperAfter, MaxAge: cfg.Scheduler.ReaperMaxAge,
+		Backlog: func(ctx context.Context) (map[int16]int64, error) {
+			return scheduler.TaskBacklog(ctx, admin, cfg.Kafka.TopicPrefix)
+		}}
 	maint := &scheduler.Maintenance{DB: db, Cfg: cfg}
 	eraser := &gdpr.Eraser{DB: db, S3: s3, Producer: producer}
 
@@ -80,7 +84,7 @@ func runScheduler(ctx context.Context, cfg *config.Config) error {
 			return scheduler.Every(ctx, "tier-gauges", 5*time.Minute, planner.TierGauges)
 		},
 		func(ctx context.Context) error {
-			lag := &scheduler.LagGauges{Admin: kadm.NewClient(producer.Client()), Prefix: cfg.Kafka.TopicPrefix}
+			lag := &scheduler.LagGauges{Admin: admin, Prefix: cfg.Kafka.TopicPrefix}
 			return scheduler.Every(ctx, "consumer-lag", 30*time.Second, lag.Tick)
 		},
 	}

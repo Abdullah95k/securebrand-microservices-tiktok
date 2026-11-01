@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -60,19 +61,44 @@ func replaceDB(dsn, name string) string {
 	return dsn[:i+1] + name + q
 }
 
-// Redis returns a client on a dedicated DB index, flushed. Requires
-// TKS_TEST_REDIS_ADDR.
+// Redis returns a client on a database of its own (1-15), flushed.
+// Requires TKS_TEST_REDIS_ADDR. A database is claimed through a key in
+// database 0, so tests running at once (go test runs packages in parallel)
+// never share one; it is released at cleanup, or after 30 minutes.
 func Redis(t testing.TB) *redis.Client {
 	t.Helper()
 	addr := os.Getenv("TKS_TEST_REDIS_ADDR")
 	if addr == "" {
 		t.Skip("TKS_TEST_REDIS_ADDR not set")
 	}
-	c := redis.NewClient(&redis.Options{Addr: addr, DB: 1 + rand.IntN(14)})
-	if err := c.FlushDB(context.Background()).Err(); err != nil {
+	ctx := context.Background()
+	admin := redis.NewClient(&redis.Options{Addr: addr})
+	db, claim := 0, ""
+	for deadline := time.Now().Add(5 * time.Minute); db == 0; time.Sleep(200 * time.Millisecond) {
+		for _, n := range rand.Perm(15) {
+			key := fmt.Sprintf("tks:testenv:db:%d", n+1)
+			ok, err := admin.SetNX(ctx, key, os.Getpid(), 30*time.Minute).Result()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ok {
+				db, claim = n+1, key
+				break
+			}
+		}
+		if db == 0 && time.Now().After(deadline) {
+			t.Fatal("testenv: no free Redis database")
+		}
+	}
+	c := redis.NewClient(&redis.Options{Addr: addr, DB: db})
+	if err := c.FlushDB(ctx).Err(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = c.Close() })
+	t.Cleanup(func() {
+		_ = c.Close()
+		_ = admin.Del(context.Background(), claim).Err()
+		_ = admin.Close()
+	})
 	return c
 }
 

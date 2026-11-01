@@ -43,6 +43,9 @@ type Identity struct {
 	// consecFails counts transport failures in a row: an exit that
 	// stopped answering.
 	consecFails int
+	// consecSoft counts soft errors in a row (transport failures, which
+	// say nothing about the tokens, neither count nor reset it).
+	consecSoft  int
 	requests    int
 	maxRequests int
 	born        time.Time
@@ -53,8 +56,37 @@ type Identity struct {
 	limiter   *rate.Limiter
 	sessionID string // __s
 
-	// observe reports outcomes to the exit's breaker (set by the pool).
-	observe func(detect.Class)
+	// observe reports outcomes to the exit's breaker or, for page loads, its
+	// page-load gate (set by the pool).
+	observe func(c detect.Class, pageLoad bool)
+	// reserved is the page load the pool reserved on the exit's gate when it
+	// created the identity; the first page load uses it.
+	reserved bool
+}
+
+// reservationTTL is how long the page load reserved for a new identity
+// stays good: the slot was its exit's at creation, and another identity
+// may take the exit's next slot once the interval passes.
+const reservationTTL = 30 * time.Second
+
+// TakeReservation reports whether id still holds the page load reserved
+// when it was created (and is young enough to use it), and uses it up.
+// Any other page load takes a slot from its exit's gate.
+func (id *Identity) TakeReservation() bool {
+	id.mu.Lock()
+	defer id.mu.Unlock()
+	r := id.reserved && time.Since(id.born) < reservationTTL
+	id.reserved = false
+	return r
+}
+
+// markRetired marks id for retirement when it is released.
+func (id *Identity) markRetired(reason string) {
+	id.mu.Lock()
+	if id.retired == "" {
+		id.retired = reason
+	}
+	id.mu.Unlock()
 }
 
 func newIdentity(id string, ep proxy.Endpoint, fp Fingerprint, d transport.Doer, base *url.URL, rps float64, burst, maxReq int) *Identity {
@@ -131,9 +163,25 @@ func RateLimitCooldown(n int) time.Duration {
 	return min(time.Duration(30<<min(max(n, 1), 5))*time.Second, 15*time.Minute)
 }
 
+// Soft errors in a row (server errors, HTML instead of GraphQL, an error
+// payload without data): the second drops the identity's tokens, so its next
+// use loads a page for fresh ones (stale tokens fail every request alike),
+// and MaxSoftErrors retire it, fresh tokens or not: only a request that
+// works ends the run. A soft error scores as a success otherwise, so health
+// alone would let one identity fail hundreds of requests, and the pool hands
+// the identity released last out first.
+const (
+	softRefreshAfter = 2
+	MaxSoftErrors    = 4
+)
+
 // Record updates health with one request outcome and returns whether the
 // identity must be retired.
 func (id *Identity) Record(c detect.Class) (retire bool, reason string) {
+	return id.record(c, false)
+}
+
+func (id *Identity) record(c detect.Class, pageLoad bool) (retire bool, reason string) {
 	id.mu.Lock()
 	defer id.mu.Unlock()
 	id.requests++
@@ -154,6 +202,18 @@ func (id *Identity) Record(c detect.Class) (retire bool, reason string) {
 		id.consecFails = 0 // the exit answered
 	}
 	switch {
+	case c == detect.SoftError:
+		id.consecSoft++
+		if id.consecSoft == softRefreshAfter { // once per run of soft errors
+			id.tokens = nil
+		}
+	case c == detect.Transport, pageLoad && c == detect.OK:
+		// Neither says the requests work: a transport failure got no
+		// answer, and a page load only brings tokens yet untested.
+	default:
+		id.consecSoft = 0
+	}
+	switch {
 	case c == detect.Checkpoint:
 		id.retired = "checkpoint"
 	case c == detect.LoginWall:
@@ -168,6 +228,8 @@ func (id *Identity) Record(c detect.Class) (retire bool, reason string) {
 		// Health alone never retires a dead exit: transport failures
 		// score 0.5, which health approaches but never falls below.
 		id.retired = "transport"
+	case id.consecSoft >= MaxSoftErrors:
+		id.retired = "soft_errors"
 	case id.health < 0.5:
 		id.retired = "unhealthy"
 	case id.maxRequests > 0 && id.requests >= id.maxRequests:

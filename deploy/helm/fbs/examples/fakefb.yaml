@@ -28,7 +28,7 @@ config:
     global_rps: 200
     proxy:
       tiers: [{name: direct, kind: direct}]
-      routing: {default: [direct], bootstrap_html: [direct]}
+      routing: {default: [direct]}
   media:
     required_consumers: ["analysis"]
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -123,7 +124,16 @@ func (s *Server) createErasure(w http.ResponseWriter, r *http.Request) {
 	c := clientFrom(r.Context())
 	switch req.SubjectType {
 	case "author":
-		id := req.AuthorID
+		// The key is the HMAC of the id exactly as the crawlers see it, a
+		// number: anything else (a profile link, stray spaces) would match
+		// nothing, and the request would end done with nothing erased.
+		id, profile := strings.TrimSpace(req.AuthorID), strings.TrimSpace(req.ProfileURL)
+		if v, err := strconv.ParseUint(id, 10, 63); id != "" && (err != nil || strconv.FormatUint(v, 10) != id) {
+			// Not a number, or not as Facebook writes it (leading zeros).
+			problem(w, http.StatusBadRequest, "invalid author_id", "author_id is the numeric Facebook id; for a profile link, use profile_url")
+			return
+		}
+		req.ProfileURL = profile
 		if id == "" && req.ProfileURL != "" {
 			_ = s.DB.QueryRow(r.Context(), `SELECT author_id FROM comment_authors WHERE profile_url = $1 AND author_id IS NOT NULL LIMIT 1`,
 				req.ProfileURL).Scan(&id)
@@ -138,7 +148,9 @@ func (s *Server) createErasure(w http.ResponseWriter, r *http.Request) {
 			problem(w, http.StatusBadRequest, "unknown author", "provide author_id, or a profile_url we have stored")
 			return
 		}
-		e, err := s.insertErasure(r.Context(), c, "author", key, 0, map[string]any{"author_id": req.AuthorID, "profile_url": req.ProfileURL})
+		// The Facebook id (resolved from the profile URL if need be) lets the
+		// erasure find the author's mentions; it is dropped once done.
+		e, err := s.insertErasure(r.Context(), c, "author", key, 0, map[string]any{"author_id": id, "profile_url": req.ProfileURL})
 		if err != nil {
 			serverError(w, err)
 			return

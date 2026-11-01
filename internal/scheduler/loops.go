@@ -1,8 +1,10 @@
 package scheduler
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"math"
 	"time"
@@ -157,6 +159,8 @@ func (p *Planner) TierGauges(ctx context.Context) error {
 		return err
 	}
 	defer rows.Close()
+	type gauge struct{ pages, lag float64 }
+	seen := map[string]gauge{}
 	for rows.Next() {
 		var tier string
 		var n int64
@@ -164,10 +168,27 @@ func (p *Planner) TierGauges(ctx context.Context) error {
 		if err := rows.Scan(&tier, &n, &lag); err != nil {
 			return err
 		}
-		metrics.PageTier.WithLabelValues(tier).Set(float64(n))
-		metrics.ScheduleLag.WithLabelValues(tier).Set(math.Max(lag, 0))
+		seen[tier] = gauge{float64(n), math.Max(lag, 0)}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	// A configured tier left with no pages reads 0, not its last count and
+	// lag.
+	names := []string{DormantTier}
+	for _, t := range p.Cfg.Scheduler.Tiers {
+		names = append(names, t.Name)
+	}
+	for _, n := range names {
+		if _, ok := seen[n]; !ok {
+			seen[n] = gauge{}
+		}
+	}
+	for tier, g := range seen {
+		metrics.PageTier.WithLabelValues(tier).Set(g.pages)
+		metrics.ScheduleLag.WithLabelValues(tier).Set(g.lag)
+	}
+	return nil
 }
 
 // applyOptions overlays stored per-page options (API CrawlOptions JSON).
@@ -220,12 +241,43 @@ type Reaper struct {
 	DB       *pgxpool.Pool
 	Jobs     *jobs.Tracker
 	Producer *kafka.Producer
-	After    time.Duration
+	// After is how long a job may go without progress. While tasks wait in
+	// its lane's topics (Backlog), its own are taken to be queued behind
+	// them, not lost, and it is left alone until MaxAge.
+	After  time.Duration
+	MaxAge time.Duration
+	// Backlog returns the tasks waiting per lane (TaskBacklog); nil takes
+	// every lane to be empty.
+	Backlog func(context.Context) (map[int16]int64, error)
+	// PageSize bounds the jobs one tick looks at (default 500).
+	PageSize int
+
+	// The tick after a full page goes on from its last job (by creation),
+	// so more than a page of long-running jobs can't keep a stuck one from
+	// ever being looked at.
+	afterCreated time.Time
+	afterID      uuid.UUID
+}
+
+// stalled decides what becomes of a job without progress: failed when its
+// accounting state is gone, partial when its tasks look lost (no progress
+// for after while nothing waits in its lane, or older than maxAge).
+func stalled(st jobs.Status, queued, overdue bool, after time.Duration, now time.Time) (final, reason string) {
+	switch {
+	case st.Spawned == 0:
+		return "failed", "job state lost"
+	case st.Pending > 0 && now.Sub(st.LastActivity) > after && (!queued || overdue):
+		return "partial", "stalled with pending tasks"
+	}
+	return "", ""
 }
 
 func (r *Reaper) Tick(ctx context.Context) error {
-	rows, err := r.DB.Query(ctx, `SELECT job_id, kind, page_ref, created_at FROM jobs
-		WHERE status IN ('running','cancelling') AND created_at < now() - $1::interval LIMIT 500`, r.After.String())
+	maxAge := max(r.MaxAge, r.After)
+	page := cmp.Or(r.PageSize, 500)
+	rows, err := r.DB.Query(ctx, `SELECT job_id, kind, page_ref, created_at, lane, created_at < now() - $2::interval FROM jobs
+		WHERE status IN ('running','cancelling') AND created_at < now() - $1::interval AND (created_at, job_id) > ($3, $4)
+		ORDER BY created_at, job_id LIMIT $5`, r.After.String(), maxAge.String(), r.afterCreated, r.afterID, page)
 	if err != nil {
 		return err
 	}
@@ -234,40 +286,70 @@ func (r *Reaper) Tick(ctx context.Context) error {
 		kind    string
 		ref     string
 		created time.Time
+		lane    int16
+		overdue bool
 	}
 	list, err := pgx.CollectRows(rows, func(c pgx.CollectableRow) (row, error) {
 		var x row
-		return x, c.Scan(&x.id, &x.kind, &x.ref, &x.created)
+		return x, c.Scan(&x.id, &x.kind, &x.ref, &x.created, &x.lane, &x.overdue)
 	})
 	if err != nil {
 		return err
 	}
+	if len(list) < page {
+		r.afterCreated, r.afterID = time.Time{}, uuid.UUID{} // all seen: start over next tick
+	} else {
+		r.afterCreated, r.afterID = list[len(list)-1].created, list[len(list)-1].id
+	}
+	if len(list) == 0 {
+		return nil
+	}
+	queued := func(int16) bool { return false }
+	if r.Backlog != nil {
+		backlog, err := r.Backlog(ctx)
+		switch {
+		case err != nil:
+			// Unknown: take every lane to be busy, so only jobs past MaxAge
+			// (or without state) are closed until the backlog reads again.
+			slog.Warn("reaper: task backlog", "err", err)
+			queued = func(int16) bool { return true }
+		default:
+			queued = func(l int16) bool { return backlog[l] > 0 }
+		}
+	}
+	now := time.Now()
 	for _, j := range list {
 		st, err := r.Jobs.Status(ctx, j.id.String())
 		if err != nil {
 			continue
 		}
-		var final, reason string
-		switch {
-		case st.Spawned == 0:
-			final, reason = "failed", "job state lost"
-		case st.Pending > 0 && time.Since(st.LastActivity) > r.After:
-			final, reason = "partial", "stalled with pending tasks"
-		default:
+		final, reason := stalled(st, queued(j.lane), j.overdue, r.After, now)
+		if final == "" {
 			continue
 		}
 		eb, _ := json.Marshal(map[string]any{"message": reason, "pending_tasks": st.Pending})
 		cb, _ := json.Marshal(st.Counters)
-		tag, err := r.DB.Exec(ctx, `UPDATE jobs SET status = $2, error = $3, counters = $4, finished_at = now()
-			WHERE job_id = $1 AND status IN ('running','cancelling')`, j.id, final, eb, cb)
-		if err != nil || tag.RowsAffected() == 0 {
-			continue
+		var prev string
+		if err := r.DB.QueryRow(ctx, `UPDATE jobs SET status = $2, error = $3, counters = $4, finished_at = now()
+			WHERE job_id = $1 AND status IN ('running','cancelling') RETURNING old.status`, j.id, final, eb, cb).Scan(&prev); err != nil {
+			continue // finalized meanwhile, or the database failed: next tick
 		}
 		b := r.Producer.NewBatch()
-		_ = b.AddProto(ctx, topics.Job, j.id.String(), &fbv1.JobEvent{EventId: j.id.String() + ":" + final, JobId: j.id.String(),
+		err = b.AddProto(ctx, topics.Job, j.id.String(), &fbv1.JobEvent{EventId: j.id.String() + ":" + final, JobId: j.id.String(),
 			Status: jobStatus(final), Kind: j.kind, PageRef: j.ref, CreatedAt: timestamppb.New(j.created),
 			FinishedAt: timestamppb.Now(), Counters: st.Counters, Errors: []string{reason}})
-		_ = b.Wait(ctx)
+		if err == nil {
+			err = b.Wait(ctx)
+		}
+		if err != nil {
+			// Not announced: reopen the job, so the next tick closes it
+			// again and sends the event.
+			if _, rerr := r.DB.Exec(ctx, `UPDATE jobs SET status = $2, error = NULL, finished_at = NULL WHERE job_id = $1 AND status = $3`,
+				j.id, prev, final); rerr != nil {
+				slog.Error("reaper: job closed but its event was not sent", "job", j.id, "err", errors.Join(err, rerr))
+			}
+			continue
+		}
 		metrics.Jobs.WithLabelValues(final, "unknown").Inc()
 		slog.Warn("reaper: job closed", "job", j.id, "status", final, "reason", reason)
 	}
@@ -281,17 +363,29 @@ type Maintenance struct {
 }
 
 func (m *Maintenance) Tick(ctx context.Context) error {
+	// Every step runs whatever the others did: a partition that can't be
+	// created now (its table locked by a long reader) must not hold up
+	// retention, which is a privacy obligation.
+	var errs []error
 	now := time.Now().UTC()
 	monthsBack := m.Cfg.Limits.MaxAgeCapDays/30 + 1
+	ret := m.Cfg.Privacy.Retention
+	// Partitions retention would drop again are not created.
+	notBefore := map[string]time.Time{}
+	if ret.CommentsDays > 0 {
+		notBefore["comments"] = now.AddDate(0, 0, -ret.CommentsDays)
+	}
+	if ret.MetricsDays > 0 {
+		notBefore["post_metrics"] = now.AddDate(0, 0, -ret.MetricsDays)
+	}
 	n, err := store.EnsurePartitions(ctx, m.DB, now, store.PartitionWindow{
-		MonthsBack: monthsBack, MonthsAhead: m.Cfg.Scheduler.PartitionMonthsAhead, DaysBack: 1, DaysAhead: 14})
+		MonthsBack: monthsBack, MonthsAhead: m.Cfg.Scheduler.PartitionMonthsAhead, DaysBack: 1, DaysAhead: 14, NotBefore: notBefore})
 	if err != nil {
-		return err
+		errs = append(errs, err)
 	}
 	if n > 0 {
 		slog.Info("partitions created", "count", n)
 	}
-	ret := m.Cfg.Privacy.Retention
 	drops := []struct {
 		table string
 		days  int
@@ -302,7 +396,7 @@ func (m *Maintenance) Tick(ctx context.Context) error {
 		}
 		dropped, err := store.DropPartitionsBefore(ctx, m.DB, d.table, now.AddDate(0, 0, -d.days))
 		if err != nil {
-			return err
+			errs = append(errs, err)
 		}
 		if len(dropped) > 0 {
 			slog.Info("retention: partitions dropped", "table", d.table, "partitions", dropped)
@@ -313,8 +407,20 @@ func (m *Maintenance) Tick(ctx context.Context) error {
 		days int
 	}{
 		{`DELETE FROM jobs WHERE job_id IN (SELECT job_id FROM jobs WHERE finished_at < now() - make_interval(days => $1) LIMIT 5000)`, ret.JobsDays},
-		{`DELETE FROM media WHERE media_id IN (SELECT media_id FROM media WHERE status IN ('deleted','expired','failed','skipped')
+		// Rows never handed over (variants the policy leaves out, media of
+		// jobs without media, failed downloads) are purged: their signed
+		// URLs expired long ago, and they keep comment ids after retention.
+		{`DELETE FROM media WHERE media_id IN (SELECT media_id FROM media WHERE status IN ('discovered','failed','skipped','source_expired')
 			AND discovered_at < now() - make_interval(days => $1) LIMIT 5000)`, ret.MediaRowsDays},
+		// Rows of media handed over stay, as the record that it was (a later
+		// scrape would download and announce it again under the same event
+		// id), but without what ties them to a person or its content. An
+		// empty fb_media_id marks a row done (media_unscrubbed_idx); the
+		// persister leaves these rows alone.
+		{`UPDATE media SET fb_media_id = '', source_url = NULL, alt_text = NULL, comment_id = NULL, owner_id = NULL,
+			author_key = NULL, sha256 = NULL, s3_key = NULL, last_error = NULL
+			WHERE media_id IN (SELECT media_id FROM media WHERE status IN ('deleted','expired') AND fb_media_id <> ''
+				AND discovered_at < now() - make_interval(days => $1) LIMIT 5000)`, ret.MediaRowsDays},
 		{`DELETE FROM comment_authors WHERE author_key IN (SELECT author_key FROM comment_authors
 			WHERE last_seen_at < now() - make_interval(days => $1) LIMIT 5000)`, ret.AuthorsInactiveDays},
 		{`DELETE FROM registry_sync_runs WHERE started_at < now() - make_interval(days => $1)`, ret.JobsDays},
@@ -324,7 +430,7 @@ func (m *Maintenance) Tick(ctx context.Context) error {
 			continue
 		}
 		if _, err := m.DB.Exec(ctx, s.q, s.days); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
 	// Refresh rows of posts past every refresh window and recrawl age, and
@@ -333,7 +439,7 @@ func (m *Maintenance) Tick(ctx context.Context) error {
 		LEFT JOIN page_schedule s ON s.page_id = r.page_id AND s.enabled
 		WHERE r.post_created_at < $1 OR s.page_id IS NULL LIMIT 20000)`,
 		now.Add(-maxRefreshAge(m.Cfg.Scheduler.PostRefresh)-24*time.Hour)); err != nil {
-		return err
+		errs = append(errs, err)
 	}
-	return nil
+	return errors.Join(errs...)
 }

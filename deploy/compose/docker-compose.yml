@@ -1,6 +1,8 @@
 # Local stack: infrastructure + every fbs service + fakefb.
 #   make compose-up        build the image and start everything
 #   make compose-down
+# Ports are published on 127.0.0.1 only: the passwords are the defaults,
+# and Docker's published ports go around a host firewall.
 # The crawler points at fakefb (a synthetic Facebook). To try real Facebook
 # set TKS_FB__BASE_URL=https://www.facebook.com and configure proxies in
 # deploy/compose/local.yaml first (see docs/runbooks/phase0-spike.md).
@@ -9,6 +11,10 @@ name: fbs
 x-fbs: &fbs
   image: ${TKS_IMAGE:-fbs:dev}
   restart: unless-stopped
+  # A stop lets in-flight work finish and commits it (the crawler drains for
+  # up to 75s); Docker's default 10s would kill it mid-drain and every task
+  # running would be redone.
+  stop_grace_period: 100s
   environment: &fbs-env
     TKS_CONFIG: /etc/fbs/local.yaml
     TKS_POSTGRES__DSN: postgres://fbs:fbs@postgres:5432/fbs?sslmode=disable
@@ -28,7 +34,7 @@ services:
   postgres:
     image: postgres:18-alpine
     environment: {POSTGRES_USER: fbs, POSTGRES_PASSWORD: fbs, POSTGRES_DB: fbs}
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]
     healthcheck: {test: ["CMD", "pg_isready", "-U", "fbs"], interval: 2s, retries: 30}
     volumes: [pgdata:/var/lib/postgresql]
 
@@ -39,12 +45,12 @@ services:
       --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
       --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
     # 18081: Redpanda's Schema Registry (kafka.schema_registry.url).
-    ports: ["19092:19092", "18081:8081"]
+    ports: ["127.0.0.1:19092:19092", "127.0.0.1:18081:8081"]
     healthcheck: {test: ["CMD", "rpk", "cluster", "health", "--exit-when-healthy"], interval: 3s, retries: 30}
 
   valkey:
     image: valkey/valkey:8-alpine
-    ports: ["6379:6379"]
+    ports: ["127.0.0.1:6379:6379"]
     healthcheck: {test: ["CMD", "valkey-cli", "ping"], interval: 2s, retries: 30}
 
   # In-memory S3 for development. Swap for MinIO/SeaweedFS/AWS S3 by changing
@@ -52,12 +58,12 @@ services:
   s3:
     image: ${TKS_IMAGE:-fbs:dev}
     entrypoint: ["/usr/local/bin/devs3", "--addr", ":9000"]
-    ports: ["9000:9000"]
+    ports: ["127.0.0.1:9000:9000"]
 
   fakefb:
     image: ${TKS_IMAGE:-fbs:dev}
     entrypoint: ["/usr/local/bin/fakefb", "--addr", ":8090", "--pages", "5", "--posts", "30"]
-    ports: ["8090:8090"]
+    ports: ["127.0.0.1:8090:8090"]
 
   init:
     image: ${TKS_IMAGE:-fbs:dev}
@@ -90,7 +96,7 @@ services:
   api:
     <<: *fbs
     entrypoint: ["/usr/local/bin/fbs-api"]
-    ports: ["8080:8080"]
+    ports: ["127.0.0.1:8080:8080"]
 
   scheduler:
     <<: *fbs

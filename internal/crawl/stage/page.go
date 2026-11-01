@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -20,8 +21,14 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/topics"
 )
+
+// confirmUnavailable is how many attempts a page load that names nothing
+// takes before the page is marked unavailable: on a later attempt the task
+// usually runs on another identity and exit.
+const confirmUnavailable = 3
 
 // PageStage loads the page profile and paginates the timeline. It emits
 // posts, metrics and media, and spawns one comments task per post whose
@@ -39,9 +46,9 @@ func (s *PageStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 	if sc == nil {
 		return Outcome{Result: Fail, Reason: "page task without page scope"}
 	}
-	id, err := d.identity(ctx, "timeline", t.Attempt)
+	id, err := d.identity(ctx, "timeline", t.Stalls)
 	if err != nil {
-		return retry(t, "", "30s", "no identity: "+err.Error(), c)
+		return noIdentity(t, err, c)
 	}
 	defer d.Pool.Release(id)
 
@@ -59,9 +66,11 @@ func (s *PageStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 		}
 	}
 
-	// Page HTML: profile + resolve + bootstrap. Always on the first segment;
-	// on later segments only if the identity has no tokens yet.
-	if t.Seq == 0 || !id.Bootstrapped() {
+	// Page HTML: profile + resolve + bootstrap (pagePlan). Page loads are
+	// what Facebook walls for logged-out sessions that view many pages,
+	// GraphQL is not, so they go through the exit's page-load gate.
+	load, profile := d.pagePlan(t, sc, &st, id, c)
+	if load {
 		url := sc.Url
 		if url == "" {
 			ref := sc.PageRef
@@ -72,6 +81,14 @@ func (s *PageStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 			url = u.String()
 		}
 		pl, err := d.Loader.Load(ctx, id, url)
+		if errors.Is(err, session.ErrPaced) {
+			// The exit can't load a page now (nothing was sent).
+			if !id.Bootstrapped() || sc.PageId == 0 {
+				return pacedRetry(t, st.Cursor, err, c)
+			}
+			c["profile_deferred"]++ // only the profile needed it
+			goto timeline
+		}
 		d.observeLoad(pl, err, t.Lane)
 		c["requests"]++
 		if err != nil {
@@ -82,14 +99,20 @@ func (s *PageStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 		switch pl.Class {
 		case detect.OK:
 		case detect.ContentUnavailable:
+			if pl.NamesNothing && t.Attempt+1 < confirmUnavailable {
+				// One load that names nothing may be this exit's country or a
+				// degraded response: confirm it on later attempts first.
+				return retry(t, st.Cursor, "30s", pl.Reason, c)
+			}
 			if t.Seq == 0 {
 				_ = d.emitUnavailable(ctx, t, sc)
 			}
-			return done(map[string]int64{"pages_unavailable": 1})
+			c["pages_unavailable"]++
+			return done(c)
 		default:
 			return classOutcome(t, pl.Class, pl.Reason, st.Cursor, c)
 		}
-		if t.Seq == 0 {
+		if profile {
 			page, rep := parse.Page(pl.HTML, sc.PageId, 0)
 			for _, f := range rep.Optional {
 				metrics.ParseMissingField.WithLabelValues("page_html", f).Inc()
@@ -100,7 +123,8 @@ func (s *PageStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 			}
 			metrics.ParseTotal.WithLabelValues("page_html", "1", "ok").Inc()
 			if d.Suppression.PageSuppressed(page.PageId) {
-				return done(map[string]int64{"pages_suppressed": 1})
+				c["pages_suppressed"]++
+				return done(c)
 			}
 			sc.PageId = page.PageId
 			page.RequestedRef = sc.PageRef
@@ -114,11 +138,13 @@ func (s *PageStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 			c["pages"]++
 		}
 	}
+timeline:
 	if sc.PageId == 0 {
 		return Outcome{Result: Fail, Reason: "page id unresolved", Counters: c}
 	}
 	if d.Suppression.PageSuppressed(sc.PageId) {
-		return done(map[string]int64{"pages_suppressed": 1})
+		c["pages_suppressed"]++
+		return done(c)
 	}
 
 	now := d.now()
@@ -199,14 +225,16 @@ func (s *PageStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 		metrics.ParseTotal.WithLabelValues("timeline", "1", "ok").Inc()
 		if tl.NodeNull && st.Pages == 0 && st.Cursor == "" {
 			_ = d.emitUnavailable(ctx, t, sc)
-			return done(map[string]int64{"pages_unavailable": 1})
+			c["pages_unavailable"]++
+			return done(c)
 		}
 		if tl.NoFeed {
 			// The page id names something without a timeline (a new-style
 			// page's older Page object): this page's problem, so not drift,
 			// which would count against the query's breaker.
 			metrics.ParseTotal.WithLabelValues("timeline", "1", "no_feed").Inc()
-			return done(map[string]int64{"pages_no_feed": 1})
+			c["pages_no_feed"]++
+			return done(c)
 		}
 
 		b := d.Producer.NewBatch()
@@ -277,11 +305,7 @@ func (s *PageStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 			state = "truncated"
 			c["timelines_truncated"]++
 		}
-		var newest time.Time
-		if st.NewestSeenUnix > 0 {
-			newest = time.Unix(st.NewestSeenUnix, 0).UTC()
-		}
-		if err := d.savePageWatermark(ctx, sc.PageId, newest, oldest, state, truncated, mode == fbv1.CrawlMode_CRAWL_MODE_FULL); err != nil {
+		if err := d.savePageWatermark(ctx, sc.PageId, passNewest(st, mode, truncated != ""), oldest, state, truncated, mode == fbv1.CrawlMode_CRAWL_MODE_FULL); err != nil {
 			return retry(t, st.Cursor, "30s", "watermark: "+err.Error(), c)
 		}
 		return done(c)
@@ -316,7 +340,9 @@ func (s *PageStage) commentsTask(ctx context.Context, t *taskv1.Task, mode fbv1.
 	cmode := fbv1.CrawlMode_CRAWL_MODE_FULL
 	if mode == fbv1.CrawlMode_CRAWL_MODE_INCREMENTAL {
 		if prev, ok := s.D.Ckpt.GetPost(ctx, p.PostId); ok {
-			if reported <= prev.Reported && prev.ThreadsComplete {
+			// A post one of whose reply threads was lost is never skipped;
+			// PostStage reads it whole.
+			if reported <= prev.Reported && prev.ThreadsComplete && s.D.Ckpt.Incomplete(ctx, p.PostId) == "" {
 				return nil, jobs.PostSkipped
 			}
 			cmode = fbv1.CrawlMode_CRAWL_MODE_INCREMENTAL
@@ -339,6 +365,19 @@ func (d *Deps) emitUnavailable(ctx context.Context, t *taskv1.Task, sc *taskv1.P
 		return err
 	}
 	return b.Wait(ctx)
+}
+
+// passNewest is the newest post time a finished timeline pass records as
+// the page's watermark (zero: leave it). An incremental pass cut short by
+// walls didn't reach its old watermark: the posts between where it stopped
+// and the watermark are still unread, so the watermark stays and the next
+// pass reads back to it again. (A pass stopped by the job's max_posts
+// advances it: the posts past the cap are left out on purpose.)
+func passNewest(st checkpoint.State, mode fbv1.CrawlMode, truncated bool) time.Time {
+	if st.NewestSeenUnix <= 0 || truncated && mode == fbv1.CrawlMode_CRAWL_MODE_INCREMENTAL {
+		return time.Time{}
+	}
+	return time.Unix(st.NewestSeenUnix, 0).UTC()
 }
 
 // wallTruncates records a login wall at cursor and reports whether it has

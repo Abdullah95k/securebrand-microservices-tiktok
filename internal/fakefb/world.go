@@ -444,6 +444,29 @@ func (w *World) AddComments(postID int64, n int) error {
 	return fmt.Errorf("fakefb: no post %d", postID)
 }
 
+// AddReplies adds n new replies (without replies of their own) to a
+// comment, as when people answer an old comment.
+func (w *World) AddReplies(commentID int64, n int) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	c := w.comments[commentID]
+	if c == nil {
+		return fmt.Errorf("fakefb: no comment %d", commentID)
+	}
+	post := w.posts[c.PostID]
+	at := time.Now().UTC()
+	for i := 0; i < n; i++ {
+		at = at.Add(time.Second)
+		r := w.newComment(post, c, at)
+		for _, nested := range r.Replies {
+			delete(w.comments, nested.ID)
+		}
+		r.Replies = nil
+		c.Replies = append(c.Replies, r)
+	}
+	return nil
+}
+
 // DeleteComment removes a comment (and its replies), as if its author
 // deleted it.
 func (w *World) DeleteComment(id int64) error {

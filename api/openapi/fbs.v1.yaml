@@ -39,7 +39,7 @@ paths:
             Retry-After: {schema: {type: integer}}
           content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
     get:
-      summary: List jobs (own jobs; all jobs with admin)
+      summary: List jobs (own jobs and the scheduled jobs of registered pages; all jobs with admin)
       parameters:
         - {in: query, name: page, schema: {type: string}, description: Filter by page (URL, vanity or id)}
         - {in: query, name: status, schema: {$ref: '#/components/schemas/JobStatus'}}
@@ -64,7 +64,7 @@ paths:
         "404": {$ref: '#/components/responses/Problem'}
   /jobs/{id}/cancel:
     post:
-      summary: Cancel a running job
+      summary: Cancel a running job (its creator or an admin; a scheduled job only an admin)
       parameters: [{$ref: '#/components/parameters/JobID'}]
       responses:
         "202": {description: Cancelling}
@@ -72,7 +72,11 @@ paths:
   /jobs/{id}/results:
     get:
       summary: Stream the job's data as NDJSON
-      description: One `{"type":"page"}` line, then one `{"type":"post"}` line per post seen during the job, each followed by its `{"type":"comment"}` lines when `include=comments`.
+      description: >-
+        One `{"type":"page"}` line, then one `{"type":"post"}` line per post seen during the job, each
+        followed by its `{"type":"comment"}` lines when `include=comments`. The last line is
+        `{"type":"end"}` when the stream is whole, or `{"type":"error"}` when it stopped early: a client
+        that sees neither lost the connection. Only the job's creator, a client registered to the page of a scheduled job, or an admin can read it.
       parameters:
         - {$ref: '#/components/parameters/JobID'}
         - {in: query, name: include, schema: {type: string, enum: [comments]}}
@@ -103,6 +107,7 @@ paths:
                   created: {type: boolean, description: The page was not registered before}
                   schedule: {type: object, description: The stored schedule after this registration}
                   backfill_job: {$ref: '#/components/schemas/Job'}
+                  backfill_reused: {type: boolean, description: "backfill_job is the client's backfill of the page already under way (started with its own limits), not a new one"}
     get:
       summary: List registered pages and their schedules
       parameters: [{$ref: '#/components/parameters/Limit'}]
@@ -484,7 +489,7 @@ components:
         fb_media_id: {type: string}
         kind: {type: string}
         variant: {type: string, enum: [original, sd, hd, thumbnail, link_preview]}
-        status: {type: string, enum: [discovered, ready, deleted, expired, failed, skipped]}
+        status: {type: string, enum: [discovered, stored, ready, deleted, expired, source_expired, failed, skipped]}
         s3_key: {type: string}
         size_bytes: {type: integer, format: int64}
         sha256: {type: string}

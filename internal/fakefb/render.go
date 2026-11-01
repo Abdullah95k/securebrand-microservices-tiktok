@@ -302,6 +302,18 @@ func parseCursor(c string) (kind string, scope int64, offset int, ok bool) {
 	return v.K, v.S, v.O, true
 }
 
+// restrictedHTML is what a logged-out viewer gets for a page restricted to
+// logged-in viewers: a shell under the page's URL, with session tokens but
+// no id of anything (and no login form).
+func (r *renderer) restrictedHTML(lsd string) []byte {
+	site := fmt.Sprintf(`{"require":[["ScheduledServerJS","handle",null,[{"__bbox":{"define":[["LSD",[],{"token":"%s"},323],`+
+		`["SiteData",[],{"server_revision":1017000000,"client_revision":1017000000,"haste_session":"20390.HYP:comet_loggedout_pkg.2.1...0",`+
+		`"hsi":"7431000000000000001","__spin_r":1017000000,"__spin_b":"trunk","__spin_t":%d},317],`+
+		`["CurrentUserInitialData",[],{"USER_ID":"0"},270]]}}]]]}`, lsd, r.now().Unix())
+	return []byte(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Facebook</title></head><body>` +
+		`<script type="application/json" data-sjs>` + site + `</script></body></html>`)
+}
+
 // pageHTML renders a page's server HTML with tokens and the preloaded
 // profile header.
 func (r *renderer) pageHTML(p *Page, lsd, datr string, consent bool) []byte {

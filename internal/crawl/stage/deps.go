@@ -48,6 +48,49 @@ type Deps struct {
 	Now    func() time.Time
 }
 
+// profileFresh reports a page whose profile was read within
+// crawler.profile_refresh (set on scheduled runs by the dispatcher).
+func (d *Deps) profileFresh(sc *taskv1.PageScope) bool {
+	if sc.PageId == 0 || sc.ProfileSeenAt == nil || d.Cfg == nil || d.Cfg.Crawler.ProfileRefresh <= 0 {
+		return false
+	}
+	return d.now().Sub(sc.ProfileSeenAt.AsTime()) < d.Cfg.Crawler.ProfileRefresh
+}
+
+// pagePlan decides whether the page task t loads the page's HTML and
+// whether it reads the profile from it.
+//   - The HTML must load when the identity has no tokens yet, or the page
+//     id is still unknown (the HTML resolves it).
+//   - The profile is read on the first segment while the timeline has not
+//     started (a retry after progress doesn't reload it), unless it is
+//     fresh (profile_skips).
+//
+// The load itself goes through the exit's page-load gate (Loader.Load):
+// when the exit can't load a page now, a profile-only read is deferred
+// and a load the task needs waits (pageLoadPaced).
+func (d *Deps) pagePlan(t *taskv1.Task, sc *taskv1.PageScope, st *checkpoint.State, id *session.Identity, c map[string]int64) (load, profile bool) {
+	profile = t.Seq == 0 && st.Cursor == "" && st.Pages == 0
+	if profile && d.profileFresh(sc) {
+		c["profile_skips"]++
+		profile = false
+	}
+	load = profile || !id.Bootstrapped() || sc.PageId == 0
+	return load, profile || sc.PageId == 0
+}
+
+// pacedRetry retries a task whose identity had to load a page while its
+// exit paces page loads (30s), or backs off after a walled one (5m): a
+// wait, not a stall.
+func pacedRetry(t *taskv1.Task, cursor string, err error, c map[string]int64) Outcome {
+	delay := "30s"
+	if errors.Is(err, session.ErrExitPaused) {
+		delay = "5m"
+	}
+	o := retry(t, cursor, delay, err.Error(), c)
+	o.Waiting = true
+	return o
+}
+
 func (d *Deps) now() time.Time {
 	if d.Now != nil {
 		return d.Now()
@@ -79,6 +122,9 @@ type Outcome struct {
 	// FollowUps are new streams to start once this task released its lease
 	// (for example a full comment pass after an incremental one).
 	FollowUps []*taskv1.Task
+	// Waiting marks a retry the task did not cause (every proxy exit is
+	// cooling down): it does not count toward the task's stalls.
+	Waiting bool
 }
 
 func done(c map[string]int64) Outcome { return Outcome{Result: Done, Counters: c} }
@@ -87,35 +133,63 @@ func retry(t *taskv1.Task, cursor, delay, reason string, c map[string]int64) Out
 	return Outcome{Result: Retry, Next: task.Retry(t, cursor), Delay: delay, Reason: reason, Counters: c}
 }
 
+// noIdentity retries a task that got no identity. When every exit of its
+// tiers is cooling down behind its breaker (2m, doubling up to 30m), the
+// task waits 5 minutes; when the exits only pace their page loads (a new
+// identity starts with one), 30 seconds. Neither wait is held against the
+// task: short retries would dead-letter it before the exits come back.
+func noIdentity(t *taskv1.Task, err error, c map[string]int64) Outcome {
+	var o Outcome
+	switch {
+	case errors.Is(err, proxy.ErrTierOpen):
+		o = retry(t, "", "5m", "no identity: "+err.Error(), c)
+	case errors.Is(err, proxy.ErrExitsPaced):
+		o = retry(t, "", "30s", "no identity: "+err.Error(), c)
+	default:
+		return retry(t, "", "30s", "no identity: "+err.Error(), c)
+	}
+	o.Waiting = true
+	return o
+}
+
 // Stage runs one task kind.
 type Stage interface {
 	Run(ctx context.Context, t *taskv1.Task) Outcome
 }
 
-// identity acquires an identity for a query class, escalating tiers on
-// retries (cheapest first) and skipping tiers whose exits are all cooling
-// down behind their breakers.
-func (d *Deps) identity(ctx context.Context, class string, attempt uint32) (*session.Identity, error) {
-	tiers := d.Proxies.TiersFor(class)
-	from := min(int(attempt), len(tiers)-1)
-	tier := tiers[from]
-	for _, t := range tiers[from:] {
-		if d.Proxies.Available(t) {
-			tier = t
-			break
-		}
-	}
-	return d.Pool.Acquire(ctx, tier)
+// identity acquires an identity for a query class, on the tier tierFor
+// picks.
+func (d *Deps) identity(ctx context.Context, class string, stalls uint32) (*session.Identity, error) {
+	return d.Pool.Acquire(ctx, d.tierFor(class, stalls))
 }
 
-// ensureBootstrapped loads a page on a fresh identity to obtain tokens.
+// tierFor picks the tier for a task's next attempt: cheapest first,
+// escalating one tier per stall (a retry without progress that the task
+// caused: blocks, walls, errors), and skipping tiers whose exits are all
+// cooling down. Waits for exits are not stalls, so a task waiting for its
+// tier's exits stays on that tier instead of moving to a dearer one.
+func (d *Deps) tierFor(class string, stalls uint32) string {
+	tiers := d.Proxies.TiersFor(class)
+	from := min(int(stalls), len(tiers)-1)
+	for _, t := range tiers[from:] {
+		if d.Proxies.Available(t) {
+			return t
+		}
+	}
+	return tiers[from]
+}
+
+// ensureBootstrapped loads a page on an identity without tokens to obtain
+// them (session.ErrPaced when its exit can't load a page now).
 func (d *Deps) ensureBootstrapped(ctx context.Context, id *session.Identity, pageID int64, lane taskv1.Lane) (*session.PageLoad, error) {
 	if id.Bootstrapped() {
 		return nil, nil
 	}
 	u, _ := id.Base.Parse("/" + strconv.FormatInt(pageID, 10))
 	pl, err := d.Loader.Bootstrap(ctx, id, u.String())
-	d.observeLoad(pl, err, lane)
+	if !errors.Is(err, session.ErrPaced) { // nothing was sent
+		d.observeLoad(pl, err, lane)
+	}
 	return pl, err
 }
 

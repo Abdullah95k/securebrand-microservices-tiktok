@@ -60,9 +60,10 @@ type Consumer struct {
 	tr      *tracker
 	global  chan struct{}
 	drainCh chan struct{}
-	// abandoned is set once the drain timeout gave up on in-flight records:
-	// they will never be done, so a revoke does not wait for them.
-	abandoned atomic.Bool
+	// drained is set once the drain is over (in-flight records finished,
+	// or the drain timeout gave up on them): what is still pending will
+	// never be done, so the revoke of leaving the group does not wait for it.
+	drained atomic.Bool
 }
 
 type drainKey struct{}
@@ -123,6 +124,7 @@ func NewConsumer(cfg ConsumerConfig, h Handler) (*Consumer, error) {
 		kgo.Balancers(kgo.CooperativeStickyBalancer()),
 		kgo.ConsumeResetOffset(reset),
 		kgo.FetchMaxWait(500*time.Millisecond),
+		kgo.OnPartitionsAssigned(c.onAssigned),
 		kgo.OnPartitionsRevoked(c.onRevoked),
 		kgo.OnPartitionsLost(c.onLost),
 	)...)
@@ -174,7 +176,10 @@ func (c *Consumer) Run(ctx context.Context) error {
 			if stop {
 				return
 			}
-			e, psem := c.tr.add(r)
+			e, psem, pctx := c.tr.add(r, handlerCtx)
+			if e == nil {
+				return // its partition was revoked meanwhile: the next owner's
+			}
 			if !acquire(ctx, c.global) {
 				stop = true
 				return
@@ -200,9 +205,11 @@ func (c *Consumer) Run(ctx context.Context) error {
 					<-psem
 					<-c.global
 				}()
-				// A record abandoned at shutdown is not done: leaving its
-				// offset uncommitted hands it to the partition's next owner.
-				if c.process(handlerCtx, r) {
+				// A record abandoned at shutdown, or whose partition was
+				// revoked while it waited for capacity, is not done: leaving
+				// its offset uncommitted hands it to the partition's next
+				// owner.
+				if pctx.Err() == nil && c.tr.start(e, r) && c.process(pctx, r) {
 					c.tr.markDone(e)
 				}
 			}()
@@ -221,11 +228,11 @@ func (c *Consumer) Run(ctx context.Context) error {
 		case c.global <- struct{}{}:
 		case <-deadline.C:
 			slog.Warn("kafka: drain timeout; abandoning in-flight records", "group", c.cfg.Group)
-			c.abandoned.Store(true)
 			cancelHandlers()
 			i = cap(c.global)
 		}
 	}
+	c.drained.Store(true)
 	stopCommit()
 	<-commitDone
 	finalCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -314,11 +321,17 @@ func (c *Consumer) commit(ctx context.Context, only map[string][]int32) {
 	c.tr.markCommitted(offsets)
 }
 
+func (c *Consumer) onAssigned(_ context.Context, _ *kgo.Client, assigned map[string][]int32) {
+	c.tr.assign(assigned)
+}
+
 func (c *Consumer) onRevoked(ctx context.Context, _ *kgo.Client, revoked map[string][]int32) {
-	// Give in-flight records of the revoked partitions a short window to
-	// finish so the new owner does not redo them, then commit what is done.
+	// No record of the revoked partitions starts any more; those running get
+	// a short window to finish so the new owner does not redo them, then
+	// what is done is committed.
+	c.tr.disown(revoked)
 	deadline := time.Now().Add(15 * time.Second)
-	for !c.abandoned.Load() && c.tr.pending(revoked) > 0 && time.Now().Before(deadline) {
+	for !c.drained.Load() && c.tr.pending(revoked) > 0 && time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	c.commit(ctx, revoked)

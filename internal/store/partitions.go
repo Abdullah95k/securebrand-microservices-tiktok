@@ -14,6 +14,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// ddlLockTimeout bounds how long partition DDL waits for its table's lock;
+// on timeout it fails and is tried again later.
+const ddlLockTimeout = "5s"
+
 // partitionLockKey serialises partition DDL across processes.
 const partitionLockKey = 4_400_001
 
@@ -35,6 +39,15 @@ type PartitionWindow struct {
 	MonthsAhead int
 	DaysBack    int // daily tables
 	DaysAhead   int
+	// NotBefore skips a table's partitions that end at or before its time:
+	// those retention drops, so creating them would only churn locks.
+	NotBefore map[string]time.Time
+}
+
+// wanted reports whether a partition of table ending at end is kept.
+func (w PartitionWindow) wanted(table string, end time.Time) bool {
+	nb, ok := w.NotBefore[table]
+	return !ok || end.After(nb)
 }
 
 // EnsurePartitions creates every missing partition inside the window.
@@ -45,6 +58,9 @@ func EnsurePartitions(ctx context.Context, pool *pgxpool.Pool, now time.Time, w 
 	end := monthStart(now).AddDate(0, w.MonthsAhead+1, 0)
 	for m := start; m.Before(end); m = m.AddDate(0, 1, 0) {
 		for _, t := range monthlyTables {
+			if !w.wanted(t, m.AddDate(0, 1, 0)) {
+				continue
+			}
 			ok, err := ensureRange(ctx, pool, t, monthName(t, m), m, m.AddDate(0, 1, 0))
 			if err != nil {
 				return created, err
@@ -58,6 +74,9 @@ func EnsurePartitions(ctx context.Context, pool *pgxpool.Pool, now time.Time, w 
 	dend := dayStart(now).AddDate(0, 0, w.DaysAhead+1)
 	for d := dstart; d.Before(dend); d = d.AddDate(0, 0, 1) {
 		for _, t := range dailyTables {
+			if !w.wanted(t, d.AddDate(0, 0, 1)) {
+				continue
+			}
 			ok, err := ensureRange(ctx, pool, t, dayName(t, d), d, d.AddDate(0, 0, 1))
 			if err != nil {
 				return created, err
@@ -115,6 +134,11 @@ func ensureRange(ctx context.Context, pool *pgxpool.Pool, table, name string, fr
 		if table == "posts" || table == "comments" {
 			ff = " WITH (fillfactor = 85)"
 		}
+		// Creating a partition locks its parent: wait a bounded time behind
+		// long readers instead of queueing every other query behind us.
+		if _, err := tx.Exec(ctx, "SET LOCAL lock_timeout = '"+ddlLockTimeout+"'"); err != nil {
+			return err
+		}
 		ddl := fmt.Sprintf("CREATE TABLE %s PARTITION OF %s FOR VALUES FROM ('%s') TO ('%s')%s",
 			pgx.Identifier{name}.Sanitize(), pgx.Identifier{table}.Sanitize(),
 			from.Format(time.RFC3339), to.Format(time.RFC3339), ff)
@@ -171,7 +195,14 @@ func DropPartitionsBefore(ctx context.Context, pool *pgxpool.Pool, table string,
 			upper = start.AddDate(0, 0, 1)
 		}
 		if !upper.After(cutoff) {
-			if _, err := pool.Exec(ctx, "DROP TABLE "+pgx.Identifier{n}.Sanitize()); err != nil {
+			err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+				if _, err := tx.Exec(ctx, "SET LOCAL lock_timeout = '"+ddlLockTimeout+"'"); err != nil {
+					return err
+				}
+				_, err := tx.Exec(ctx, "DROP TABLE "+pgx.Identifier{n}.Sanitize())
+				return err
+			})
+			if err != nil {
 				return dropped, fmt.Errorf("store: drop %s: %w", n, err)
 			}
 			dropped = append(dropped, n)

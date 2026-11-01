@@ -9,6 +9,7 @@ import (
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/proxy"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/transport"
 )
 
@@ -20,6 +21,10 @@ type PageLoad struct {
 	Class  detect.Class
 	Reason string
 	Bytes  int64
+	// NamesNothing marks a ContentUnavailable page that loaded with session
+	// tokens but names nothing: probably restricted to logged-in viewers or
+	// removed, but one load from one exit does not prove it.
+	NamesNothing bool
 }
 
 // ErrBootstrap means no usable tokens could be obtained.
@@ -59,6 +64,11 @@ type Hooks struct {
 	// canReload is false when the loader has no redirects left, or after a
 	// browser render.
 	AfterLoad func(ctx context.Context, id *Identity, page string, html []byte, tok Tokens, canReload bool) (reload bool)
+	// Unavailable, when set, reports a page that loaded with good tokens
+	// but is not the page asked for: what logged-out viewers get for one
+	// restricted to logged-in viewers or removed (Facebook: a page that
+	// names nothing). The loader classes it ContentUnavailable.
+	Unavailable func(html []byte, tok Tokens) bool
 }
 
 // Wall reports whether path is a wall under h.
@@ -73,7 +83,26 @@ type Loader struct {
 	// Browser, when set, bootstraps identities whose HTML carries no
 	// tokens (fb.browser).
 	Browser BrowserFallback
+	// Gate, when set, paces page loads per exit (proxy.Pool): every page
+	// load takes a slot from it, except a new identity's first one, which
+	// was reserved when its exit was chosen.
+	Gate PageGate
 }
+
+// PageGate paces page loads per exit.
+type PageGate interface {
+	// PageLoad takes a slot for a page load on ep's exit, or says why
+	// not: "paced" (the interval) or "backoff" (after a walled one).
+	PageLoad(ep proxy.Endpoint) (ok bool, why string)
+}
+
+// ErrPaced means the identity's exit may not load a page now: it paces
+// its page loads. ErrExitPaused (which wraps it) means it backs off after
+// a walled page load, for 15 minutes or more.
+var (
+	ErrPaced      = errors.New("session: page loads paced on this exit")
+	ErrExitPaused = fmt.Errorf("%w (backing off after a walled page load)", ErrPaced)
+)
 
 // NavHeaders are Chrome's top-level navigation headers, in wire order.
 func NavHeaders(fp Fingerprint, acceptLanguage, secFetchSite string) [][2]string {
@@ -102,6 +131,27 @@ func (l *Loader) Load(ctx context.Context, id *Identity, rawURL string) (*PageLo
 	if l.Hooks.Extract == nil {
 		return nil, ErrNoHooks
 	}
+	if id.Base != nil {
+		// Only Facebook's own pages: a page reference must never turn into
+		// a request to another host through the proxies.
+		if u, err := url.Parse(rawURL); err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || !sameSite(id.Base, u) {
+			return nil, fmt.Errorf("session: refusing to load a page outside %s", id.Base.Host)
+		}
+	}
+	if l.Gate != nil && !id.TakeReservation() {
+		if ok, why := l.Gate.PageLoad(id.Endpoint); !ok {
+			if !id.Bootstrapped() {
+				// Without tokens the identity is good for nothing but a page
+				// load on its exit, which can't load one now: retire it, so
+				// the next task gets a fresh identity on an exit that can.
+				id.markRetired("paced")
+			}
+			if why == "backoff" {
+				return nil, ErrExitPaused
+			}
+			return nil, ErrPaced
+		}
+	}
 	target := rawURL
 	site := "none"
 	var total int64
@@ -113,7 +163,7 @@ func (l *Loader) Load(ctx context.Context, id *Identity, rawURL string) (*PageLo
 			Header: NavHeaders(id.FP, l.AcceptLanguage, site)})
 		if err != nil {
 			if ctx.Err() == nil { // a cancelled load says nothing about the exit
-				Outcome(id, detect.Transport)
+				PageOutcome(id, detect.Transport)
 			}
 			metrics.FBRequests.WithLabelValues("page_html", detect.Transport.String(), id.Endpoint.Tier).Inc()
 			return nil, fmt.Errorf("session: load %s: %w: %w", target, ErrTransport, err)
@@ -137,7 +187,7 @@ func (l *Loader) Load(ctx context.Context, id *Identity, rawURL string) (*PageLo
 		}
 		pl := &PageLoad{URL: target, Status: resp.Status, HTML: resp.Body, Class: cls, Reason: reason, Bytes: total}
 		if cls != detect.OK {
-			Outcome(id, cls)
+			PageOutcome(id, cls)
 			return pl, nil
 		}
 		tok, ok := l.Hooks.Extract(resp.Body)
@@ -157,7 +207,7 @@ func (l *Loader) Load(ctx context.Context, id *Identity, rawURL string) (*PageLo
 					pl.Reason = "no tokens in html; browser: " + err.Error()
 				}
 			}
-			Outcome(id, detect.SoftError)
+			PageOutcome(id, detect.SoftError)
 			pl.Class = detect.SoftError
 			if pl.Reason == "" {
 				pl.Reason = "no tokens in html"
@@ -165,7 +215,15 @@ func (l *Loader) Load(ctx context.Context, id *Identity, rawURL string) (*PageLo
 			return pl, nil
 		}
 		id.SetTokens(tok)
-		Outcome(id, detect.OK)
+		PageOutcome(id, detect.OK)
+		if l.Hooks.Unavailable != nil && l.Hooks.Unavailable(resp.Body, tok) {
+			// Not the page: what logged-out viewers get for a page
+			// restricted to logged-in ones (age, country) or removed. The
+			// session's tokens are still good.
+			pl.Class, pl.Reason, pl.NamesNothing = detect.ContentUnavailable, "the page names nothing: restricted to logged-in viewers, or removed", true
+			metrics.Bootstraps.WithLabelValues("http", "names_nothing").Inc()
+			return pl, nil
+		}
 		metrics.Bootstraps.WithLabelValues("http", "ok").Inc()
 		return pl, nil
 	}

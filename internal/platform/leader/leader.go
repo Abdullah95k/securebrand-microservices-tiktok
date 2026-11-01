@@ -33,22 +33,44 @@ func Run(ctx context.Context, pool *pgxpool.Pool, key int64, fn func(ctx context
 	}
 }
 
+// pingTimeout bounds each check that the lock's connection is alive, and
+// the unlock.
+const pingTimeout = 3 * time.Second
+
+// drop closes a pooled connection instead of returning it to the pool.
+func drop(conn *pgxpool.Conn) {
+	c := conn.Hijack()
+	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
+	defer cancel()
+	_ = c.Close(ctx)
+}
+
 func runOnce(ctx context.Context, pool *pgxpool.Pool, key int64, fn func(ctx context.Context) error) error {
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return err
 	}
-	defer conn.Release()
 	var got bool
 	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", key).Scan(&got); err != nil {
+		drop(conn)
 		return err
 	}
 	if !got {
+		conn.Release()
 		return nil
 	}
 	slog.Info("leader: acquired", "key", key)
 	defer func() {
-		_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", key)
+		// Unlock and hand the connection back; if that fails, close it,
+		// which releases the lock with the session, so a connection still
+		// holding it never returns to the pool.
+		uctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
+		defer cancel()
+		if _, err := conn.Exec(uctx, "SELECT pg_advisory_unlock($1)", key); err != nil {
+			drop(conn)
+			return
+		}
+		conn.Release()
 	}()
 
 	lctx, cancel := context.WithCancel(ctx)
@@ -62,7 +84,12 @@ func runOnce(ctx context.Context, pool *pgxpool.Pool, key int64, fn func(ctx con
 		case err := <-done:
 			return err
 		case <-tick.C:
-			if err := conn.Ping(ctx); err != nil {
+			pctx, pcancel := context.WithTimeout(ctx, pingTimeout)
+			err := conn.Ping(pctx)
+			pcancel()
+			if err != nil {
+				// A hung connection counts as lost: the work stops before
+				// another process can take the lock.
 				cancel()
 				if ferr := <-done; ferr != nil {
 					slog.Debug("leader: work stopped after losing the lock", "err", ferr)

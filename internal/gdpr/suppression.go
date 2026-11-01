@@ -8,6 +8,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"log/slog"
 	"strconv"
 	"sync"
@@ -131,4 +132,71 @@ func Redact(c *fbv1.Comment) {
 	c.Author = &fbv1.Author{AuthorKey: c.GetAuthor().GetAuthorKey()}
 	c.Text, c.TextRanges, c.Attachments, c.Url, c.ExtraJson = "", nil, nil, "", ""
 	c.Redacted = true
+}
+
+// nonPersonEntities are the text-range entity types that never name a
+// person. Any other type (User, and types Facebook may add) is treated as
+// a person.
+var nonPersonEntities = map[string]bool{"Hashtag": true, "Page": true, "ExternalUrl": true, "Group": true, "Event": true}
+
+// PersonEntity reports whether a text-range entity type may name a person.
+func PersonEntity(entityType string) bool { return !nonPersonEntities[entityType] }
+
+// ScrubMentions clears the id, profile URL and name of person mentions in
+// text ranges (replies tag the person they answer): what links a mention
+// to a Facebook profile. The text is content and stays as written, so the
+// name as typed is still in it; the offsets stay too.
+func ScrubMentions(rs []*fbv1.TextRange) {
+	for _, r := range rs {
+		if PersonEntity(r.EntityType) {
+			r.EntityId, r.Url, r.Name = "", "", ""
+		}
+	}
+}
+
+// MentionedKeys returns the author keys (AuthorKey with key) of the people
+// rs mention, in order, nil for a range that names no person.
+func MentionedKeys(key []byte, rs []*fbv1.TextRange) [][]byte {
+	out := make([][]byte, len(rs))
+	for i, r := range rs {
+		if r.EntityId != "" && PersonEntity(r.EntityType) {
+			out[i] = AuthorKey(key, r.EntityId)
+		}
+	}
+	return out
+}
+
+// ScrubSuppressedMentions clears the mentions in rs of suppressed authors;
+// keys are rs's MentionedKeys.
+func ScrubSuppressedMentions(s *Suppression, rs []*fbv1.TextRange, keys [][]byte) {
+	for i, r := range rs {
+		if i < len(keys) && s.AuthorSuppressed(keys[i]) {
+			ScrubMentions([]*fbv1.TextRange{r})
+		}
+	}
+}
+
+// ScrubMentionsJSON is ScrubMentions for text ranges stored as JSON (proto
+// field names). Anything it cannot read comes back as nil.
+func ScrubMentionsJSON(raw []byte) []byte {
+	if len(raw) == 0 {
+		return raw
+	}
+	var rs []map[string]any
+	if err := json.Unmarshal(raw, &rs); err != nil {
+		return nil
+	}
+	for _, r := range rs {
+		t, _ := r["entity_type"].(string)
+		if PersonEntity(t) {
+			delete(r, "entity_id")
+			delete(r, "url")
+			delete(r, "name")
+		}
+	}
+	out, err := json.Marshal(rs)
+	if err != nil {
+		return nil
+	}
+	return out
 }
