@@ -32,7 +32,9 @@ enum DiscoveredVia {
   DISCOVERED_VIA_POST_PAGE = 4;
 }
 
-// Counts are a post's counts, exact (statsV2).
+// Counts are a post's counts as TikTok serves them (statsV2, else stats).
+// Logged out, counts of 10,000 and more come rounded to 3 or 4
+// significant digits, on lists and post pages alike (M4, T31).
 message PostCounts {
   optional int64 plays = 1;
   optional int64 likes = 2;

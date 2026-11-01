@@ -182,7 +182,9 @@ func (DiscoveredVia) EnumDescriptor() ([]byte, []int) {
 	return file_securebrand_tt_v1_post_proto_rawDescGZIP(), []int{2}
 }
 
-// Counts are a post's counts, exact (statsV2).
+// Counts are a post's counts as TikTok serves them (statsV2, else stats).
+// Logged out, counts of 10,000 and more come rounded to 3 or 4
+// significant digits, on lists and post pages alike (M4, T31).
 type PostCounts struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Plays    *int64                 `protobuf:"varint,1,opt,name=plays,proto3,oneof" json:"plays,omitempty"`

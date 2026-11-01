@@ -1,0 +1,197 @@
+{
+  "comments": [
+    {
+      "comment": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "comment_id": "7702783187816397820",
+        "post_id": "7702499321181977347",
+        "author": {
+          "author_key": "hX9ksw==",
+          "user_id": "7599657741581247667",
+          "sec_uid": "MS4wLjABAAAAFFDLbysZxtwjVe4OYe8YkuheZPEVVazmYmUwgVuNNdMUUMtvKxnG3CNV7g5h7xiS",
+          "username": "user399b7ef8",
+          "nickname": "Person 503597",
+          "avatar_url": "https://p16-common-sign.tiktokcdn.com/scrubbed/57c625a1b61d.jpg?x-expires=1793566800"
+        },
+        "text": "xxxxxx xxxxx xxxxxxxx xxxxxxx.... xxx xxxxxx xxx xxxx xx xxx xxxxxxx xxx xx xxx xxxx؟؟؟",
+        "created_at": "2026-10-31T10:52:55Z",
+        "like_count": "0",
+        "reply_count": "0",
+        "liked_by_creator": false,
+        "pinned_by_creator": false,
+        "language": "ar",
+        "status": "COMMENT_STATUS_VISIBLE"
+      },
+      "media": []
+    },
+    {
+      "comment": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "comment_id": "7702633273692562374",
+        "post_id": "7702499321181977347",
+        "author": {
+          "author_key": "CQV4/Q==",
+          "user_id": "6781722939281996029",
+          "sec_uid": "MS4wLjABAAAAJGs24IuQ-JsUaiTsIx_3nGRAJmPwttTdXJT5ebVMOKwkazbgi5D4mxRqJOwjH_ec",
+          "username": "user23db69cb",
+          "nickname": "Person c2cda2",
+          "avatar_url": "https://p16-common-sign.tiktokcdn.com/scrubbed/28e469531ac9.jpg?x-expires=1793566800"
+        },
+        "text": "xx. xxx xxxx xx xxxxx xxxx.",
+        "created_at": "2026-10-31T01:11:17Z",
+        "like_count": "0",
+        "reply_count": "0",
+        "liked_by_creator": false,
+        "pinned_by_creator": false,
+        "language": "ar",
+        "status": "COMMENT_STATUS_VISIBLE"
+      },
+      "media": []
+    },
+    {
+      "comment": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "comment_id": "7702617570067244010",
+        "post_id": "7702499321181977347",
+        "author": {
+          "author_key": "EEs0sQ==",
+          "user_id": "6777949509986759857",
+          "sec_uid": "MS4wLjABAAAAMFv9VFyxBbmvunnj9-Pm5oXWPFRr7d01YA9kuXlN3NIwW_1UXLEFua-6eeP34-bm",
+          "username": "user2f12ce82",
+          "nickname": "Person 99974f",
+          "avatar_url": "https://p16-common-sign.tiktokcdn.com/scrubbed/1b7b0112db53.jpg?x-expires=1793566800"
+        },
+        "text": "xx xxxxxx xxxx xxxxxx xxxx",
+        "created_at": "2026-10-31T00:10:47Z",
+        "like_count": "0",
+        "reply_count": "0",
+        "liked_by_creator": false,
+        "pinned_by_creator": false,
+        "language": "ar",
+        "status": "COMMENT_STATUS_VISIBLE"
+      },
+      "media": []
+    },
+    {
+      "comment": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "comment_id": "7702607481434675867",
+        "post_id": "7702499321181977347",
+        "author": {
+          "author_key": "+jwN5g==",
+          "user_id": "7319453583227489766",
+          "sec_uid": "MS4wLjABAAAAF2lNc4P0r6DQtkG0gEK5zXseDPMgbTl2NE87XkxWyKgXaU1zg_SvoNC2QbSAQrnN",
+          "username": "usera073ae80",
+          "nickname": "Person 2307cc",
+          "avatar_url": "https://p16-common-sign.tiktokcdn.com/scrubbed/a7ee1a9ba2d1.jpg?x-expires=1793566800"
+        },
+        "text": "xx xxxx xxxx xxxx xx xxx xxxx",
+        "created_at": "2026-10-30T23:31:29Z",
+        "like_count": "0",
+        "reply_count": "0",
+        "liked_by_creator": false,
+        "pinned_by_creator": false,
+        "language": "ar",
+        "status": "COMMENT_STATUS_VISIBLE"
+      },
+      "media": []
+    },
+    {
+      "comment": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "comment_id": "7702593975709484209",
+        "post_id": "7702499321181977347",
+        "author": {
+          "author_key": "y647xQ==",
+          "user_id": "6750901093295602629",
+          "sec_uid": "MS4wLjABAAAAHkt7lPnPhA9tIi1yf9zbbaqWAOC5-FO4uCHIEAv7ItkeS3uU-c-ED20iLXJ_3Ntt",
+          "username": "userf4beb483",
+          "nickname": "Person 2bd8a6",
+          "avatar_url": "https://p16-common-sign.tiktokcdn.com/scrubbed/849e6095fec6.jpg?x-expires=1793566800"
+        },
+        "text": "xx xxx xxxxxxxxx",
+        "created_at": "2026-10-30T22:39:04Z",
+        "like_count": "0",
+        "reply_count": "0",
+        "liked_by_creator": false,
+        "pinned_by_creator": false,
+        "language": "ar",
+        "status": "COMMENT_STATUS_VISIBLE"
+      },
+      "media": []
+    },
+    {
+      "comment": {
+        "obs": {
+          "query_name": "golden",
+          "doc_id": "fixture",
+          "parser_version": 1,
+          "platform": "PLATFORM_TIKTOK"
+        },
+        "comment_id": "7702518885208942976",
+        "post_id": "7702499321181977347",
+        "author": {
+          "author_key": "R47efQ==",
+          "user_id": "7368398108412010109",
+          "sec_uid": "MS4wLjABAAAALlbj5UA7w8X9YpzUm90WADYebV7ZbVpuof69-9VS5z0uVuPlQDvDxf1inNSb3RYA",
+          "username": "userf0d9ddd2",
+          "nickname": "Person b6b076",
+          "avatar_url": "https://p16-common-sign.tiktokcdn.com/scrubbed/8ab155a1bd2b.jpg?x-expires=1793566800"
+        },
+        "text": "@xxxxxxxxxxxxxx",
+        "text_ranges": [
+          {
+            "length": 15,
+            "type": "mention",
+            "person": {
+              "author_key": "gt5o0A==",
+              "user_id": "6673423193473968336",
+              "sec_uid": "MS4wLjABAAAAojv8M7eIS3_aYv9ttZaWH3UkZ-iP10UriNui9HO1F3WiO_wzt4hLf9pi_221lpYf"
+            }
+          }
+        ],
+        "created_at": "2026-10-30T17:47:22Z",
+        "like_count": "1",
+        "reply_count": "0",
+        "liked_by_creator": false,
+        "pinned_by_creator": false,
+        "language": "un",
+        "status": "COMMENT_STATUS_VISIBLE"
+      },
+      "media": []
+    }
+  ],
+  "cursor": 100,
+  "dropped": {},
+  "has_more": true,
+  "missing": null,
+  "optional_missing": null,
+  "status_code": 0,
+  "threads": null,
+  "total": 210
+}
