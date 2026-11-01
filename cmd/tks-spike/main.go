@@ -195,11 +195,11 @@ func runProbe(args []string) int {
 	fmt.Fprintf(os.Stderr, "probe: wrote %s and %s\n  bootstrapped %d/%d; page forms %v; captchas %d, challenges %d\n"+
 		"  calls %v\n  posts %d (with counts %d, pinned %d, ads %d, photos %d); id time matches %d, scheduled %d, other mismatches %d\n"+
 		"  list stops %v, oldest %s, repeats %d; depth served %v\n"+
-		"  comments served %d in %d reads, order %v, replies %d; cursor portable %d/%d\n",
+		"  comments served %d in %d reads (by way %v), order %v, replies %d; cursor portable %d/%d\n",
 		*outDir, bundle, s.Bootstrapped, s.Accounts, s.PageForms, s.Captchas, s.Challenges, s.Calls,
 		s.Posts, s.PostsWithStats, s.PinnedSeen, s.AdSeen, s.PhotoSeen, s.IDTimeMatches, s.IDTimeScheduled, s.IDTimeMismatches-s.IDTimeScheduled,
 		s.WalkStops, s.OldestReached.Format("2006-01-02"), s.WalkRepeats, s.DepthServed,
-		s.CommentsServed, s.CommentReads, s.OrderVerdicts, s.RepliesServed,
+		s.CommentsServed, s.CommentReads, s.CommentsByVia, s.OrderVerdicts, s.RepliesServed,
 		s.CursorPortable, s.CursorPortable+s.CursorNotPortable)
 	if s.StoppedEarly != "" {
 		fmt.Fprintf(os.Stderr, "  stopped early (%s) after %d of %d accounts\n", s.StoppedEarly, s.Accounts, len(names))

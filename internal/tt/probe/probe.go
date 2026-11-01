@@ -663,9 +663,34 @@ func (r *runner) postPages(ctx context.Context, id *session.Identity, a *Account
 	}
 }
 
-// comments reads the 3 newest posts' comments and some replies. It reports
-// whether the operator stopped the run.
+// fetchFn makes one TikTok API call and returns the answer's object, its
+// step, and whether it was answered. The plain path sends it unsigned by
+// HTTP; the browser path fetches it from the page, which signs it.
+type fetchFn func(kind, query string, vars map[string]any, referer string) (gjson.Result, Step, bool)
+
+// plainFetch is the unsigned HTTP path.
+func (r *runner) plainFetch(ctx context.Context, id *session.Identity) fetchFn {
+	return func(kind, query string, vars map[string]any, referer string) (gjson.Result, Step, bool) {
+		resp, s := r.call(ctx, r.o.Client, id, kind, query, vars, referer)
+		countStep(&s, resp)
+		if s.Class != detect.OK.String() || resp == nil || len(resp.Parts) == 0 {
+			return gjson.Result{}, s, false
+		}
+		return resp.Parts[0], s, true
+	}
+}
+
+// comments reads the 3 newest posts' comments and some replies, unsigned.
+// It reports whether the operator stopped the run.
 func (r *runner) comments(ctx context.Context, id *session.Identity, a *Account) bool {
+	return r.readComments(a, "plain", r.plainFetch(ctx, id))
+}
+
+// readComments reads up to MaxCommentPages comment pages of the 3 newest
+// posts that have comments, then up to 3 reply pages (3 a page, as the web
+// app asks) of the first 3 comments with replies, through fetch. It reports
+// whether the operator stopped the run.
+func (r *runner) readComments(a *Account, via string, fetch fetchFn) bool {
 	var picked []Post
 	for _, p := range a.Posts {
 		if !p.Pinned && p.Comments > 0 && len(picked) < 3 {
@@ -675,22 +700,20 @@ func (r *runner) comments(ctx context.Context, id *session.Identity, a *Account)
 	type withReplies struct{ post, cid string }
 	var threads []withReplies
 	for _, p := range picked {
-		read := CommentRead{PostID: p.ID}
+		read := CommentRead{PostID: p.ID, Via: via}
 		seen := map[string]bool{}
 		var times []int64
 		cursor := "0"
 		for page := 1; page <= r.o.MaxCommentPages; page++ {
-			resp, s := r.call(ctx, r.o.Client, id, "comments", "comments", map[string]any{"item_id": p.ID, "count": 20, "cursor": cursor}, p.Link)
+			body, s, ok := fetch("comments", "comments", map[string]any{"item_id": p.ID, "count": 20, "cursor": cursor}, p.Link)
 			if s.Class == stopped {
 				return true
 			}
-			countStep(&s, resp)
-			if s.Class != detect.OK.String() {
+			if !ok {
 				read.Failed = &s
 				break
 			}
 			read.Pages++
-			body := resp.Parts[0]
 			read.Total = body.Get("total").Int()
 			for _, c := range body.Get("comments").Array() {
 				cid := c.Get("cid").String()
@@ -725,19 +748,18 @@ func (r *runner) comments(ctx context.Context, id *session.Identity, a *Account)
 		a.CommentReads = append(a.CommentReads, read)
 	}
 	for i, th := range threads {
-		read := CommentRead{PostID: th.post}
+		read := CommentRead{PostID: th.post, Via: via}
 		cursor := "0"
 		for page := 1; page <= 3; page++ {
-			resp, s := r.call(ctx, r.o.Client, id, "replies", "replies", map[string]any{"item_id": th.post, "comment_id": th.cid, "count": 3, "cursor": cursor}, a.URL)
+			body, s, ok := fetch("replies", "replies", map[string]any{"item_id": th.post, "comment_id": th.cid, "count": 3, "cursor": cursor}, a.URL)
 			if s.Class == stopped {
 				return true
 			}
-			if s.Class != detect.OK.String() {
+			if !ok {
 				read.Failed = &s
 				break
 			}
 			read.Pages++
-			body := resp.Parts[0]
 			read.Total = body.Get("total").Int()
 			for _, c := range body.Get("comments").Array() {
 				a.Comments = append(a.Comments, comment(th.post, th.cid, c, page))
@@ -750,9 +772,8 @@ func (r *runner) comments(ctx context.Context, id *session.Identity, a *Account)
 			cursor = body.Get("cursor").String()
 		}
 		a.ReplyReads = append(a.ReplyReads, read)
-		if i == 0 {
-			resp, s := r.call(ctx, r.o.Client, id, "replies_count_20", "replies", map[string]any{"item_id": th.post, "comment_id": th.cid, "count": 20, "cursor": 0}, a.URL)
-			countStep(&s, resp)
+		if i == 0 && via == "plain" {
+			_, s, _ := fetch("replies_count_20", "replies", map[string]any{"item_id": th.post, "comment_id": th.cid, "count": 20, "cursor": 0}, a.URL)
 			a.ReplyCount20 = &s
 		}
 	}
@@ -890,6 +911,16 @@ func (r *runner) video(ctx context.Context, id *session.Identity, a *Account, p 
 	a.Media["video_media_headers"] = s
 	keep("video_media_headers", body, s)
 	save(body, s)
+	// The links carry tk=tt_chain_token, but the page set that cookie for
+	// the site, not the video host (C2 run 2 sent the host no cookie): send
+	// it explicitly, as yt-dlp does.
+	if chain := id.Doer.Cookies(id.Base)["tt_chain_token"]; chain != "" {
+		h := append(media(), [2]string{"cookie", "tt_chain_token=" + chain})
+		body, s = r.getWith(ctx, id, "video_chain_cookie", p.VideoURL, h)
+		a.Media["video_chain_cookie"] = s
+		keep("video_chain_cookie", body, s)
+		save(body, s)
+	}
 	if a.pageVideoURL != "" {
 		body, s = r.getWith(ctx, id, "video_post_page", a.pageVideoURL, media())
 		a.Media["video_post_page"] = s
@@ -964,6 +995,16 @@ func (r *runner) signed(ctx context.Context, id *session.Identity, a *Account, s
 		` screen: screen.width + "x" + screen.height, language: navigator.language, history: history.length})`); err == nil {
 		_ = json.Unmarshal(v, &out.Env)
 	}
+	if cs, err := sess.Cookies(ctx); err == nil {
+		for _, c := range cs {
+			if c.Name == "tt_chain_token" {
+				if out.Env == nil {
+					out.Env = map[string]any{}
+				}
+				out.Env["tt_chain_token_domain"] = c.Domain // ".tiktok.com" reaches the video hosts; "www.tiktok.com" does not
+			}
+		}
+	}
 	// The profile page's own calls; a scroll when the load made no list call.
 	own := sess.Captured(ctx, 0)
 	if findCall(own, postListPath, false) == nil {
@@ -973,6 +1014,17 @@ func (r *runner) signed(ctx context.Context, id *session.Identity, a *Account, s
 		}
 	}
 	out.PageCalls = r.pageCalls(own)
+	var urls []string
+	for _, x := range own {
+		if u, err := url.Parse(x.URL); err == nil && u.Path == postListPath {
+			urls = append(urls, x.URL)
+		}
+	}
+	if len(urls) > 0 {
+		// The page's own list URLs, to compare with tks's (they hold the
+		// browser's device id and the account's secUid; raw/ stays off git).
+		r.saveRaw("browser/post_list_urls-"+strconv.Itoa(a.Index)+".txt", []byte(strings.Join(urls, "\n")+"\n"))
+	}
 	if x := findCall(own, postListPath, true); x != nil && a.AppListPinned == 0 {
 		if parts, _, _ := ttclient.Decode(x.Body); len(parts) > 0 {
 			a.AppListPinned = pinnedIn(parts[0])
@@ -1030,7 +1082,12 @@ func (r *runner) signed(ctx context.Context, id *session.Identity, a *Account, s
 			r.signedCall(ctx, sess, id, out, "post_list_from_page", next, hdr)
 		}
 	}
-	// Follow a post's link: the post page loads its comments itself.
+	// Comments and replies read from the page, which signs each call (T12
+	// for a crawler, T13-T15 on a browser's answers).
+	if commented != nil {
+		r.signedComments(ctx, sess, id, a, out, page, builder, hdr)
+	}
+	// Follow a post's link: does the post page load its comments itself?
 	if commented == nil {
 		return out
 	}
@@ -1096,6 +1153,10 @@ func (r *runner) pageCalls(xs []browser.Exchange) []PageCall {
 // sent by plain HTTP from the probe's identity (T27). It returns the
 // page's answer.
 func (r *runner) signedCall(ctx context.Context, sess *browser.Session, id *session.Identity, out *Signed, name, raw string, hdr [][2]string) []byte {
+	// The page shares the identity's exit, so it shares its pace.
+	if err := id.Wait(ctx); err != nil {
+		return nil
+	}
 	f, err := sess.Fetch(ctx, raw)
 	if err != nil {
 		out.Calls[name] = &SignedCall{Status: 0}
@@ -1107,6 +1168,7 @@ func (r *runner) signedCall(ctx context.Context, sess *browser.Session, id *sess
 	r.book("signed_"+name, Step{Class: cls, Status: f.Status, Ms: sc.Ms, Empty: sc.Empty})
 	r.keepRaw("signed_"+name, f.Body, cls != detect.OK.String())
 	if f.SentURL != "" {
+		sc.sentURL = f.SentURL
 		sc.Added = added(raw, f.SentURL)
 		s := r.replay(ctx, id, f.SentURL, hdr)
 		sc.Replay = &s
@@ -1205,6 +1267,105 @@ func firstCommented(posts []Post) *Post {
 		}
 	}
 	return nil
+}
+
+// signedComments reads comments and replies from the page, then replays the
+// first signed comment URL from another identity, with its cursor changed,
+// and once more now that time has passed (T27: can a few pages sign for the
+// whole fleet, and for how long?).
+func (r *runner) signedComments(ctx context.Context, sess *browser.Session, id *session.Identity, a *Account, out *Signed,
+	page *session.Identity, builder ttclient.Builder, hdr [][2]string) {
+	first := out.Calls["comments"]
+	sent := ""
+	if first != nil {
+		sent = first.sentURL
+	}
+	if first != nil && sent != "" {
+		if bare, err := r.o.Pool.Acquire(ctx, r.o.Tier); err == nil {
+			s := r.replayAs(ctx, bare, "signed_replay_other", sent, hdr)
+			first.ReplayOther = &s
+			r.o.Pool.Release(bare)
+		}
+		if u, err := url.Parse(sent); err == nil {
+			q := u.Query()
+			q.Set("cursor", "20")
+			u.RawQuery = q.Encode()
+			s := r.replayAs(ctx, id, "signed_replay_modified", u.String(), hdr)
+			first.ReplayModified = &s
+		}
+	}
+	signedAt := time.Now()
+	reg := r.o.Client.Registry
+	inPage := func(kind, query string, vars map[string]any, referer string) (gjson.Result, Step, bool) {
+		q, err := reg.Get(query)
+		if err != nil {
+			return gjson.Result{}, Step{Class: detect.Transport.String(), Reason: err.Error()}, false
+		}
+		rv, err := renderVars(q.Variables, vars)
+		if err != nil {
+			return gjson.Result{}, Step{Class: detect.Transport.String(), Reason: err.Error()}, false
+		}
+		b := builder.Build(page, q, rv, reg.ClientParams(), referer)
+		if err := id.Wait(ctx); err != nil {
+			return gjson.Result{}, Step{Class: stopped}, false
+		}
+		f, err := sess.Fetch(ctx, q.Endpoint+"?"+b.Query)
+		if err != nil {
+			if ctx.Err() != nil {
+				return gjson.Result{}, Step{Class: stopped}, false
+			}
+			s := Step{Class: detect.Transport.String(), Reason: redact(err.Error())}
+			r.book("browser_"+kind, s)
+			return gjson.Result{}, s, false
+		}
+		s := Step{Class: detect.OK.String(), Status: f.Status, Ms: f.Elapsed.Milliseconds(), WireBytes: int64(len(f.Body)),
+			Empty: len(strings.TrimSpace(string(f.Body))) == 0, Items: itemsIn(f.Body)}
+		parts, errs, _ := ttclient.Decode(f.Body)
+		switch {
+		case len(parts) == 0:
+			s.Class, s.Reason = detect.RegistryStale.String(), "empty answer"
+		case len(errs) > 0:
+			s.Class, s.Reason = detect.SoftError.String(), "statusCode "+strconv.FormatInt(errs[0].Code, 10)
+		}
+		if p := parts; len(p) > 0 {
+			s.HasMore = p[0].Get("has_more").Int() == 1
+		}
+		r.book("browser_"+kind, s)
+		r.keepRaw("browser_"+kind, f.Body, s.Class != detect.OK.String())
+		if s.Class != detect.OK.String() {
+			return gjson.Result{}, s, false
+		}
+		return parts[0], s, true
+	}
+	r.readComments(a, "browser", inPage)
+	if first != nil && sent != "" {
+		s := r.replayAs(ctx, id, "signed_replay_later", sent, hdr)
+		s.Reason = strings.TrimSpace(s.Reason + " after " + time.Since(signedAt).Round(time.Second).String())
+		first.ReplayLater = &s
+	}
+}
+
+// replayAs sends a signed URL by plain HTTP from id, booked under kind.
+func (r *runner) replayAs(ctx context.Context, id *session.Identity, kind, raw string, hdr [][2]string) Step {
+	if err := id.Wait(ctx); err != nil {
+		return Step{Class: stopped}
+	}
+	start := time.Now()
+	resp, err := id.Doer.Do(ctx, &transport.Request{Method: "GET", URL: raw, Header: hdr})
+	if err != nil {
+		s := Step{Class: detect.Transport.String(), Reason: redact(err.Error())}
+		r.book(kind, s)
+		return s
+	}
+	s := Step{Class: detect.OK.String(), Status: resp.Status, Ms: time.Since(start).Milliseconds(), WireBytes: resp.BytesIn + resp.BytesOut,
+		Empty: len(strings.TrimSpace(string(resp.Body))) == 0, Items: itemsIn(resp.Body)}
+	if s.Items == 0 {
+		if parts, _, _ := ttclient.Decode(resp.Body); len(parts) == 0 {
+			s.Class, s.Reason = detect.RegistryStale.String(), "empty answer"
+		}
+	}
+	r.book(kind, s)
+	return s
 }
 
 func classOfSigned(sc *SignedCall) string {

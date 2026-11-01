@@ -158,7 +158,7 @@ Keep the previous run's output under another name, so the new run starts clean:
 mv phase0/out-tt phase0/out-tt-run1
 ```
 
-(For a third run, use `out-tt-run2`, and so on.)
+(For the third run, `mv phase0/out-tt phase0/out-tt-run2`, and so on.)
 
 ```bash
 make tks-probe-dryrun
@@ -189,7 +189,7 @@ make tks-probe-all
 Download afterwards on your Mac:
 
 ```bash
-scp "root@YOUR_DROPLET_IP:securebrand-microservices-tiktok/phase0/out-tt-all/*.tar.gz" ~/Downloads/
+scp root@YOUR_DROPLET_IP:securebrand-microservices-tiktok/phase0/out-tt-all/isp.tar.gz ~/Downloads/isp-all.tar.gz
 ```
 
 ## What it writes

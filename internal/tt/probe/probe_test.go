@@ -210,6 +210,19 @@ func TestProbeBrowserSigner(t *testing.T) {
 	if rep.Summary.Calls["browser_own_post_list"]["ok"] != 1 || rep.Summary.Calls["browser_own_comments"]["ok"] != 1 {
 		t.Fatalf("own calls booked: %v", rep.Summary.Calls)
 	}
+	// Comments and replies read from the page, and the first signed comment
+	// URL replayed from another identity, modified, and later.
+	if rep.Summary.CommentsByVia["browser"] == 0 || rep.Summary.CommentsByVia["plain"] == 0 {
+		t.Fatalf("comments by via: %v", rep.Summary.CommentsByVia)
+	}
+	c := sg.Calls["comments"]
+	if c == nil || c.ReplayOther == nil || c.ReplayOther.Class != "ok" || c.ReplayModified == nil || c.ReplayLater == nil ||
+		c.ReplayLater.Class != "ok" || !strings.Contains(c.ReplayLater.Reason, "after") {
+		t.Fatalf("comment replays: %+v", c)
+	}
+	if rep.Accounts[0].Media["video_chain_cookie"].Class != "ok" {
+		t.Fatalf("video with the chain cookie: %+v", rep.Accounts[0].Media)
+	}
 }
 
 // Accounts read in parallel give the same answers as one after another,

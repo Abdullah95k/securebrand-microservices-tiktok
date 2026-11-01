@@ -119,10 +119,13 @@ type Walk struct {
 // CommentRead is one post's comments read.
 type CommentRead struct {
 	PostID string `json:"post_id"`
-	Pages  int    `json:"pages"`
-	Read   int    `json:"read"` // unique top-level comments
-	Total  int64  `json:"total"`
-	Ended  bool   `json:"ended"`
+	// Via is "plain" (unsigned HTTP) or "browser" (fetched from the browser
+	// page, which signs it).
+	Via   string `json:"via"`
+	Pages int    `json:"pages"`
+	Read  int    `json:"read"` // unique top-level comments
+	Total int64  `json:"total"`
+	Ended bool   `json:"ended"`
 	// Order is "newest_first" or "not_time_ordered" (T13).
 	Order string `json:"order,omitempty"`
 	// ReplySum is Σ(1 + reply count) over the comments read; with Ended,
@@ -160,8 +163,17 @@ type SignedCall struct {
 	Added []string `json:"added,omitempty"`
 	Ms    int64    `json:"ms"`
 	// Replay is the signed URL sent again by plain HTTP from the probe's
-	// identity (T27).
-	Replay *Step `json:"replay,omitempty"`
+	// identity (T27). For the first comment call, also: ReplayOther from a
+	// fresh identity with no cookies (another exit when the tier has
+	// several), ReplayModified with the cursor changed and the signatures
+	// kept (does the signature cover the query?), and ReplayLater once more
+	// after the browser's comment reads (its Reason says how much later).
+	Replay         *Step `json:"replay,omitempty"`
+	ReplayOther    *Step `json:"replay_other,omitempty"`
+	ReplayModified *Step `json:"replay_modified,omitempty"`
+	ReplayLater    *Step `json:"replay_later,omitempty"`
+
+	sentURL string // the URL the page sent, signatures included
 }
 
 // Signed is the browser signer's part of an account.
@@ -287,8 +299,10 @@ type Summary struct {
 	// from that far back.
 	DepthServed map[string]int `json:"depth_served,omitempty"`
 	// T12-T15.
-	CommentReads   int            `json:"comment_reads"`
-	CommentsServed int            `json:"comments_served"`
+	CommentReads   int `json:"comment_reads"`
+	CommentsServed int `json:"comments_served"`
+	// CommentsByVia splits CommentsServed by how they were asked for.
+	CommentsByVia  map[string]int `json:"comments_by_via,omitempty"`
 	OrderVerdicts  map[string]int `json:"order_verdicts"`
 	RepliesServed  int            `json:"replies_served"`
 	CompleteRatios []float64      `json:"complete_ratios,omitempty"`
