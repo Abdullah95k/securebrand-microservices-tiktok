@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/twmb/franz-go/pkg/kadm"
 
 	tkstaskv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tks/task/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
@@ -53,6 +54,17 @@ func newEnv(t *testing.T) *env {
 	if err := kafka.EnsureTopics(ctx, prod.Client(), prefix, specs, 1); err != nil {
 		t.Fatal(err)
 	}
+	// Dropped afterwards: the test broker holds a bounded number of
+	// partitions, shared with the suites running beside this one.
+	t.Cleanup(func() {
+		names := make([]string, len(specs))
+		for i, sp := range specs {
+			names[i] = prefix + sp.Name
+		}
+		cctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		_, _ = kadm.NewClient(prod.Client()).DeleteTopics(cctx, names...)
+	})
 	cfg, err := config.Load("")
 	if err != nil {
 		t.Fatal(err)

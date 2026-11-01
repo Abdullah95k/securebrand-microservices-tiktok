@@ -261,7 +261,7 @@ func TestScheduledChecks(t *testing.T) {
 	}
 
 	// 4. A metrics walk is due for one account: it replaces the check.
-	w.Advance(3 * time.Hour)
+	w.Advance(3*time.Hour + 30*time.Minute) // past 2 h 45 min and its jitter (±10 %)
 	if _, err := s.DB.Exec(ctx, `UPDATE account_schedule SET walks = '{}' WHERE account_ref = $1`, "u:"+accs[2].Username); err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func TestScheduledChecks(t *testing.T) {
 
 	// 5. An account gone private: its check records the status, and the
 	// next one waits a day.
-	w.Advance(3 * time.Hour)
+	w.Advance(3*time.Hour + 30*time.Minute) // past 2 h 45 min and its jitter (±10 %)
 	w.Mutate(func() { accs[0].Private = true })
 	got = sc.tick(t)
 	if j := got["u:"+accs[0].Username]; j.status != "completed" || j.counters["accounts_private"] != 1 {

@@ -69,9 +69,11 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Start Redpanda
+        # Partitions cost memory (topic_memory_per_partition): packages run
+        # side by side, each creating its own topics, so 1G ran out.
         run: |
           docker run -d --name redpanda -p 19092:19092 -p 18081:8081 redpandadata/redpanda:v24.2.7 \
-            redpanda start --mode dev-container --smp 1 --memory 1G \
+            redpanda start --mode dev-container --smp 1 --memory 2G \
             --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092 \
             --advertise-kafka-addr internal://localhost:9092,external://localhost:19092
           for i in $(seq 1 60); do docker exec redpanda rpk cluster health --exit-when-healthy && break; sleep 2; done
