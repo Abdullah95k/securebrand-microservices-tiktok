@@ -65,7 +65,7 @@ type Job struct {
 	Lane         string           `json:"lane"`
 	Mode         string           `json:"mode"`
 	AccountRef   string           `json:"account_ref"`
-	UserID       *int64           `json:"user_id,omitempty"`
+	UserID       *int64           `json:"user_id,omitempty,string"`
 	Status       string           `json:"status"`
 	Params       json.RawMessage  `json:"params,omitempty"`
 	Counters     map[string]int64 `json:"counters,omitempty"`

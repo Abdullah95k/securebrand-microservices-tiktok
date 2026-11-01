@@ -5,6 +5,7 @@
 //	tksctl kafka apply                   create/grow tks's topics from configs/tt/topics.yaml
 //	tksctl schemas apply|check           register the tt.v1 and common.v1 schemas (BACKWARD_TRANSITIVE) / dry run
 //	tksctl fixtures add|scrub            scrub a real answer into a golden fixture (M4) / scrub old fixtures again
+//	tksctl apikey create|revoke          make a tks-api client and print its key once / revoke a key (M6b)
 //
 // The copied Facebook pipeline keeps fbctl until M9 removes it.
 package main
@@ -29,7 +30,9 @@ commands:
   kafka apply [--partitions-cap N] [--replicas N]
   schemas apply | schemas check
   fixtures add --from <har|answer> --name <case> [--kind K] [--entry N] [--items N]
-  fixtures scrub [--root testdata/tt]`)
+  fixtures scrub [--root testdata/tt]
+  apikey create --name NAME [--scopes s1,s2] [--rate N]
+  apikey revoke --prefix PREFIX`)
 	os.Exit(2)
 }
 
@@ -65,6 +68,10 @@ func main() {
 		out, err = fixturesAdd(rest)
 	case "fixtures scrub":
 		out, err = fixturesScrub(rest)
+	case "apikey create":
+		out, err = apikeyCreate(ctx, cfg, rest)
+	case "apikey revoke":
+		out, err = apikeyRevoke(ctx, cfg, rest)
 	default:
 		usage()
 	}

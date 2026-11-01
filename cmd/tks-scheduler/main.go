@@ -1,7 +1,8 @@
 // Command tks-scheduler runs tks's leader-elected control loops (docs/tiktok
-// ADR 0007 §12): the planner (each registered account's check every
+// ADR 0007 §12, §13): the planner (each registered account's check every
 // tt.freshness.list_interval, backfills and metrics walks), the finalizer,
-// the reaper, partitions and retention, the traffic budget and AIMD.
+// the reaper, partitions and retention, erasure requests, the traffic
+// budget and AIMD.
 package main
 
 import (
@@ -11,6 +12,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/minio/minio-go/v7"
 	"github.com/twmb/franz-go/pkg/kadm"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/app"
@@ -22,9 +24,11 @@ import (
 	plog "github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/log"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/run"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/s3x"
 	sharedsched "github.com/abdullah95k/securebrand-microservices-tiktok/internal/scheduler"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/ratelimit"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/erasure"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/scheduler"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/ttstore"
 )
@@ -77,6 +81,15 @@ func runScheduler(ctx context.Context, cfg *config.Config) error {
 			return scheduler.TaskBacklog(ctx, admin, cfg.Kafka.TopicPrefix)
 		}}
 	maint := &scheduler.Maintenance{DB: db, Cfg: cfg}
+	// Media is stored only with D5's switch on; without it the eraser
+	// deletes media rows and has no object to remove.
+	var s3 *minio.Client
+	if cfg.TT.Media.Include {
+		if s3, err = s3x.Open(ctx, cfg.S3.Endpoint, cfg.S3.AccessKey, cfg.S3.SecretKey, cfg.S3.Region, cfg.S3.UseSSL, cfg.S3.MediaBucket); err != nil {
+			return err
+		}
+	}
+	eraser := &erasure.Eraser{DB: db, S3: s3, Producer: producer, HMACKey: []byte(cfg.Privacy.AuthorHMACKey)}
 
 	ops := httpserver.NewOps(cfg.HTTP.OpsAddr)
 	ops.AddCheck("postgres", db.Ping)
@@ -96,6 +109,7 @@ func runScheduler(ctx context.Context, cfg *config.Config) error {
 			return sharedsched.Every(ctx, "finalizer", cfg.Scheduler.FinalizerInterval, fin.Tick)
 		},
 		func(ctx context.Context) error { return sharedsched.Every(ctx, "reaper", time.Minute, reaper.Tick) },
+		func(ctx context.Context) error { return sharedsched.Every(ctx, "erasure", 10*time.Second, eraser.Tick) },
 	}
 	if b := cfg.Scheduler.Budget; b.Enabled && (b.RequestsPerDay > 0 || b.BytesPerDay > 0) {
 		budget := ratelimit.NewBudgetController(rdb, cfg.Kafka.TopicPrefix, b)

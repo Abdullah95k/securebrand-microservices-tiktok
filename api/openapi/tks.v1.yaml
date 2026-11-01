@@ -1,0 +1,700 @@
+openapi: 3.1.0
+info:
+  title: tks - TikTok public account scraper API
+  version: "1.0.0"
+  description: |
+    Scheduled and on-demand reads of public TikTok accounts (logged out): accounts with their
+    username history, posts (videos and photo posts) with their metrics, comments and replies.
+    All endpoints require `Authorization: Bearer tks_<prefix>_<secret>` (`tksctl apikey create`).
+    Scopes: `jobs:write`, `accounts:write`, `data:read`, `pii:read`, `admin` (implies all).
+    Errors use RFC 9457 problem documents (`application/problem+json`).
+
+    **Ids are strings.** TikTok's user, post, comment and music ids do not fit a JavaScript
+    number, so they are JSON strings of digits, in requests and answers.
+
+    **Personal data needs `pii:read`** (docs/tiktok ADR 0007 §6): an account's username,
+    nickname, bio, bio link and avatar; a comment's text and its author's identity; whom a
+    caption or a comment mentions; a post's link (it names the username); an original sound's
+    author. Without the scope these fields are left out; `author_key` (a pseudonymous key of
+    the person, the same in every answer) is always there.
+
+    **Account references** (`{account}`, `account` fields): `id:<user id>`, `sec:<secUid>`,
+    `u:<username>`, `@username`, a username, or a profile link, URL-escaped in a path. A bare
+    number is a username (TikTok allows all-digit usernames); a user id needs `id:`. An account
+    is found by its current or a former username.
+servers:
+  - url: /v1
+security:
+  - apiKey: []
+paths:
+  /jobs:
+    post:
+      summary: Read an account now (on-demand, priority lane p0)
+      description: >-
+        Requires `jobs:write`. Repeating a request with the same `Idempotency-Key` returns the original
+        job (200). `mode` auto reads an account never read before in full (back 365 days or to its first
+        post) and a known one incrementally (back to its newest stored post); `refresh` re-reads the
+        posts of the last `max_age_days` for their metrics.
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateJob'}
+            example: {account: "@example", mode: auto}
+      responses:
+        "202": {description: Job accepted, content: {application/json: {schema: {$ref: '#/components/schemas/Job'}}}}
+        "200": {description: Existing job for this Idempotency-Key, content: {application/json: {schema: {$ref: '#/components/schemas/Job'}}}}
+        "400": {$ref: '#/components/responses/Problem'}
+        "409": {description: "An id: reference to an erased account"}
+        "422": {description: "An id: reference to an account tks has not read (TikTok cannot be read by user id alone)", content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+        "429":
+          description: >-
+            Too many running jobs for this client (api.max_running_p0_jobs_per_client), the fleet's
+            on-demand capacity is reached (api.max_running_p0_jobs), or rate limited. Retry after the
+            Retry-After seconds.
+          headers:
+            Retry-After: {schema: {type: integer}}
+          content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    get:
+      summary: List jobs (own jobs and the scheduled jobs of registered accounts; all jobs with admin)
+      parameters:
+        - {in: query, name: account, schema: {type: string}, description: "Filter by the job's account reference"}
+        - {in: query, name: status, schema: {$ref: '#/components/schemas/JobStatus'}}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        "200":
+          description: Jobs, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobs: {type: array, items: {$ref: '#/components/schemas/Job'}}
+                  next_cursor: {type: string}
+  /jobs/{id}:
+    get:
+      summary: Job status, live counters while running, coverage when done
+      parameters: [{$ref: '#/components/parameters/JobID'}]
+      responses:
+        "200": {description: Job, content: {application/json: {schema: {$ref: '#/components/schemas/Job'}}}}
+        "404": {$ref: '#/components/responses/Problem'}
+  /jobs/{id}/cancel:
+    post:
+      summary: Cancel a running job (its creator or an admin; a scheduled job only an admin)
+      parameters: [{$ref: '#/components/parameters/JobID'}]
+      responses:
+        "202": {description: Cancelling}
+        "404": {$ref: '#/components/responses/Problem'}
+  /jobs/{id}/results:
+    get:
+      summary: Stream the job's data as NDJSON
+      description: >-
+        One `{"type":"account"}` line, then one `{"type":"post"}` line per post seen during the job,
+        each followed by its `{"type":"comment"}` lines when `include=comments`. The last line is
+        `{"type":"end"}` when the stream is whole, or `{"type":"error"}` when it stopped early: a client
+        that sees neither lost the connection. Only the job's creator, a client registered to the account
+        of a scheduled job, or an admin can read it.
+      parameters:
+        - {$ref: '#/components/parameters/JobID'}
+        - {in: query, name: include, schema: {type: string, enum: [comments]}}
+      responses:
+        "200": {description: NDJSON stream, content: {application/x-ndjson: {schema: {type: string}}}}
+        "409": {description: The job has not resolved its account yet}
+  /accounts:
+    post:
+      summary: Register an account for scheduled checks
+      description: >-
+        Requires `accounts:write`. The account is due at once: its first scheduled job is its
+        backfill (365 days or to its first post), every later one a check every `interval_minutes`
+        (2 h 45 min by default, so new posts are stored within 3 hours), with daily and weekly
+        metrics walks. Registering again is safe: the schedule is kept (enabled if it was not, an
+        explicit interval only shortens it) and nothing is read twice. An account tks has read is one
+        schedule however it is named. The options of the first registration stay.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RegisterAccount'}
+      responses:
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account_ref: {type: string, description: The schedule's reference}
+                  created: {type: boolean, description: The account was not registered before}
+                  schedule: {$ref: '#/components/schemas/Schedule'}
+        "400": {$ref: '#/components/responses/Problem'}
+        "409": {description: "The account was erased and is not collected again (known by its user id: an id: reference, or a name tks still resolves)"}
+        "422": {description: "An id: reference to an account tks has not read"}
+    get:
+      summary: List registered accounts (the caller's; every account with admin), by reference
+      parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+      responses:
+        "200":
+          description: Accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accounts:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Schedule'
+                        - type: object
+                          properties:
+                            status: {type: string, description: The stored account's status, once read}
+                            username: {type: string, description: "pii:read"}
+                  next_cursor: {type: string}
+  /accounts/{account}:
+    parameters: [{$ref: '#/components/parameters/Account'}]
+    get:
+      summary: The stored account and its schedule
+      description: An account registered but not read yet has only its schedule.
+      responses:
+        "200":
+          description: Account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account_ref: {type: string}
+                  account: {$ref: '#/components/schemas/Account'}
+                  schedule: {$ref: '#/components/schemas/Schedule'}
+        "404": {$ref: '#/components/responses/Problem'}
+    patch:
+      summary: Change the account's schedule
+      description: >-
+        Requires `accounts:write` and a registration (or admin). The schedule is shared by every client
+        registered to the account: while others are registered, a client may only have it checked more
+        (enable it, shorten the interval); disabling it, slowing it or changing its options is the
+        admin's (409).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ScheduleRequest'
+                - type: object
+                  properties:
+                    options: {$ref: '#/components/schemas/CrawlOptions'}
+      responses:
+        "204": {description: Updated}
+        "404": {$ref: '#/components/responses/Problem'}
+        "409": {$ref: '#/components/responses/Problem'}
+    delete:
+      summary: Unregister the caller; with purge (admin), also erase the account
+      description: >-
+        The schedule is disabled once no client is registered. `purge=true` queues an account erasure
+        (its posts, metrics, comments, media, snapshots and username history deleted; its comments on
+        other accounts' posts redacted; its user id suppressed so it is never collected again).
+      parameters:
+        - {in: query, name: purge, schema: {type: boolean}}
+      responses:
+        "204": {description: Unregistered}
+        "202": {description: Erasure queued, content: {application/json: {schema: {$ref: '#/components/schemas/Erasure'}}}}
+        "403": {$ref: '#/components/responses/Problem'}
+  /accounts/{account}/usernames:
+    parameters: [{$ref: '#/components/parameters/Account'}, {$ref: '#/components/parameters/Limit'}]
+    get:
+      summary: The account's username history, newest first (pii:read)
+      responses:
+        "200":
+          description: Usernames
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  usernames:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        username: {type: string}
+                        first_seen_at: {type: string, format: date-time}
+                        last_seen_at: {type: string, format: date-time}
+  /accounts/{account}/snapshots:
+    parameters: [{$ref: '#/components/parameters/Account'}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+    get:
+      summary: The account's history (a row when its names, counts or flags changed), newest first
+      responses:
+        "200":
+          description: Snapshots
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  snapshots:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        captured_at: {type: string, format: date-time}
+                        username: {type: string, description: "pii:read"}
+                        nickname: {type: string, description: "pii:read"}
+                        follower_count: {type: integer, format: int64}
+                        following_count: {type: integer, format: int64}
+                        heart_count: {type: integer, format: int64}
+                        video_count: {type: integer, format: int64}
+                        verified: {type: boolean}
+                        private: {type: boolean}
+                  next_cursor: {type: string}
+  /accounts/{account}/posts:
+    parameters: [{$ref: '#/components/parameters/Account'}]
+    get:
+      summary: The account's posts, newest first
+      parameters:
+        - {in: query, name: since, schema: {type: string, format: date-time}, description: Posted at or after}
+        - {in: query, name: kind, schema: {type: string, enum: [video, photo]}}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        "200":
+          description: Posts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  posts: {type: array, items: {$ref: '#/components/schemas/Post'}}
+                  next_cursor: {type: string}
+  /posts/{post}:
+    parameters: [{$ref: '#/components/parameters/Post'}]
+    get:
+      summary: A post with its latest counts and comment coverage
+      responses:
+        "200": {description: Post, content: {application/json: {schema: {$ref: '#/components/schemas/Post'}}}}
+        "404": {$ref: '#/components/responses/Problem'}
+  /posts/{post}/comments:
+    parameters: [{$ref: '#/components/parameters/Post'}]
+    get:
+      summary: The post's comments and replies, oldest first
+      parameters:
+        - {in: query, name: parent_id, schema: {type: string}, description: Replies of this top-level comment}
+        - {in: query, name: depth, schema: {type: integer, enum: [0, 1]}, description: 0 top-level comments, 1 replies}
+        - {in: query, name: status, schema: {type: string, enum: [visible, deleted]}}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        "200":
+          description: Comments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  comments: {type: array, items: {$ref: '#/components/schemas/Comment'}}
+                  next_cursor: {type: string}
+  /posts/{post}/metrics:
+    parameters: [{$ref: '#/components/parameters/Post'}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+    get:
+      summary: The post's counts history, newest first (a row only when a count changed)
+      responses:
+        "200":
+          description: Metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrics:
+                    type: array
+                    items:
+                      allOf:
+                        - type: object
+                          properties:
+                            captured_at: {type: string, format: date-time}
+                        - $ref: '#/components/schemas/PostCounts'
+                  next_cursor: {type: string}
+  /posts/{post}/media:
+    parameters: [{$ref: '#/components/parameters/Post'}, {$ref: '#/components/parameters/Limit'}]
+    get:
+      summary: The post's media (cover, video renditions, photos) and their download state
+      responses:
+        "200":
+          description: Media
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  media: {type: array, items: {$ref: '#/components/schemas/Media'}}
+  /music/{music}:
+    parameters:
+      - {in: path, name: music, required: true, schema: {$ref: '#/components/schemas/ID'}}
+    get:
+      summary: A sound
+      responses:
+        "200":
+          description: Music
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  music_id: {$ref: '#/components/schemas/ID'}
+                  title: {type: string}
+                  author_name: {type: string, description: "pii:read (an original sound is named after its creator)"}
+                  original: {type: boolean}
+                  duration_ms: {type: integer, format: int64}
+                  album: {type: string}
+                  cover_media_id: {type: string, format: uuid}
+                  copyrighted: {type: boolean}
+                  commerce: {type: boolean}
+                  first_seen_at: {type: string, format: date-time}
+                  last_seen_at: {type: string, format: date-time}
+        "404": {$ref: '#/components/responses/Problem'}
+  /media/{media}:
+    parameters:
+      - {in: path, name: media, required: true, schema: {type: string, format: uuid}}
+    get:
+      summary: A media item and its download state
+      responses:
+        "200": {description: Media, content: {application/json: {schema: {$ref: '#/components/schemas/Media'}}}}
+        "404": {$ref: '#/components/responses/Problem'}
+  /erasure-requests:
+    post:
+      summary: Queue an erasure (admin)
+      description: >-
+        An `author` (a commenter or a mentioned person) by `author_key`, `user_id`, `sec_uid` or
+        `username`; an `account` by `user_id`, `sec_uid` or `username`. Names are resolved from what tks
+        stores; no TikTok request is made. A user id works even for a subject tks never stored: it is
+        suppressed from then on. An author's comments keep only their ids and the author key, their
+        identity and media are deleted and their mentions cleared. An account's data is deleted, and it
+        is erased as an author too (on TikTok they are the same user). Both are suppressed: the crawler
+        and the persister never collect them again. The request keeps no trace of the names once done.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subject_type]
+              properties:
+                subject_type: {type: string, enum: [author, account]}
+                author_key: {type: string, description: 64 hex characters, as the API shows it}
+                user_id: {$ref: '#/components/schemas/ID'}
+                sec_uid: {type: string}
+                username: {type: string}
+      responses:
+        "202": {description: Queued, content: {application/json: {schema: {$ref: '#/components/schemas/Erasure'}}}}
+        "400": {$ref: '#/components/responses/Problem'}
+  /erasure-requests/{id}:
+    get:
+      summary: An erasure's state (admin)
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+      responses:
+        "200": {description: Erasure, content: {application/json: {schema: {$ref: '#/components/schemas/Erasure'}}}}
+        "404": {$ref: '#/components/responses/Problem'}
+  /admin/operations:
+    get:
+      summary: TikTok's operations in the registry (admin)
+      responses:
+        "200": {description: Operations, each a variant of a call with its method, endpoint and check state}
+  /admin/operations/{name}:
+    put:
+      summary: Set a registry entry (admin); crawlers pick it up on their next reload
+      parameters:
+        - {in: path, name: name, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [doc_id, friendly_name, parser, variables]
+              properties:
+                doc_id: {type: string, description: The variant label (web, web-signed, creator)}
+                friendly_name: {type: string}
+                variables: {type: object, description: The query string template, in order}
+                parser: {type: string}
+                parser_version: {type: integer}
+                status: {type: string, enum: [candidate, active, fallback, retired]}
+                priority: {type: integer}
+                method: {type: string, enum: [GET, POST]}
+                endpoint: {type: string}
+                headers: {type: array, items: {type: object}}
+      responses:
+        "200": {description: Stored}
+        "400": {$ref: '#/components/responses/Problem'}
+  /admin/canary/runs:
+    get:
+      summary: The latest canary runs, newest first (admin)
+      parameters:
+        - {in: query, name: limit, schema: {type: integer, default: 20, maximum: 200}}
+      responses:
+        "200": {description: Runs}
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+  parameters:
+    JobID: {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+    Account: {in: path, name: account, required: true, schema: {type: string}, description: "An account reference (id:, sec:, u:, @username, username or link), URL-escaped"}
+    Post: {in: path, name: post, required: true, schema: {$ref: '#/components/schemas/ID'}}
+    Limit: {in: query, name: limit, schema: {type: integer, default: 50, maximum: 500}}
+    Cursor: {in: query, name: cursor, schema: {type: string}, description: Opaque cursor from next_cursor}
+  responses:
+    Problem:
+      description: Error
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+  schemas:
+    ID:
+      type: string
+      pattern: '^[0-9]+$'
+      description: A TikTok id (64-bit), as a string
+    Problem:
+      type: object
+      properties:
+        type: {type: string}
+        title: {type: string}
+        status: {type: integer}
+        detail: {type: string}
+    CrawlOptions:
+      type: object
+      properties:
+        max_age_days: {type: integer, description: "Oldest post age (default tt.freshness.backfill_days, 365; capped by limits.max_age_cap_days)"}
+        max_posts: {type: integer, format: int64}
+        max_comments_per_post: {type: integer, format: int64, description: "Default tt.comments.max_per_post"}
+        include_comments: {type: boolean}
+        include_replies: {type: boolean}
+        include_media: {type: boolean, description: "Download media (default tt.media.include: off)"}
+        include_comment_media: {type: boolean}
+        video_policy: {type: string, enum: [none, thumbnail, sd, hd]}
+    CreateJob:
+      allOf:
+        - $ref: '#/components/schemas/CrawlOptions'
+        - type: object
+          required: [account]
+          properties:
+            account: {type: string, description: An account reference}
+            mode: {type: string, enum: [auto, full, incremental, refresh], default: auto}
+    ScheduleRequest:
+      type: object
+      properties:
+        enabled: {type: boolean, default: true}
+        interval_minutes: {type: integer, minimum: 30, maximum: 43200, description: "Time between checks (default tt.freshness.list_interval, 165)"}
+    RegisterAccount:
+      type: object
+      required: [account]
+      properties:
+        account: {type: string, description: An account reference}
+        schedule: {$ref: '#/components/schemas/ScheduleRequest'}
+        options: {$ref: '#/components/schemas/CrawlOptions'}
+    Schedule:
+      type: object
+      properties:
+        account_ref: {type: string, example: "u:example"}
+        user_id: {$ref: '#/components/schemas/ID'}
+        enabled: {type: boolean}
+        interval_seconds: {type: integer}
+        next_run_at: {type: string, format: date-time}
+        last_run_at: {type: string, format: date-time}
+        last_success_at: {type: string, format: date-time}
+        options: {$ref: '#/components/schemas/CrawlOptions'}
+        consecutive_failures: {type: integer}
+        posts_per_day: {type: number}
+        last_post_at: {type: string, format: date-time}
+        walks: {type: object, description: "Metrics walks done: depth in seconds to the time it ended"}
+        last_job_id: {type: string, format: uuid}
+    JobStatus:
+      type: string
+      enum: [running, cancelling, finalizing, completed, partial, failed, cancelled]
+    Job:
+      type: object
+      properties:
+        job_id: {type: string, format: uuid}
+        kind: {type: string, enum: [on_demand, scheduled, backfill]}
+        lane: {type: string, enum: [p0, p1, p2]}
+        mode: {type: string, enum: [full, incremental, refresh]}
+        account_ref: {type: string, example: "u:example"}
+        user_id: {$ref: '#/components/schemas/ID'}
+        status: {$ref: '#/components/schemas/JobStatus'}
+        params: {type: object}
+        counters:
+          type: object
+          additionalProperties: {type: integer}
+          description: posts, comments, replies, requests, media_queued, pages_fetched, threads_spawned, tasks_failed, ...
+        completeness:
+          type: object
+          description: Comment coverage per job. "partial" jobs had a comment read cut by an error or a wall, a dead-lettered task or a stuck list walk.
+        error: {type: object}
+        pending_tasks: {type: integer}
+        created_at: {type: string, format: date-time}
+        finished_at: {type: string, format: date-time}
+    Account:
+      type: object
+      properties:
+        user_id: {$ref: '#/components/schemas/ID'}
+        sec_uid: {type: string}
+        username: {type: string, description: "pii:read"}
+        nickname: {type: string, description: "pii:read"}
+        bio: {type: string, description: "pii:read"}
+        bio_link: {type: string, description: "pii:read; from the profile page only"}
+        avatar_url: {type: string, description: "pii:read"}
+        avatar_media_id: {type: string, format: uuid, description: "pii:read"}
+        verified: {type: boolean}
+        private: {type: boolean}
+        organization: {type: boolean}
+        language: {type: string}
+        created_at: {type: string, format: date-time, description: The account's creation}
+        username_modified_at: {type: string, format: date-time}
+        nickname_modified_at: {type: string, format: date-time}
+        follower_count: {type: integer, format: int64}
+        following_count: {type: integer, format: int64}
+        heart_count: {type: integer, format: int64}
+        video_count: {type: integer, format: int64}
+        likes_given_count: {type: integer, format: int64}
+        friend_count: {type: integer, format: int64}
+        author_key: {type: string, description: Hex HMAC of the user id (pseudonymous)}
+        status: {type: string, enum: [active, private, unavailable, banned]}
+        first_seen_at: {type: string, format: date-time}
+        last_seen_at: {type: string, format: date-time}
+        profile_refreshed_at: {type: string, format: date-time}
+        page_read_at: {type: string, format: date-time}
+    PostCounts:
+      type: object
+      description: Exact below 10,000; TikTok rounds larger counts to 3 or 4 significant digits (T31)
+      properties:
+        play_count: {type: integer, format: int64}
+        like_count: {type: integer, format: int64}
+        comment_count: {type: integer, format: int64, description: Top-level comments and replies, as TikTok counts them}
+        share_count: {type: integer, format: int64}
+        save_count: {type: integer, format: int64}
+        repost_count: {type: integer, format: int64}
+    Post:
+      type: object
+      properties:
+        post_id: {$ref: '#/components/schemas/ID'}
+        user_id: {$ref: '#/components/schemas/ID'}
+        created_at: {type: string, format: date-time}
+        kind: {type: string, enum: [video, photo]}
+        url: {type: string, description: "pii:read (it names the username)"}
+        caption: {type: string}
+        text_ranges:
+          type: array
+          description: Hashtags and mentions in UTF-16 units; a mention's name and person need pii:read (author_key stays)
+          items: {type: object}
+        hashtags: {type: array, items: {type: string}}
+        duration_ms: {type: integer, format: int64}
+        width: {type: integer}
+        height: {type: integer}
+        cover_media_id: {type: string, format: uuid}
+        photo_count: {type: integer}
+        music_id: {$ref: '#/components/schemas/ID'}
+        is_pinned: {type: boolean, description: Known only from list reads}
+        is_ad: {type: boolean}
+        labels: {type: object, description: "AI-generated, warnings, anchors, as TikTok serves them"}
+        comments_disabled: {type: boolean}
+        region: {type: string}
+        text_language: {type: string}
+        discovered_via: {type: string, enum: [list, post_page, search, hashtag]}
+        counts: {$ref: '#/components/schemas/PostCounts'}
+        comments_collected: {type: integer, format: int64}
+        replies_collected: {type: integer, format: int64}
+        completeness: {type: number, description: Collected comments and replies over TikTok's count}
+        comments_state: {type: string, enum: [none, partial, complete, truncated]}
+        comments_synced_at: {type: string, format: date-time}
+        status: {type: string}
+        first_seen_at: {type: string, format: date-time}
+        last_seen_at: {type: string, format: date-time}
+    Comment:
+      type: object
+      properties:
+        comment_id: {$ref: '#/components/schemas/ID'}
+        post_id: {$ref: '#/components/schemas/ID'}
+        parent_comment_id: {$ref: '#/components/schemas/ID'}
+        reply_to_comment_id: {$ref: '#/components/schemas/ID'}
+        depth: {type: integer, enum: [0, 1]}
+        author_key: {type: string, description: Hex HMAC of the author's user id (pseudonymous)}
+        author:
+          type: object
+          description: "pii:read; absent when stored pseudonymized or redacted"
+          properties:
+            user_id: {$ref: '#/components/schemas/ID'}
+            sec_uid: {type: string}
+            username: {type: string}
+            nickname: {type: string}
+            avatar_url: {type: string}
+            verified: {type: boolean}
+        text: {type: string, description: "pii:read"}
+        text_ranges: {type: array, items: {type: object}, description: "pii:read"}
+        created_at: {type: string, format: date-time}
+        like_count: {type: integer, format: int64}
+        reply_count: {type: integer, format: int64}
+        liked_by_creator: {type: boolean}
+        pinned_by_creator: {type: boolean}
+        has_images: {type: boolean}
+        image_media_ids: {type: array, items: {type: string, format: uuid}, description: "pii:read"}
+        labels: {type: array, items: {type: string}}
+        language: {type: string}
+        status:
+          type: string
+          enum: [visible, deleted]
+          description: >-
+            deleted: a whole read of the post no longer returned this top-level comment (or its parent).
+            The last content seen is kept; a later sighting makes it visible again.
+        deleted_at: {type: string, format: date-time}
+        edit_count: {type: integer, description: Text changes seen across reads}
+        edited_at: {type: string, format: date-time}
+        redacted: {type: boolean, description: The author was erased}
+        first_seen_at: {type: string, format: date-time}
+        last_seen_at: {type: string, format: date-time}
+    Media:
+      type: object
+      properties:
+        media_id: {type: string, format: uuid}
+        source_media_id: {type: string}
+        kind: {type: string, enum: [cover, origin_cover, dynamic_cover, video, photo, avatar, music_cover, comment_image]}
+        variant: {type: string, enum: [original, sd, hd, thumbnail]}
+        user_id: {$ref: '#/components/schemas/ID'}
+        post_id: {$ref: '#/components/schemas/ID'}
+        music_id: {$ref: '#/components/schemas/ID'}
+        comment_id: {$ref: '#/components/schemas/ID'}
+        position: {type: integer}
+        author_key: {type: string}
+        source_url: {type: string, description: "TikTok's signed link; a person's avatar or comment image needs pii:read"}
+        source_expires_at: {type: string, format: date-time}
+        width: {type: integer}
+        height: {type: integer}
+        duration_ms: {type: integer, format: int64}
+        bitrate: {type: integer, format: int64}
+        mime: {type: string}
+        status: {type: string, enum: [discovered, stored, ready, deleted, expired, source_expired, failed, skipped]}
+        s3_bucket: {type: string}
+        s3_key: {type: string}
+        size_bytes: {type: integer, format: int64}
+        sha256: {type: string}
+        delete_after: {type: string, format: date-time}
+        discovered_at: {type: string, format: date-time}
+        stored_at: {type: string, format: date-time}
+        ready_at: {type: string, format: date-time}
+        deleted_at: {type: string, format: date-time}
+    Erasure:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        subject_type: {type: string, enum: [author, account]}
+        status: {type: string, enum: [pending, done, failed]}
+        stats: {type: object, description: Rows deleted or redacted per table}
+        error: {type: string}
+        attempts: {type: integer}
+        created_at: {type: string, format: date-time}
+        completed_at: {type: string, format: date-time}
