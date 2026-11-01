@@ -48,7 +48,7 @@ func extraJSON(s string) []byte {
 	if s == "" || !json.Valid([]byte(s)) {
 		return nil
 	}
-	return []byte(s)
+	return jsonbSafe([]byte(s))
 }
 
 func observed(o *fbv1.Observation) time.Time {
@@ -158,7 +158,7 @@ func commentRow(c *fbv1.Comment) []any {
 
 var mediaCols = []string{
 	"media_id", "fb_media_id", "variant", "kind", "owner_type", "owner_id", "post_id", "page_id", "comment_id",
-	"source_url", "source_expires_at", "width", "height", "duration_ms", "mime", "alt_text", "discovered_at",
+	"source_url", "source_expires_at", "width", "height", "duration_ms", "mime", "alt_text", "discovered_at", "author_key",
 }
 
 func mediaRow(m *fbv1.Media) []any {
@@ -169,8 +169,15 @@ func mediaRow(m *fbv1.Media) []any {
 	return []any{
 		m.MediaId, m.FbMediaId, m.Variant, mediaKind(m.Kind), m.OwnerType, nilIfZero(m.OwnerId), nilIfZero(m.PostId),
 		nilIfZero(m.PageId), m.CommentId, nilIfEmpty(m.SourceUrl), exp, int32OrNil(m.Width), int32OrNil(m.Height),
-		nilIfZero(m.DurationMs), nilIfEmpty(m.Mime), nilIfEmpty(m.AltText), observed(m.Obs),
+		nilIfZero(m.DurationMs), nilIfEmpty(m.Mime), nilIfEmpty(m.AltText), observed(m.Obs), bytesOrNil(m.AuthorKey),
 	}
+}
+
+func bytesOrNil(b []byte) []byte {
+	if len(b) == 0 {
+		return nil
+	}
+	return b
 }
 
 func int32OrNil(v int32) *int32 {

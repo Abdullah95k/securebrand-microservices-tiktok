@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -160,6 +161,26 @@ func TestEndToEnd(t *testing.T) {
 	if v := decodeBody[jobView](t, s.Do(t, key, "GET", "/v1/jobs/"+j.ID, nil), http.StatusOK); v.Status != "completed" {
 		t.Fatalf("the owner's read %+v", v)
 	}
+	// The results stream holds every post and comment and ends with an end line.
+	results := s.Do(t, key, "GET", "/v1/jobs/"+j.ID+"/results?include=comments", nil)
+	kinds := map[string]int{}
+	var last string
+	sc := bufio.NewScanner(results.Body)
+	sc.Buffer(make([]byte, 0, 1<<20), 16<<20)
+	for sc.Scan() {
+		var line struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(sc.Bytes(), &line); err != nil {
+			t.Fatalf("results line %q: %v", sc.Text(), err)
+		}
+		kinds[line.Type]++
+		last = line.Type
+	}
+	_ = results.Body.Close()
+	if results.StatusCode != http.StatusOK || last != "end" || kinds["page"] != 1 || kinds["post"] != len(truth.Posts) || kinds["comment"] != wantComments {
+		t.Fatalf("results: status %d, kinds %v, last %q (want %d posts, %d comments)", results.StatusCode, kinds, last, len(truth.Posts), wantComments)
+	}
 	if n := count(t, s, `SELECT count(*) FROM comments WHERE page_id = $1 AND depth = 2`, page.ID); n == 0 {
 		t.Fatal("expected depth-2 replies")
 	}
@@ -181,6 +202,29 @@ func TestEndToEnd(t *testing.T) {
 	})
 	if ev.Status != fbv1.JobStatus_JOB_STATUS_COMPLETED || ev.Completeness.GetCommentsCollected() != int64(wantComments) {
 		t.Fatalf("job event = %+v", &ev)
+	}
+	// Comment media carry their author's key, so an erasure can find them
+	// still in flight.
+	mc, _ := kgo.NewClient(kgo.SeedBrokers(s.Cfg.Kafka.Brokers...), kgo.ConsumeTopics(s.Producer.Topic(topics.Media)),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()))
+	defer mc.Close()
+	var commentMedia, keyed int
+	waitFor(t, "comment media", 20*time.Second, func() bool {
+		pctx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		for _, r := range mc.PollFetches(pctx).Records() {
+			var m fbv1.Media
+			if proto.Unmarshal(r.Value, &m) == nil && m.OwnerType == "comment" {
+				commentMedia++
+				if len(m.AuthorKey) == 32 {
+					keyed++
+				}
+			}
+		}
+		return commentMedia > 0
+	})
+	if keyed != commentMedia {
+		t.Fatalf("%d of %d comment media carry an author key", keyed, commentMedia)
 	}
 
 	// 3. API reads; author identity only with pii:read.
@@ -293,8 +337,16 @@ func TestEndToEnd(t *testing.T) {
 		WHERE c.page_id = $1 AND NOT c.is_op GROUP BY a.author_id ORDER BY count(*) DESC LIMIT 1`, page.ID).Scan(&authorID); err != nil {
 		t.Fatal(err)
 	}
+	// A profile link where the id goes would match nothing: refused. The
+	// id with spaces around it (pasted) is the same id.
+	if r := s.Do(t, adminKey, "POST", "/v1/erasure-requests",
+		[]byte(`{"subject_type":"author","author_id":"https://www.facebook.com/someone"}`)); r.StatusCode != http.StatusBadRequest {
+		t.Fatalf("an author_id that is a link: %d", r.StatusCode)
+	} else {
+		_ = r.Body.Close()
+	}
 	er := decodeBody[api.Erasure](t, s.Do(t, adminKey, "POST", "/v1/erasure-requests",
-		[]byte(fmt.Sprintf(`{"subject_type":"author","author_id":%q}`, authorID))), http.StatusAccepted)
+		[]byte(fmt.Sprintf(`{"subject_type":"author","author_id":" %s "}`, authorID))), http.StatusAccepted)
 	if err := s.Eraser.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -468,5 +520,26 @@ func TestCommentCapSpansSegments(t *testing.T) {
 	}
 	if j.Status != "completed" {
 		t.Fatalf("job %s", j.Status)
+	}
+}
+
+// confirmLoads is how many page loads mark a page that names nothing
+// unavailable (the crawler's confirmUnavailable).
+const confirmLoads = 3
+
+// A page restricted to logged-in viewers is marked unavailable, not taken
+// for parser drift, once later attempts confirm it: like a deleted page, its
+// job ends failed with nothing to collect.
+func TestRestrictedPage(t *testing.T) {
+	s := Start(t, Options{
+		Spec:   fakefb.Spec{Seed: 13, Pages: 1, PostsPerPage: 2, PostSpacing: 20 * time.Hour, MaxComments: 3},
+		Faults: fakefb.Faults{Restricted: true},
+	})
+	key := s.Key(t, api.ScopeJobsWrite, api.ScopeDataRead)
+	page := s.Fake.World.Pages()[0]
+	j := s.runJobWithin(t, key, page.Vanity, 4*time.Minute)
+	t.Logf("job %s %s: counters=%v", j.ID, j.Status, j.Counters)
+	if j.Status != "failed" || j.Counters["pages_unavailable"] != 1 || j.Counters["requests"] != confirmLoads || j.Counters["drift"] != 0 {
+		t.Fatalf("restricted page: status=%s counters=%v", j.Status, j.Counters)
 	}
 }

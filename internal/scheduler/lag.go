@@ -6,7 +6,9 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kadm"
 
+	taskv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fbs/task/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/topics"
 )
 
 // LagGauges publishes the consumer lag of every fbs consumer group per
@@ -19,23 +21,68 @@ type LagGauges struct {
 	seen map[[2]string]bool
 }
 
-// Tick reads the groups' committed offsets and the partitions' end offsets.
-func (l *LagGauges) Tick(ctx context.Context) error {
-	listed, err := l.Admin.ListGroups(ctx)
+// groupLags reads the lag of the consumer groups whose names start with
+// prefix+group.
+func groupLags(ctx context.Context, admin *kadm.Client, prefix, group string) (kadm.DescribedGroupLags, error) {
+	listed, err := admin.ListGroups(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var groups []string
 	for _, g := range listed.Groups() {
-		if strings.HasPrefix(g, l.Prefix+"tks-") {
+		if strings.HasPrefix(g, prefix+group) {
 			groups = append(groups, g)
 		}
 	}
 	if len(groups) == 0 {
-		return nil
+		return nil, nil
 	}
-	lags, err := l.Admin.Lag(ctx, groups...)
+	return admin.Lag(ctx, groups...)
+}
+
+// TaskBacklog returns how many crawl tasks (page, post and thread) wait in
+// each lane's topics, unconsumed or unfinished, keyed by lane as stored in
+// jobs.lane. Lanes nothing waits in are absent.
+func TaskBacklog(ctx context.Context, admin *kadm.Client, prefix string) (map[int16]int64, error) {
+	lags, err := groupLags(ctx, admin, prefix, "tks-crawler-")
 	if err != nil {
+		return nil, err
+	}
+	out := map[int16]int64{}
+	for _, gl := range lags {
+		if err := gl.Error(); err != nil {
+			return nil, err
+		}
+		for _, tl := range gl.Lag.TotalByTopic() {
+			if lane, ok := topicLane(strings.TrimPrefix(tl.Topic, prefix)); ok && tl.Lag > 0 {
+				out[int16(lane)] += tl.Lag
+			}
+		}
+	}
+	return out, nil
+}
+
+// topicLane returns the lane of a page, post or thread task topic.
+func topicLane(topic string) (taskv1.Lane, bool) {
+	rest, ok := strings.CutPrefix(topic, "fbs.task.")
+	if !ok {
+		return 0, false
+	}
+	stage, lane, ok := strings.Cut(rest, ".")
+	if !ok || (stage != "page" && stage != "post" && stage != "thread") {
+		return 0, false
+	}
+	switch lane {
+	case "p0", "p1", "p2":
+		return topics.ParseLane(lane), true
+	}
+	return 0, false
+}
+
+// Tick reads the groups' committed offsets and the partitions' end offsets.
+func (l *LagGauges) Tick(ctx context.Context) error {
+	lags, err := groupLags(ctx, l.Admin, l.Prefix, "tks-")
+	if err != nil || len(lags) == 0 {
 		return err
 	}
 	now := map[[2]string]bool{}

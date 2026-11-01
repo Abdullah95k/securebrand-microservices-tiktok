@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -221,30 +222,76 @@ func (s *Server) jobResults(w http.ResponseWriter, r *http.Request) {
 	pii := clientFrom(r.Context()).Has(ScopePIIRead)
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	enc := json.NewEncoder(w)
-	flush := func() {
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
+	// The stream has no overall timeout, but each post (with its comments)
+	// must reach the client within the request timeout: one that stops
+	// reading is cut off instead of holding the handler forever.
+	rc := http.NewResponseController(w)
+	timeout := s.requestTimeout()
+	broken := false
+	send := func(v any) bool {
+		if !broken && enc.Encode(v) != nil {
+			broken = true
 		}
+		return !broken
 	}
+	next := func() bool {
+		_ = rc.Flush()
+		_ = rc.SetWriteDeadline(time.Now().Add(timeout))
+		return !broken && r.Context().Err() == nil
+	}
+	next()
 	if p, err := s.pageByID(r.Context(), *j.PageID); err == nil {
-		_ = enc.Encode(map[string]any{"type": "page", "page": p})
+		send(map[string]any{"type": "page", "page": p})
 	}
-	posts, err := s.queryPosts(r.Context(), *j.PageID, j.CreatedAt.Add(-time.Minute), time.Time{}, nil, 100000, true)
-	if err != nil {
-		serverError(w, err)
-		return
+	// Posts and comments are read and written in batches, so a large page
+	// streams instead of filling memory. The last line says whether the
+	// stream is whole: {"type":"end"}, or {"type":"error"} after a failure.
+	const batch = 500
+	fail := func(err error) {
+		slog.Error("api: job results", "job", j.ID, "err", err)
+		send(map[string]any{"type": "error", "error": "the results stopped early; retry the request"})
 	}
-	for _, p := range posts {
-		_ = enc.Encode(map[string]any{"type": "post", "post": p})
-		if withComments {
-			cs, err := s.queryComments(r.Context(), p.PostID, p.CreatedAt, nil, nil, "", nil, 1_000_000, pii)
-			if err != nil {
+	var cur *cursorPos
+	for {
+		posts, err := s.queryPosts(r.Context(), *j.PageID, j.CreatedAt.Add(-time.Minute), time.Time{}, cur, batch, true, "")
+		if err != nil {
+			fail(err)
+			return
+		}
+		for _, p := range posts {
+			if !next() {
 				return
 			}
-			for _, c := range cs {
-				_ = enc.Encode(map[string]any{"type": "comment", "comment": c})
+			scrubPost(&p, pii)
+			send(map[string]any{"type": "post", "post": p})
+			if withComments {
+				var ccur *cursorPos
+				for {
+					cs, err := s.queryComments(r.Context(), p.PostID, p.CreatedAt, nil, nil, "", ccur, batch, pii)
+					if err != nil {
+						fail(err)
+						return
+					}
+					for _, c := range cs {
+						send(map[string]any{"type": "comment", "comment": c})
+					}
+					if len(cs) < batch || !next() {
+						break
+					}
+					last := cs[len(cs)-1]
+					ts := time.Unix(0, 0).UTC() // an undated comment sorts as 'epoch'
+					if last.CreatedAt != nil {
+						ts = *last.CreatedAt
+					}
+					ccur = &cursorPos{T: ts, ID: last.CommentID}
+				}
 			}
 		}
-		flush()
+		if len(posts) < batch {
+			break
+		}
+		last := posts[len(posts)-1]
+		cur = &cursorPos{T: last.CreatedAt, ID: last.PostID}
 	}
+	send(map[string]any{"type": "end"})
 }

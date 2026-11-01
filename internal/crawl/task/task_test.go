@@ -16,14 +16,25 @@ func TestNormalizeRef(t *testing.T) {
 		"100064000000000":                                  "id:100064000000000",
 		"brand.official":                                   "v:brand.official",
 		"v:already":                                        "v:already",
+		"v:Already.Brand":                                  "v:already.brand",
+		"id:42":                                            "id:42",
+		"id:007":                                           "id:7",
+		"0042":                                             "id:42",
 	}
 	for in, want := range cases {
 		got, err := NormalizeRef(in)
 		if err != nil || got != want {
 			t.Errorf("NormalizeRef(%q) = %q, %v; want %q", in, got, err, want)
 		}
+		// A stored reference normalizes to itself, so it can be used again.
+		if again, err := NormalizeRef(got); err != nil || again != got {
+			t.Errorf("NormalizeRef(%q) = %q, %v; not idempotent", got, again, err)
+		}
 	}
-	for _, bad := range []string{"", "https://www.facebook.com/", "nike page!"} {
+	// A canonical reference becomes a URL path: one that would leave
+	// Facebook (//host/...) or isn't an id or vanity is refused.
+	for _, bad := range []string{"", "https://www.facebook.com/", "nike page!",
+		"v:/attacker.example/x", "v://attacker.example", "v:", "v:..", "..", "https://www.facebook.com/../x", "id:abc", "id:-5", "-5", "0", "id:0", "profile.php?id=-3", "facebook.com/pages/x/0", "id:12/../x", "V:nike"} {
 		if _, err := NormalizeRef(bad); err == nil {
 			t.Errorf("NormalizeRef(%q) should fail", bad)
 		}

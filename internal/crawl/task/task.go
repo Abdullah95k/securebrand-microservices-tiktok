@@ -59,7 +59,7 @@ func Continuation(t *taskv1.Task, cursor string) *taskv1.Task {
 	c := cloneShallow(t)
 	c.Seq = t.Seq + 1
 	c.Cursor = cursor
-	c.Attempt, c.Stalls = 0, 0
+	c.Attempt, c.Stalls, c.Waits = 0, 0, 0
 	c.EnqueuedAt = nil
 	return Finalize(c)
 }
@@ -78,7 +78,7 @@ func Retry(t *taskv1.Task, cursor string) *taskv1.Task {
 func cloneShallow(t *taskv1.Task) *taskv1.Task {
 	c := &taskv1.Task{
 		TaskId: t.TaskId, LineageId: t.LineageId, Seq: t.Seq, JobId: t.JobId, Lane: t.Lane, Kind: t.Kind,
-		Mode: t.Mode, Cursor: t.Cursor, Limits: t.Limits, Affinity: t.Affinity, Attempt: t.Attempt, Stalls: t.Stalls, Trace: t.Trace,
+		Mode: t.Mode, Cursor: t.Cursor, Limits: t.Limits, Affinity: t.Affinity, Attempt: t.Attempt, Stalls: t.Stalls, Waits: t.Waits, Trace: t.Trace,
 	}
 	switch s := t.Scope.(type) {
 	case *taskv1.Task_Page:
@@ -165,8 +165,23 @@ func NormalizeRef(in string) (string, error) {
 	if s == "" {
 		return "", fmt.Errorf("empty page reference")
 	}
-	if strings.HasPrefix(s, "id:") || strings.HasPrefix(s, "v:") {
-		return s, nil
+	// Already canonical: still check it, since it becomes a URL path.
+	if rest, ok := strings.CutPrefix(s, "id:"); ok {
+		if ref, ok := idRef(rest); ok {
+			return ref, nil
+		}
+		return "", fmt.Errorf("invalid page reference %q", in)
+	}
+	if rest, ok := strings.CutPrefix(s, "v:"); ok {
+		if rest == "" || strings.Trim(rest, ".") == "" {
+			return "", fmt.Errorf("invalid page reference %q", in)
+		}
+		for _, r := range rest {
+			if !validVanityRune(r) {
+				return "", fmt.Errorf("invalid page reference %q", in)
+			}
+		}
+		return "v:" + strings.ToLower(rest), nil
 	}
 	if i := strings.Index(s, "facebook.com/"); i >= 0 {
 		s = s[i+len("facebook.com/"):]
@@ -181,8 +196,8 @@ func NormalizeRef(in string) (string, error) {
 			if j := strings.IndexAny(id, "&#/"); j >= 0 {
 				id = id[:j]
 			}
-			if _, err := strconv.ParseInt(id, 10, 64); err == nil {
-				return "id:" + id, nil
+			if ref, ok := idRef(id); ok {
+				return ref, nil
 			}
 		}
 		return "", fmt.Errorf("invalid profile.php reference %q", in)
@@ -191,19 +206,23 @@ func NormalizeRef(in string) (string, error) {
 		// pages/<name>/<id>
 		seg := strings.Split(strings.Trim(s, "/"), "/")
 		if len(seg) >= 3 {
-			if _, err := strconv.ParseInt(seg[2], 10, 64); err == nil {
-				return "id:" + seg[2], nil
+			if ref, ok := idRef(seg[2]); ok {
+				return ref, nil
 			}
 		}
+		return "", fmt.Errorf("invalid pages/ reference %q", in)
 	}
 	if j := strings.IndexAny(s, "/?#"); j >= 0 {
 		s = s[:j]
 	}
-	if s == "" {
+	if strings.Trim(s, ".") == "" {
 		return "", fmt.Errorf("invalid page reference %q", in)
 	}
 	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return "id:" + s, nil
+		if ref, ok := idRef(s); ok {
+			return ref, nil
+		}
+		return "", fmt.Errorf("invalid page reference %q", in)
 	}
 	for _, r := range s {
 		if !validVanityRune(r) {
@@ -211,6 +230,16 @@ func NormalizeRef(in string) (string, error) {
 		}
 	}
 	return "v:" + strings.ToLower(s), nil
+}
+
+// idRef is the canonical reference of a page id: positive, without leading
+// zeros, so the same page always has the same reference.
+func idRef(s string) (string, bool) {
+	id, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || id <= 0 {
+		return "", false
+	}
+	return "id:" + strconv.FormatInt(id, 10), true
 }
 
 func validVanityRune(r rune) bool {

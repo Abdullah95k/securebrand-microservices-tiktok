@@ -11,6 +11,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/gdpr"
 )
 
 // Post is the API view of a post.
@@ -58,10 +60,15 @@ func scanPost(row pgx.CollectableRow) (Post, error) {
 }
 
 // queryPosts lists a page's posts newest first. seenSince filters on
-// last_seen_at (job results); after/before bound post creation time.
-func (s *Server) queryPosts(ctx context.Context, pageID int64, seenSince, since time.Time, cur *cursorPos, limit int, bySeen bool) ([]Post, error) {
+// last_seen_at (job results); since bounds post creation time; postType,
+// when set, keeps one type (in SQL, so a page holds limit posts of it).
+func (s *Server) queryPosts(ctx context.Context, pageID int64, seenSince, since time.Time, cur *cursorPos, limit int, bySeen bool, postType string) ([]Post, error) {
 	q := postSelect + ` WHERE page_id = $1`
 	args := []any{pageID}
+	if postType != "" {
+		args = append(args, postType)
+		q += fmt.Sprintf(" AND post_type = $%d", len(args))
+	}
 	if bySeen && !seenSince.IsZero() {
 		args = append(args, seenSince)
 		q += fmt.Sprintf(" AND last_seen_at >= $%d", len(args))
@@ -102,19 +109,14 @@ func (s *Server) listPosts(w http.ResponseWriter, r *http.Request) {
 		cur = &c
 	}
 	limit := limitParam(r)
-	posts, err := s.queryPosts(r.Context(), id, time.Time{}, since, cur, limit, false)
+	posts, err := s.queryPosts(r.Context(), id, time.Time{}, since, cur, limit, false, r.URL.Query().Get("type"))
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	if t := r.URL.Query().Get("type"); t != "" {
-		filtered := posts[:0]
-		for _, p := range posts {
-			if p.Type == t {
-				filtered = append(filtered, p)
-			}
-		}
-		posts = filtered
+	pii := clientFrom(r.Context()).Has(ScopePIIRead)
+	for i := range posts {
+		scrubPost(&posts[i], pii)
 	}
 	out := map[string]any{"posts": posts}
 	if len(posts) == limit {
@@ -152,7 +154,15 @@ func (s *Server) getPost(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	scrubPost(&p, clientFrom(r.Context()).Has(ScopePIIRead))
 	writeJSON(w, http.StatusOK, p)
+}
+
+// scrubPost hides who the post's person mentions name, without pii:read.
+func scrubPost(p *Post, pii bool) {
+	if !pii {
+		p.TextRanges = gdpr.ScrubMentionsJSON(p.TextRanges)
+	}
 }
 
 // Comment is the API view of a comment. Author identity fields require the
@@ -236,6 +246,11 @@ func (s *Server) queryComments(ctx context.Context, postID int64, postCreated ti
 		if len(key) > 0 {
 			c.AuthorKey = hex.EncodeToString(key)
 		}
+		if !pii {
+			// Replies tag the person they answer: without pii:read, the
+			// mention keeps its place but not who it names.
+			c.TextRanges = gdpr.ScrubMentionsJSON(c.TextRanges)
+		}
 		if pii && (a.ID != nil || a.Name != nil) {
 			c.Author = &a
 		} else if a.Type != nil {
@@ -292,7 +307,8 @@ func (s *Server) listComments(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"comments": cs}
 	if len(cs) == limit {
 		last := cs[len(cs)-1]
-		var ts time.Time
+		// A comment without a time sorts as 'epoch' (queryComments).
+		ts := time.Unix(0, 0).UTC()
 		if last.CreatedAt != nil {
 			ts = *last.CreatedAt
 		}

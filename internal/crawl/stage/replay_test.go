@@ -138,13 +138,13 @@ func TestReplayedDeadLetterRunsAgain(t *testing.T) {
 
 	// The fix ships; the operator replays (fbctl dlq replay).
 	fixed = true
-	dead.Attempt, dead.Stalls = 7, 2 // what a task carries after its retries
+	dead.Attempt, dead.Stalls, dead.Waits = 7, 2, 30 // what a task carries after its retries
 	rp := &Replayer{Ckpt: w.D.Ckpt, Jobs: tr}
 	rep, err := rp.Prepare(ctx, &dead)
 	if err != nil || rep.Task == nil || !rep.Reopened {
 		t.Fatalf("prepare: %+v %v", rep, err)
 	}
-	if rep.Task.Attempt != 0 || rep.Task.Stalls != 0 || rep.Task.TaskId != dead.TaskId {
+	if rep.Task.Attempt != 0 || rep.Task.Stalls != 0 || rep.Task.Waits != 0 || rep.Task.TaskId != dead.TaskId {
 		t.Fatalf("replayed task: attempt %d stalls %d id %s", rep.Task.Attempt, rep.Task.Stalls, rep.Task.TaskId)
 	}
 	st, _ = tr.Status(ctx, "job-1")

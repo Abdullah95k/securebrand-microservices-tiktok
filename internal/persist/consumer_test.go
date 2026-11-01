@@ -2,10 +2,12 @@ package persist
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -66,6 +68,14 @@ func TestBadRecordsAreSetAside(t *testing.T) {
 		return got
 	}
 
+	// Postgres refuses comment 11 and those from 20 on for their data
+	// (22023). (A NUL character, the refusal seen in practice, is now
+	// stripped before writing: TestBatchesThatPostgresWouldRefuse.)
+	if _, err := db.Exec(ctx, `CREATE FUNCTION refuse_some() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN IF NEW.comment_id = 11 OR NEW.comment_id >= 20 THEN RAISE EXCEPTION 'refused' USING ERRCODE = '22023'; END IF; RETURN NEW; END $$;
+		CREATE TRIGGER refuse_some BEFORE INSERT ON comments FOR EACH ROW EXECUTE FUNCTION refuse_some()`); err != nil {
+		t.Fatal(err)
+	}
 	created := timestamppb.New(now.Add(-time.Hour))
 	offset := int64(0)
 	rec := func(topic string, m proto.Message) *kgo.Record {
@@ -82,7 +92,7 @@ func TestBadRecordsAreSetAside(t *testing.T) {
 		rec(topics.Post, &fbv1.Post{Obs: obs(now, "p"), PostId: 1, PageId: 9, CreatedAt: created}),
 		bad,
 		rec(topics.Comment, comment(10, "kept")),
-		rec(topics.Comment, comment(11, "nul \x00 text")), // Postgres stores no NUL: 22021
+		rec(topics.Comment, comment(11, "refused")),
 		rec(topics.Comment, comment(12, "kept too")),
 	})
 	if err := c.persist(ctx, b); err != nil {
@@ -108,7 +118,7 @@ func TestBadRecordsAreSetAside(t *testing.T) {
 			t.Fatal("no original topic")
 		}
 	}
-	if !strings.HasPrefix(reasons["refused"], "sqlstate 22021") || reasons["undecodable"] == "" || string(got[0].Value) != string(bad.Value) {
+	if !strings.HasPrefix(reasons["refused"], "sqlstate 22023") || reasons["undecodable"] == "" || string(got[0].Value) != string(bad.Value) {
 		t.Fatalf("set aside: %v", reasons)
 	}
 	// A batch written again (after some other failure) sets nothing aside twice.
@@ -121,11 +131,33 @@ func TestBadRecordsAreSetAside(t *testing.T) {
 	// systematic error; the batch fails and is retried by the caller.
 	var many []*kgo.Record
 	for i := range maxRefused + 1 {
-		many = append(many, rec(topics.Comment, comment(int64(20+i), "nul \x00 "+string(rune('a'+i)))))
+		many = append(many, rec(topics.Comment, comment(int64(20+i), "refused "+string(rune('a'+i)))))
 	}
 	err = c.persist(ctx, c.decode(many))
 	if err == nil || !strings.Contains(err.Error(), "refused") {
 		t.Fatalf("a systematic error must fail the batch: %v", err)
 	}
 	quarantined(maxRefused)
+}
+
+// Only errors a retry can never fix count as a refused record: a race
+// between writers (unique violation) or a partition not created yet (check
+// violation, joined with the reason creating it failed) are retried.
+func TestIsDataError(t *testing.T) {
+	pg := func(code string) error { return &pgconn.PgError{Code: code} }
+	for err, want := range map[error]bool{
+		pg("22023"): true,  // a refused value
+		pg("22P05"): true,  // a NUL character
+		pg("23502"): true,  // a NOT NULL field missing
+		pg("54000"): true,  // a value too large for its index
+		pg("23505"): false, // two writers racing for a unique value
+		pg("23514"): false, // no partition for the row
+		errors.Join(pg("23514"), errors.New("lock timeout")): false,
+		pg("40001"):                    false,
+		errors.New("connection reset"): false,
+	} {
+		if got := isDataError(err); got != want {
+			t.Errorf("%v: %v, want %v", err, got, want)
+		}
+	}
 }

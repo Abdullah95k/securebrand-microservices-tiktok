@@ -53,7 +53,7 @@ func (r *Replayer) Prepare(ctx context.Context, t *taskv1.Task) (Replay, error) 
 		return Replay{}, nil
 	}
 	out := proto.Clone(t).(*taskv1.Task)
-	out.Attempt, out.Stalls, out.NotBefore = 0, 0, nil
+	out.Attempt, out.Stalls, out.Waits, out.NotBefore = 0, 0, 0, nil
 	reopened, err := r.Jobs.Reopen(ctx, t.JobId, t.TaskId)
 	if err != nil {
 		return Replay{}, fmt.Errorf("replay: reopen job: %w", err)

@@ -143,11 +143,7 @@ func (p *Pool) Release(id *Identity) {
 
 // Retire marks id as unusable and releases it.
 func (p *Pool) Retire(id *Identity, reason string) {
-	id.mu.Lock()
-	if id.retired == "" {
-		id.retired = reason
-	}
-	id.mu.Unlock()
+	id.markRetired(reason)
 	p.Release(id)
 }
 
@@ -163,17 +159,29 @@ func (p *Pool) create(tier string) (*Identity, error) {
 	}
 	maxReq := randRange(p.cfg.MaxRequestsMin, p.cfg.MaxRequestsMax)
 	id := newIdentity(newID(), ep, fp, d, p.base, p.cfg.IdentityRPS, p.cfg.IdentityBurst, maxReq)
-	id.observe = func(c detect.Class) { p.proxies.Observe(ep, c) }
+	id.reserved = true // proxies.Next reserved its first page load
+	id.observe = func(c detect.Class, pageLoad bool) {
+		if pageLoad {
+			p.proxies.ObservePageLoad(ep, c)
+		} else {
+			p.proxies.Observe(ep, c)
+		}
+	}
 	return id, nil
 }
 
-// Outcome records a request outcome on id. It is a convenience used by the
-// GraphQL client and bootstrapper.
-func Outcome(id *Identity, c detect.Class) {
+// Outcome records a GraphQL request's outcome on id and its exit's breaker.
+func Outcome(id *Identity, c detect.Class) { outcome(id, c, false) }
+
+// PageOutcome records a page load's outcome on id and its exit's page-load
+// gate (not its breaker: see proxy.Pool.ObservePageLoad).
+func PageOutcome(id *Identity, c detect.Class) { outcome(id, c, true) }
+
+func outcome(id *Identity, c detect.Class, pageLoad bool) {
 	if id.observe != nil {
-		id.observe(c)
+		id.observe(c, pageLoad)
 	}
-	if retire, reason := id.Record(c); retire {
+	if retire, reason := id.record(c, pageLoad); retire {
 		slog.Debug("session: identity marked for retirement", "identity", id.ID, "reason", reason, "class", c.String())
 	}
 }

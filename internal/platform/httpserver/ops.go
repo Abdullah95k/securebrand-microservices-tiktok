@@ -59,9 +59,26 @@ func (o *Ops) Run(ctx context.Context) error {
 	return Serve(ctx, o.addr, o.Handler())
 }
 
+// Option configures the server Serve runs.
+type Option func(*http.Server)
+
+// WithReadTimeout bounds reading a whole request, body included.
+func WithReadTimeout(d time.Duration) Option {
+	return func(s *http.Server) {
+		if d > 0 {
+			s.ReadTimeout = d
+		}
+	}
+}
+
 // Serve runs an HTTP server and shuts it down gracefully when ctx is done.
-func Serve(ctx context.Context, addr string, h http.Handler) error {
-	srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 10 * time.Second}
+// Idle keep-alive connections are closed after 2 minutes, so clients that
+// hold connections open (authenticated or not) can't exhaust descriptors.
+func Serve(ctx context.Context, addr string, h http.Handler, opts ...Option) error {
+	srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
+	for _, o := range opts {
+		o(srv)
+	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	slog.Info("http listening", "addr", addr)

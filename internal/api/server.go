@@ -43,37 +43,56 @@ func (s *Server) Handler() http.Handler {
 		auth.limiter = redis_rate.NewLimiter(s.Redis)
 	}
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID, middleware.Recoverer, requestLog, middleware.Timeout(60*time.Second))
+	r.Use(middleware.RequestID, middleware.Recoverer, requestLog)
+	timeout := s.requestTimeout()
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(auth.middleware)
-		r.Post("/jobs", require(ScopeJobsWrite, s.createJob))
-		r.Get("/jobs", require(ScopeDataRead, s.listJobs))
-		r.Get("/jobs/{id}", require(ScopeDataRead, s.getJob))
-		r.Post("/jobs/{id}/cancel", require(ScopeJobsWrite, s.cancelJob))
+		// Results stream for as long as the job's data takes; every other
+		// request is cut off after http.write_timeout.
 		r.Get("/jobs/{id}/results", require(ScopeDataRead, s.jobResults))
-
-		r.Post("/pages", require(ScopePagesWrite, s.registerPage))
-		r.Get("/pages", require(ScopeDataRead, s.listPages))
-		r.Get("/pages/{page}", require(ScopeDataRead, s.getPage))
-		r.Patch("/pages/{page}", require(ScopePagesWrite, s.updatePage))
-		r.Delete("/pages/{page}", require(ScopePagesWrite, s.deletePage))
-		r.Get("/pages/{page}/posts", require(ScopeDataRead, s.listPosts))
-		r.Get("/pages/{page}/snapshots", require(ScopeDataRead, s.pageSnapshots))
-
-		r.Get("/posts/{post}", require(ScopeDataRead, s.getPost))
-		r.Get("/posts/{post}/comments", require(ScopeDataRead, s.listComments))
-		r.Get("/posts/{post}/metrics", require(ScopeDataRead, s.postMetrics))
-		r.Get("/posts/{post}/media", require(ScopeDataRead, s.postMedia))
-		r.Get("/media/{media}", require(ScopeDataRead, s.getMedia))
-
-		r.Post("/erasure-requests", require(ScopeAdmin, s.createErasure))
-		r.Get("/erasure-requests/{id}", require(ScopeAdmin, s.getErasure))
-
-		r.Get("/admin/queries", require(ScopeAdmin, s.listQueries))
-		r.Put("/admin/queries/{name}", require(ScopeAdmin, s.putQuery))
-		r.Get("/admin/registry-sync/runs", require(ScopeAdmin, s.registrySyncRuns))
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.Timeout(timeout))
+			s.routes(r)
+		})
 	})
 	return r
+}
+
+// requestTimeout bounds an API request (http.write_timeout, 60s if unset).
+func (s *Server) requestTimeout() time.Duration {
+	if s.Cfg != nil && s.Cfg.HTTP.WriteTimeout > 0 {
+		return s.Cfg.HTTP.WriteTimeout
+	}
+	return 60 * time.Second
+}
+
+// routes are the API routes under the request timeout.
+func (s *Server) routes(r chi.Router) {
+	r.Post("/jobs", require(ScopeJobsWrite, s.createJob))
+	r.Get("/jobs", require(ScopeDataRead, s.listJobs))
+	r.Get("/jobs/{id}", require(ScopeDataRead, s.getJob))
+	r.Post("/jobs/{id}/cancel", require(ScopeJobsWrite, s.cancelJob))
+
+	r.Post("/pages", require(ScopePagesWrite, s.registerPage))
+	r.Get("/pages", require(ScopeDataRead, s.listPages))
+	r.Get("/pages/{page}", require(ScopeDataRead, s.getPage))
+	r.Patch("/pages/{page}", require(ScopePagesWrite, s.updatePage))
+	r.Delete("/pages/{page}", require(ScopePagesWrite, s.deletePage))
+	r.Get("/pages/{page}/posts", require(ScopeDataRead, s.listPosts))
+	r.Get("/pages/{page}/snapshots", require(ScopeDataRead, s.pageSnapshots))
+
+	r.Get("/posts/{post}", require(ScopeDataRead, s.getPost))
+	r.Get("/posts/{post}/comments", require(ScopeDataRead, s.listComments))
+	r.Get("/posts/{post}/metrics", require(ScopeDataRead, s.postMetrics))
+	r.Get("/posts/{post}/media", require(ScopeDataRead, s.postMedia))
+	r.Get("/media/{media}", require(ScopeDataRead, s.getMedia))
+
+	r.Post("/erasure-requests", require(ScopeAdmin, s.createErasure))
+	r.Get("/erasure-requests/{id}", require(ScopeAdmin, s.getErasure))
+
+	r.Get("/admin/queries", require(ScopeAdmin, s.listQueries))
+	r.Put("/admin/queries/{name}", require(ScopeAdmin, s.putQuery))
+	r.Get("/admin/registry-sync/runs", require(ScopeAdmin, s.registrySyncRuns))
 }
 
 type statusWriter struct {
@@ -82,6 +101,9 @@ type statusWriter struct {
 }
 
 func (w *statusWriter) WriteHeader(c int) { w.code = c; w.ResponseWriter.WriteHeader(c) }
+
+// Unwrap lets http.ResponseController reach the connection's deadlines.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (w *statusWriter) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {

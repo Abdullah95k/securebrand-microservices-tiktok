@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	fbv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1"
 	taskv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fbs/task/v1"
@@ -86,6 +87,16 @@ var ErrTooManyJobs = errors.New("dispatch: too many running jobs")
 
 type execer interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// profileSeen returns when an active page's profile was last stored, or
+// nil (unknown, or the page is unavailable and must be looked at again).
+func (d *Dispatcher) profileSeen(ctx context.Context, pageID int64) *timestamppb.Timestamp {
+	var at *time.Time
+	if err := d.DB.QueryRow(ctx, `SELECT last_scraped_at FROM pages WHERE page_id = $1 AND status = 'active'`, pageID).Scan(&at); err != nil || at == nil {
+		return nil
+	}
+	return timestamppb.New(*at)
 }
 
 // ErrLaneFull is returned when the lane's fleet-wide job cap is reached.
@@ -206,6 +217,10 @@ func (d *Dispatcher) Create(ctx context.Context, r Request, maxRunning int) (*Jo
 		return nil, false, fmt.Errorf("dispatch: insert job: %w", err)
 	}
 	root := task.NewPage(id.String(), r.Lane, cm, r.PageRef, pageID, "", r.Limits)
+	if known && r.Kind == KindScheduled {
+		// The page stage skips the page's HTML while its profile is fresh.
+		root.GetPage().ProfileSeenAt = d.profileSeen(ctx, pageID)
+	}
 	roots := []*taskv1.Task{root}
 	for _, p := range r.Posts {
 		pt := task.NewPost(root, p.Mode, p.Scope)

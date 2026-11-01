@@ -132,7 +132,7 @@ func (b *Bootstrapper) Bootstrap(ctx context.Context, id *session.Identity, rawU
 	}
 	if cls != detect.OK {
 		metrics.Bootstraps.WithLabelValues("browser", cls.String()).Inc()
-		session.Outcome(id, cls)
+		session.PageOutcome(id, cls)
 		pl.Class, pl.Reason = cls, reason
 		return pl, fmt.Errorf("browser: %s: %s", cls, reason)
 	}
@@ -145,12 +145,12 @@ func (b *Bootstrapper) Bootstrap(ctx context.Context, id *session.Identity, rawU
 	}
 	if !ok {
 		metrics.Bootstraps.WithLabelValues("browser", "no_tokens").Inc()
-		session.Outcome(id, detect.SoftError)
+		session.PageOutcome(id, detect.SoftError)
 		pl.Class, pl.Reason = detect.SoftError, "no tokens after a browser render"
 		return pl, errors.New(pl.Reason)
 	}
 	id.SetTokens(tok)
-	session.Outcome(id, detect.OK)
+	session.PageOutcome(id, detect.OK)
 	metrics.Bootstraps.WithLabelValues("browser", "ok").Inc()
 	pl.Class = detect.OK
 	return pl, nil

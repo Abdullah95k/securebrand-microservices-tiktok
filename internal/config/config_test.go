@@ -32,11 +32,26 @@ func TestLoadLayers(t *testing.T) {
 	}
 }
 
+// The author key must be a real secret in prod, and wherever authors are
+// pseudonymised outside dev: not empty, not the dev key, not short.
 func TestValidate(t *testing.T) {
-	c, _ := Load("")
-	c.Service.Env = "prod"
-	if err := c.Validate(); err == nil {
-		t.Fatal("prod with the dev HMAC key must be rejected")
+	for name, tc := range map[string]struct {
+		env, mode, key string
+		ok             bool
+	}{
+		"prod, dev key":            {"prod", "full", "dev-only-change-me", false},
+		"prod, empty key":          {"prod", "full", "", false},
+		"prod, short key":          {"prod", "full", "0123456789", false},
+		"prod, real key":           {"prod", "full", "0123456789abcdef0123456789abcdef", true},
+		"pilot, pseudonymised":     {"pilot", "pseudonymized", "dev-only-change-me", false},
+		"pilot, full names stored": {"pilot", "full", "dev-only-change-me", true},
+		"dev":                      {"dev", "pseudonymized", "dev-only-change-me", true},
+	} {
+		c, _ := Load("")
+		c.Service.Env, c.Privacy.PIIMode, c.Privacy.AuthorHMACKey = tc.env, tc.mode, tc.key
+		if err := c.Validate(); (err == nil) != tc.ok {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }
 

@@ -120,3 +120,23 @@ func TestExtractTokensOtherSources(t *testing.T) {
 		t.Fatalf("lsd = %q", got["lsd"])
 	}
 }
+
+func TestNamesNothing(t *testing.T) {
+	shell := `<html><title>Facebook</title><script>{"define":[["LSD",[],{"token":"AVq"},323],` +
+		`["SiteData",[],{"hsi":"7431000000000000001","__spin_r":1017000000},317],["CurrentUserInitialData",[],{"USER_ID":"0"},270]]}</script>` +
+		`<script>{"login_form":1,"checkpoint":2}</script></html>`
+	if !NamesNothing([]byte(shell)) {
+		t.Fatal("a shell with tokens and no ids names nothing")
+	}
+	for name, page := range map[string]string{
+		"a post id":     shell + `<script>{"story":{"id":"123456789012"}}</script>`,
+		"a profile id":  shell + `<script>{"props":{"userID":"100064000000777"}}</script>`,
+		"an app link":   shell + `<meta property="al:android:url" content="fb://profile/100064000000777"/>`,
+		"a page_id key": shell + `<script>{"page_id":"104000000000123"}</script>`,
+		"escaped json":  shell + `<script>require("x","{\"id\":\"123456789012\"}")</script>`,
+	} {
+		if NamesNothing([]byte(page)) {
+			t.Errorf("%s: names something", name)
+		}
+	}
+}

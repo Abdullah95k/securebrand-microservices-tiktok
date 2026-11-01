@@ -4,7 +4,9 @@ bin/
 deploy/helm
 docs/
 
-# Phase 0: credentials, page lists and results never enter an image.
-phase0/proxies.yaml
-phase0/pages.csv
-phase0/out*
+# Phase 0: credentials, page lists and results never enter an image, nor
+# the build context. All of phase0/ is left out (backups and editor copies
+# of proxies.yaml hold credentials too); the build needs none of it.
+phase0/
+.env
+**/*.har

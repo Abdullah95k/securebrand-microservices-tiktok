@@ -55,6 +55,11 @@ message PageScope {
   int64 posts_seen = 5;
   int32 consecutive_old = 6;
   google.protobuf.Timestamp newest_seen_at = 7;
+  // When the page's profile (its HTML) was last read, set on scheduled
+  // runs. The page stage skips the HTML within crawler.profile_refresh of it
+  // when its identity already has tokens: page loads are what Facebook
+  // walls, GraphQL is not.
+  google.protobuf.Timestamp profile_seen_at = 8;
 }
 
 message PostScope {
@@ -67,10 +72,15 @@ message PostScope {
   // INCREMENTAL: newest comment time already stored.
   google.protobuf.Timestamp comments_watermark = 7;
   int64 comments_seen = 8;
+  // INCREMENTAL: comments newer than comments_watermark found by the
+  // pass's earlier segments.
+  int64 new_seen = 9;
+  // The post's incomplete mark (a lost reply thread) this pass found when
+  // it began; the pass clears it if it reads the post whole.
+  string incomplete_mark = 10;
   // Comments the stream's earlier segments read, so that
-  // limits.max_comments_per_post caps the post, not each segment. (9 and
-  // 10 are new_seen and incomplete_mark in fbs's copy; kept free so a port
-  // of them keeps fbs's numbers.)
+  // limits.max_comments_per_post caps the post, not each segment (tks's;
+  // fbs's copy lacks it).
   int64 items_seen = 11;
 }
 
@@ -122,7 +132,13 @@ message Task {
   google.protobuf.Timestamp not_before = 16;
   google.protobuf.Timestamp enqueued_at = 17;
   map<string, string> trace = 18;
-  // Retries since the task last advanced its checkpoint. crawler.max_attempts
-  // applies to these; attempt (which picks the proxy tier) counts every retry.
+  // Retries since the task last advanced its checkpoint, waits excluded.
+  // crawler.max_attempts applies to these, and they pick the proxy tier
+  // (one tier further per stall). attempt counts every retry but waits.
   uint32 stalls = 19;
+  // Retries spent waiting for proxy exits: every exit cooling down behind
+  // its breaker, or pacing its page loads. They are the exits' doing, not
+  // the task's, so they count toward neither stalls nor attempt;
+  // crawler.max_waits bounds them.
+  uint32 waits = 20;
 }

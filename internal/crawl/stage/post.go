@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -22,6 +23,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/topics"
 )
 
@@ -40,14 +42,17 @@ func (s *PostStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 	if sc == nil {
 		return Outcome{Result: Fail, Reason: "post task without post scope"}
 	}
-	id, err := d.identity(ctx, "comments", t.Attempt)
+	id, err := d.identity(ctx, "comments", t.Stalls)
 	if err != nil {
-		return retry(t, "", "30s", "no identity: "+err.Error(), c)
+		return noIdentity(t, err, c)
 	}
 	defer d.Pool.Release(id)
 	if pl, err := d.ensureBootstrapped(ctx, id, sc.PageId, t.Lane); err != nil {
-		if pl != nil {
+		switch {
+		case pl != nil:
 			return classOutcome(t, pl.Class, pl.Reason, t.Cursor, c)
+		case errors.Is(err, session.ErrPaced):
+			return pacedRetry(t, t.Cursor, err, c)
 		}
 		return retry(t, t.Cursor, "30s", "bootstrap: "+err.Error(), c)
 	}
@@ -56,6 +61,7 @@ func (s *PostStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 	if err != nil {
 		return retry(t, "", "30s", "checkpoint: "+err.Error(), c)
 	}
+	d.adoptIncomplete(ctx, t, sc, st)
 	st.Resume(c)
 	if st.Cursor == "" {
 		st.Cursor = t.Cursor
@@ -67,10 +73,14 @@ func (s *PostStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 	}
 
 	query := "comments"
-	var watermark time.Time
+	// The read stops after comments older than watermark (a minute of
+	// overlap before the newest comment stored); comments after newSince
+	// (that newest comment) count as new.
+	var watermark, newSince time.Time
 	if t.Mode == fbv1.CrawlMode_CRAWL_MODE_INCREMENTAL && sc.CommentsWatermark != nil {
 		query = "comments_newest"
-		watermark = sc.CommentsWatermark.AsTime().Add(-time.Minute)
+		newSince = sc.CommentsWatermark.AsTime()
+		watermark = newSince.Add(-time.Minute)
 	}
 	q, _ := d.GQL.Registry.Get(query)
 	src := emit.Source{JobID: t.JobId, Query: query, DocID: q.DocID, ParserVersion: parse.CommentsVersion, Mode: t.Mode}
@@ -134,7 +144,7 @@ func (s *PostStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 		}
 
 		b := d.Producer.NewBatch()
-		n, older, err := emitComments(ctx, d, b, t, src, res, watermark, &st, c)
+		n, older, err := emitComments(ctx, d, b, t, src, res, watermark, newSince, &st, c)
 		if err != nil {
 			return retry(t, st.Cursor, "30s", err.Error(), c)
 		}
@@ -198,12 +208,17 @@ func (s *PostStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 			newest = st.NewestSeenUnix
 		}
 		_ = d.Ckpt.SetPost(ctx, sc.PostId, checkpoint.PostCache{Reported: sc.ReportedCommentCount, NewestComment: newest, ThreadsComplete: !truncated})
+		if sc.IncompleteMark != "" && exhausted && !truncated && t.Mode != fbv1.CrawlMode_CRAWL_MODE_INCREMENTAL {
+			_ = d.Ckpt.ClearIncomplete(ctx, sc.PostId, sc.IncompleteMark)
+		}
 		// An incremental newest-first pass cannot see replies added to older
-		// comments. If the count grew more than we found, do a full pass.
+		// comments. If the count grew more than the new comments the pass
+		// found (in every segment; the older ones read before stopping don't
+		// count), do a full pass.
 		out := done(c)
 		if t.Mode == fbv1.CrawlMode_CRAWL_MODE_INCREMENTAL && !truncated {
 			grew := sc.ReportedCommentCount - sc.CommentsSeen
-			if grew > 0 && st.ItemsSeen < grew {
+			if grew > 0 && sc.NewSeen+st.NewSeen < grew {
 				out.FollowUps = append(out.FollowUps, task.NewPost(t, fbv1.CrawlMode_CRAWL_MODE_RECRAWL, cloneScope(sc)))
 				c["recrawls_spawned"]++
 			}
@@ -212,6 +227,7 @@ func (s *PostStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 	}
 	next := task.Continuation(t, st.Cursor)
 	next.GetPost().ItemsSeen = st.ItemsSeen
+	next.GetPost().NewSeen = sc.NewSeen + st.NewSeen // after its id is set, which must not depend on it
 	metrics.TaskYields.WithLabelValues("post").Inc()
 	return Outcome{Result: Continue, Next: next, Counters: c}
 }
@@ -263,20 +279,23 @@ func cloneScope(sc *taskv1.PostScope) *taskv1.PostScope {
 }
 
 // emitComments publishes one page of comments and their media. It returns
-// how many comments were seen and how many were older than watermark.
+// how many comments were seen and how many were older than watermark, and
+// counts those after newSince in st.NewSeen.
 func emitComments(ctx context.Context, d *Deps, b *kafka.Batch, t *taskv1.Task, src emit.Source, res parse.CommentsResult,
-	watermark time.Time, st *checkpoint.State, c map[string]int64) (int, int, error) {
+	watermark, newSince time.Time, st *checkpoint.State, c map[string]int64) (int, int, error) {
 	older := 0
 	for _, cb := range res.Comments {
 		cm := cb.Comment
 		if cm.CreatedAt != nil {
-			u := cm.CreatedAt.AsTime().Unix()
-			if u > st.NewestSeenUnix {
+			if u := cm.CreatedAt.AsTime().Unix(); u > st.NewestSeenUnix {
 				st.NewestSeenUnix = u
 			}
-			if !watermark.IsZero() && cm.CreatedAt.AsTime().Before(watermark) {
-				older++
-			}
+		}
+		if !watermark.IsZero() && cm.CreatedAt != nil && cm.CreatedAt.AsTime().Before(watermark) {
+			older++
+		}
+		if newSince.IsZero() || cm.CreatedAt == nil || cm.CreatedAt.AsTime().After(newSince) {
+			st.NewSeen++
 		}
 		keep, err := d.Emit.Comment(ctx, b, src, cm)
 		if err != nil {
@@ -291,6 +310,9 @@ func emitComments(ctx context.Context, d *Deps, b *kafka.Batch, t *taskv1.Task, 
 		if !keep {
 			c["comments_redacted"]++
 			continue
+		}
+		for _, m := range cb.Media {
+			m.AuthorKey = cm.GetAuthor().GetAuthorKey() // so an erasure can find it in flight
 		}
 		n, err := d.media(ctx, b, t, src, cb.Media, true)
 		if err != nil {
@@ -337,6 +359,28 @@ func threadTasks(ctx context.Context, d *Deps, t *taskv1.Task, refs []parse.Thre
 	return out
 }
 
+// adoptIncomplete makes a pass over a post one of whose reply threads was
+// lost since its last pass read it whole, whoever planned the pass: a
+// newest-first read would never reach that old comment again. The pass
+// keeps the mark it began with (continuations and retries carry it) and
+// clears it once it has read the post whole. A retry of a pass already
+// under way (st, its checkpoint, has progress) doesn't take a mark set
+// meanwhile: its saved cursor belongs to its own read, and the threads it
+// spawned are done for this job, so the mark is left for the next pass.
+func (d *Deps) adoptIncomplete(ctx context.Context, t *taskv1.Task, sc *taskv1.PostScope, st checkpoint.State) {
+	// A retry carries its cursor on the task too (the checkpoint may be
+	// gone: a failed save, its TTL).
+	if t.Seq != 0 || sc.IncompleteMark != "" || st.Pages != 0 || st.Cursor != "" || t.Cursor != "" {
+		return
+	}
+	if mark := d.Ckpt.Incomplete(ctx, sc.PostId); mark != "" {
+		sc.IncompleteMark = mark
+		if t.Mode == fbv1.CrawlMode_CRAWL_MODE_INCREMENTAL {
+			t.Mode, sc.CommentsWatermark = fbv1.CrawlMode_CRAWL_MODE_FULL, nil
+		}
+	}
+}
+
 // ThreadStage paginates the replies of one comment.
 type ThreadStage struct{ D *Deps }
 
@@ -347,14 +391,17 @@ func (s *ThreadStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 	if sc == nil {
 		return Outcome{Result: Fail, Reason: "thread task without thread scope"}
 	}
-	id, err := d.identity(ctx, "replies", t.Attempt)
+	id, err := d.identity(ctx, "replies", t.Stalls)
 	if err != nil {
-		return retry(t, "", "30s", "no identity: "+err.Error(), c)
+		return noIdentity(t, err, c)
 	}
 	defer d.Pool.Release(id)
 	if pl, err := d.ensureBootstrapped(ctx, id, sc.PageId, t.Lane); err != nil {
-		if pl != nil {
+		switch {
+		case pl != nil:
 			return classOutcome(t, pl.Class, pl.Reason, t.Cursor, c)
+		case errors.Is(err, session.ErrPaced):
+			return pacedRetry(t, t.Cursor, err, c)
 		}
 		return retry(t, t.Cursor, "30s", "bootstrap: "+err.Error(), c)
 	}
@@ -408,13 +455,16 @@ func (s *ThreadStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 		if rep.OK() {
 			d.Shadow.CompareComments("replies", resp, res, cc)
 		}
+		for _, f := range rep.Optional {
+			metrics.ParseMissingField.WithLabelValues("replies", f).Inc()
+		}
 		if !rep.OK() {
 			metrics.ParseTotal.WithLabelValues("replies", "1", "drift").Inc()
 			return classOutcome(t, detect.SchemaDrift, fmt.Sprint(rep.Missing), st.Cursor, c)
 		}
 		metrics.ParseTotal.WithLabelValues("replies", "1", "ok").Inc()
 		b := d.Producer.NewBatch()
-		if _, _, err := emitComments(ctx, d, b, t, src, res, time.Time{}, &st, c); err != nil {
+		if _, _, err := emitComments(ctx, d, b, t, src, res, time.Time{}, time.Time{}, &st, c); err != nil {
 			return retry(t, st.Cursor, "30s", err.Error(), c)
 		}
 		nested := threadTasks(ctx, d, t, res.Threads, sc.PostId, sc.PageId, sc.PostCreatedAt)
@@ -440,6 +490,7 @@ func (s *ThreadStage) Run(ctx context.Context, t *taskv1.Task) Outcome {
 		if truncated {
 			c["threads_truncated"]++
 			_ = d.Jobs.UpdatePostState(ctx, t.JobId, sc.PostId, jobs.PostTruncated)
+			_ = d.Ckpt.MarkIncomplete(ctx, sc.PostId)
 		} else {
 			_ = d.Ckpt.SetThread(ctx, sc.CommentId, sc.ReportedReplyCount)
 		}
