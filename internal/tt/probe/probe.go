@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tidwall/gjson"
@@ -60,6 +61,10 @@ type Options struct {
 	BrowserNoSandbox bool
 	OEmbed           bool
 	MaxCaptchas      int
+	// Parallel is how many accounts are read at once, each on its own
+	// identity (and so its own exit, when the tier has enough); 1 reads them
+	// one after another.
+	Parallel int
 	// ImageDir, VideoDir and RawDir receive files; empty skips them.
 	ImageDir string
 	VideoDir string
@@ -82,42 +87,110 @@ func Run(ctx context.Context, o Options) Report {
 	if o.MaxCaptchas <= 0 {
 		o.MaxCaptchas = 10
 	}
+	if o.Parallel < 1 {
+		o.Parallel = 1
+	}
 	r := &runner{o: o, rep: Report{Version: o.Version, Tier: o.Tier, Fingerprint: o.Fingerprint, Signer: o.Signer, StartedAt: o.Now().UTC()},
 		cost: map[string]*Cost{}, rawSeen: map[string]bool{}}
 	r.noMs = *o.Client
 	r.noMs.Builder = ttclient.Builder{AcceptLanguage: o.AcceptLanguage, NoMsToken: true}
-	for i, name := range o.Accounts {
-		if ctx.Err() != nil {
-			r.rep.Summary.StoppedEarly = "operator"
-			break
-		}
-		if r.captchas >= o.MaxCaptchas {
-			r.rep.Summary.StoppedEarly = "captchas"
-			break
-		}
-		a := r.account(ctx, i, name)
-		r.rep.Accounts = append(r.rep.Accounts, a)
-		if a.Stopped {
-			r.rep.Summary.StoppedEarly = "operator"
-			break
-		}
-		if o.Progress != nil {
-			o.Progress(fmt.Sprintf("%s: %s, %d posts, %d comments", name, a.Page.Class, len(a.Posts), len(a.Comments)))
+	// Accounts go to Parallel workers in file order; the report keeps that
+	// order. A stop (Ctrl-C) or the captcha cap stops handing out accounts,
+	// and the ones in flight finish or stop.
+	// Each worker checks the stop and the cap as it picks up an account, so
+	// an account handed out before the cap was reached does not start after.
+	results := make([]*Account, len(o.Accounts))
+	skipped := make([]string, len(o.Accounts))
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for range o.Parallel {
+		wg.Go(func() {
+			for i := range jobs {
+				switch {
+				case ctx.Err() != nil:
+					skipped[i] = "operator"
+					continue
+				case r.captchaCount() >= o.MaxCaptchas:
+					skipped[i] = "captchas"
+					continue
+				}
+				a := r.account(ctx, i, o.Accounts[i])
+				results[i] = &a
+				r.progress(fmt.Sprintf("%s: %s, %d posts, %d comments", o.Accounts[i], a.Page.Class, len(a.Posts), len(a.Comments)))
+			}
+		})
+	}
+	stopped := ""
+dispatch:
+	for i := range o.Accounts {
+		select {
+		case jobs <- i:
+		case <-ctx.Done():
+			stopped = "operator"
+			break dispatch
 		}
 	}
+	close(jobs)
+	wg.Wait()
+	for i, a := range results {
+		if a == nil {
+			if stopped == "" {
+				stopped = skipped[i]
+			}
+			continue
+		}
+		r.rep.Accounts = append(r.rep.Accounts, *a)
+		if a.Stopped && stopped == "" {
+			stopped = "operator"
+		}
+	}
+	r.rep.Summary.StoppedEarly = stopped
 	r.summarise()
 	r.rep.FinishedAt = o.Now().UTC()
 	return r.rep
 }
 
 type runner struct {
-	o        Options
-	rep      Report
-	noMs     graphql.Client
-	cost     map[string]*Cost
-	captchas int
-	rawSeen  map[string]bool
-	pages    int
+	o    Options
+	noMs graphql.Client
+
+	// mu guards what the account workers share: the report's summary
+	// counters, the costs, the captcha count, the raw files seen and the
+	// pages saved. rep.Accounts is only written after the workers finish.
+	mu        sync.Mutex
+	rep       Report
+	cost      map[string]*Cost
+	captchas  int
+	rawSeen   map[string]bool
+	failedRaw int
+	pages     int
+}
+
+func (r *runner) captchaCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.captchas
+}
+
+// takePage reports whether one more page's HTML may be saved under raw/
+// (at most limit), counting it.
+func (r *runner) takePage(limit int) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.pages >= limit {
+		return false
+	}
+	r.pages++
+	return true
+}
+
+func (r *runner) progress(line string) {
+	if r.o.Progress == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.o.Progress(line)
 }
 
 // stepOf turns a response into a Step and books its cost.
@@ -129,6 +202,8 @@ func (r *runner) stepOf(kind string, resp *graphql.Response) Step {
 }
 
 func (r *runner) book(kind string, s Step) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if s.Class == detect.Checkpoint.String() {
 		r.captchas++
 	}
@@ -187,8 +262,7 @@ func (r *runner) account(ctx context.Context, index int, name string) Account {
 		return a
 	}
 	a.Page, a.PageForm = r.pageStep("profile_page", page, err, took)
-	if page != nil && r.pages < r.o.RawPages {
-		r.pages++
+	if page != nil && r.takePage(r.o.RawPages) {
 		r.saveRaw(name+"/profile_page.html", page.HTML)
 	}
 	if page != nil && a.PageForm != "ssr" {
@@ -332,7 +406,9 @@ func (r *runner) pageStep(kind string, p *session.PageLoad, err error, took time
 	switch {
 	case htmlx.IsChallenge(p.HTML):
 		form = "challenge"
+		r.mu.Lock()
 		r.rep.Summary.Challenges++
+		r.mu.Unlock()
 	case func() bool {
 		ud, ok := htmlx.Scope(p.HTML, htmlx.ScopeUserDetail)
 		return ok && ud.Get("userInfo.user").Exists()
@@ -450,8 +526,8 @@ func (r *runner) walk(ctx context.Context, id *session.Identity, a *Account, var
 			return
 		}
 		resp = nextResp
-		if r.o.Progress != nil && w.Pages%progressEvery == 0 {
-			r.o.Progress(fmt.Sprintf("%s: %d posts so far, back to %s", a.Username, w.Posts, w.Oldest.Format("2006-01-02")))
+		if w.Pages%progressEvery == 0 {
+			r.progress(fmt.Sprintf("%s: %d posts so far, back to %s", a.Username, w.Posts, w.Oldest.Format("2006-01-02")))
 		}
 	}
 }
@@ -575,7 +651,7 @@ func (r *runner) postPages(ctx context.Context, id *session.Identity, a *Account
 					a.pageVideoURL = smallestVideo(st.Get("video"))
 				}
 			}
-			if r.pages < r.o.RawPages+2 {
+			if r.takePage(r.o.RawPages + 2) {
 				r.saveRaw(a.Username+"/"+x.kind+".html", pl.HTML)
 			}
 		}
@@ -1190,14 +1266,18 @@ func (r *runner) keepRaw(kind string, body []byte, failed bool) {
 	if r.o.RawDir == "" {
 		return
 	}
+	r.mu.Lock()
 	if !failed && r.rawSeen[kind] {
+		r.mu.Unlock()
 		return
 	}
 	r.rawSeen[kind] = true
 	name := kind + ".json"
 	if failed {
-		name = fmt.Sprintf("failed/%s-%d.json", kind, len(r.rawSeen)+r.rep.Summary.Captchas)
+		r.failedRaw++
+		name = fmt.Sprintf("failed/%s-%d.json", kind, r.failedRaw)
 	}
+	r.mu.Unlock()
 	r.saveRaw(name, body)
 }
 

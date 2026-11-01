@@ -87,7 +87,7 @@ tks-spike browser-check
 |---|---|
 | `make tks-probe-dryrun` | The whole probe against the built-in `fakett` (whose app list needs a signature, as in the recordings), no traffic. Its summary must say `bootstrapped 3/3` |
 | `make tks-probe` | The test pass: `phase0/tt-accounts.txt`, one run per tier in `TKS_PROBE_TIERS`, with `--videos 1 --signer browser --oembed`, output `phase0/out-tt/` |
-| `make tks-probe-all` | The full pass: `phase0/tt-accounts-all.txt`, `--max-age-days 365 --max-list-pages 100 --covers 3 --videos 0 --count-checks 0`, output `phase0/out-tt-all/` |
+| `make tks-probe-all` | The full pass: `phase0/tt-accounts-all.txt`, `--max-age-days 365 --max-list-pages 100 --covers 3 --videos 0 --count-checks 0 --depth-checks 100000 --depth-days 365 --parallel 10`, output `phase0/out-tt-all/` |
 | `make tks-browser-check` | Checks that a Chromium is installed for `--signer browser` and prints the two commands that install Google Chrome if not |
 | `make tks-spike-bin` | Static binaries, to run the probe without a Go toolchain |
 
@@ -95,7 +95,7 @@ The runbook is [`docs/runbooks/tks-probe.md`](../runbooks/tks-probe.md).
 
 The accounts file holds one account per line: `username`, `@username` or a profile link; `#` starts a comment. The owner prepares it on the Mac and copies it to the droplet with `scp` (the runbook gives the exact command); no editing on the droplet.
 
-A full pass at 0.3 requests per second takes up to about 6 minutes per busy account: it reads at most 100 list pages (1,500 posts: about a year for most accounts, but only two to four weeks of a busy news channel, which the depth check covers), plus the comment and page steps. A few hundred accounts take a day or more inside `tmux`.
+A full pass at 0.3 requests per second takes up to about 6 minutes per busy account: it reads at most 100 list pages (1,500 posts: about a year for most accounts, but only two to four weeks of a busy news channel, which the depth check covers), plus the comment and page steps. **`--parallel N`** reads N accounts at once, each on its own identity; the first N identities take N different IPs of a static tier (round robin), and the second identity an account holds for a few calls (cursor check, no-cookie checks) may briefly share an IP with another account, so an IP's pace stays at 0.3 to 0.6 requests per second. N is capped at the tier's IP count (1 for `direct`). The report keeps the accounts file's order; a stop or the captcha cap stops starting new accounts. The full pass runs 10 at a time (the owner's choice, 2026-11-01): a few hundred accounts in about 2 to 4 hours inside `tmux`, and a first look at what several IPs sustain together (T20).
 
 ## 4. `fakett`, the fake TikTok it rehearses against
 

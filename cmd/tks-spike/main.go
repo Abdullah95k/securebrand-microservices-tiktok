@@ -94,6 +94,7 @@ func runProbe(args []string) int {
 	raw := fs.Bool("raw", true, "save TikTok's raw answers under <out-dir>/raw (first of each call kind, every failure, the first 3 pages' HTML)")
 	base := fs.String("base", ttclient.BaseURL, "TikTok base URL")
 	dryRun := fs.Bool("dry-run", false, "rehearse against a built-in fake TikTok (no traffic, no proxies)")
+	parallel := fs.Int("parallel", 1, "accounts read at once, each on its own identity and exit IP (at most the tier's IP count)")
 	_ = fs.Parse(args)
 
 	var names []string
@@ -126,14 +127,19 @@ func runProbe(args []string) int {
 			return 1
 		}
 	}
-	pool, err := newPool(cfg, *base, *fingerprint, *rps)
+	*parallel = max(*parallel, 1)
+	if n, capped := tierIPs(cfg, *tier); capped && !*dryRun && *parallel > n {
+		fmt.Fprintf(os.Stderr, "probe: --parallel %d lowered to %d: tier %s has %d exit IP(s), and each account gets its own\n", *parallel, max(n, 1), *tier, n)
+		*parallel = max(n, 1)
+	}
+	pool, err := newPool(cfg, *base, *fingerprint, *rps, *parallel)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "probe:", err)
 		return 1
 	}
 	var altPool *session.Pool
 	if *altFingerprint != "" {
-		if altPool, err = newPool(cfg, *base, *altFingerprint, *rps); err != nil {
+		if altPool, err = newPool(cfg, *base, *altFingerprint, *rps, 1); err != nil {
 			fmt.Fprintln(os.Stderr, "probe:", err)
 			return 1
 		}
@@ -165,14 +171,14 @@ func runProbe(args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	fmt.Fprintf(os.Stderr, "probe: %d accounts, tier %s, %.2f requests/s per identity, signer %s; Ctrl-C stops and keeps what was read\n",
-		len(names), *tier, *rps, *signer)
+	fmt.Fprintf(os.Stderr, "probe: %d accounts, %d at a time, tier %s, %.2f requests/s per identity, signer %s; Ctrl-C stops and keeps what was read\n",
+		len(names), *parallel, *tier, *rps, *signer)
 	rep := probe.Run(ctx, probe.Options{BaseURL: *base, Accounts: names, Tier: *tier, Pool: pool, AltPool: altPool, AltFingerprint: *altFingerprint,
 		Loader:         &session.Loader{Rules: rules, AcceptLanguage: acceptLanguage, Hooks: ttclient.Hooks()},
 		Client:         &graphql.Client{Registry: registry.NewStatic(seed), Rules: rules, Builder: ttclient.Builder{AcceptLanguage: acceptLanguage}, Decode: ttclient.Decode},
 		AcceptLanguage: acceptLanguage, Fingerprint: *fingerprint, Version: version,
 		MaxListPages: *maxPages, MaxAge: time.Duration(*maxAge) * 24 * time.Hour, MaxCommentPages: *maxComments, CountChecks: *countChecks,
-		DepthChecks: *depthChecks, DepthDays: days,
+		DepthChecks: *depthChecks, DepthDays: days, Parallel: *parallel,
 		Covers: *covers, Videos: *videos, Signer: *signer, BrowserBinary: bin, BrowserNoSandbox: os.Getenv("TKS_BROWSER_NO_SANDBOX") != "" || os.Geteuid() == 0,
 		OEmbed: *oembed || *dryRun, MaxCaptchas: *maxCaptchas, ImageDir: imageDir, VideoDir: videoDir, RawDir: rawDir, RawPages: 3,
 		Progress: func(line string) { fmt.Fprintln(os.Stderr, "probe:", line) }})
@@ -201,7 +207,29 @@ func runProbe(args []string) int {
 	return 0
 }
 
-func newPool(cfg *config.Config, base, fingerprint string, rps float64) (*session.Pool, error) {
+// tierIPs returns how many exit IPs a tier has, and whether that caps
+// --parallel: a static list has its endpoints, direct has this machine's
+// one; a rotating gateway does not cap it.
+func tierIPs(cfg *config.Config, tier string) (int, bool) {
+	if tier == "direct" {
+		return 1, true
+	}
+	for _, t := range cfg.FB.Proxy.Tiers {
+		if t.Name == tier {
+			if t.Kind == "static_list" {
+				return len(t.Endpoints), true
+			}
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+// newPool builds the identity pool. An account holds its own identity and,
+// for a few calls at a time, one more (a second identity for the cursor
+// check, a bare one for the no-cookie checks), so the pool allows two per
+// parallel account and some slack.
+func newPool(cfg *config.Config, base, fingerprint string, rps float64, parallel int) (*session.Pool, error) {
 	fpBytes, err := configs.FS.ReadFile("fingerprints.yaml")
 	if err != nil {
 		return nil, err
@@ -218,7 +246,7 @@ func newPool(cfg *config.Config, base, fingerprint string, rps float64) (*sessio
 		return nil, err
 	}
 	return session.NewPool(session.PoolConfig{BaseURL: base, Profile: fingerprint, Timeout: 30 * time.Second,
-		IdentityRPS: rps, IdentityBurst: 1, MaxRequestsMin: 100000, MaxRequestsMax: 100001, MaxPerTier: 8}, proxies, fps, nil)
+		IdentityRPS: rps, IdentityBurst: 1, MaxRequestsMin: 100000, MaxRequestsMax: 100001, MaxPerTier: max(8, 2*parallel+2)}, proxies, fps, nil)
 }
 
 func browserCheck() int {
