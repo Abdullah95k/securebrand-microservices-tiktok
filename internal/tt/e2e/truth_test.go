@@ -18,7 +18,8 @@ type truth struct {
 // sameStore compares what schema tt holds for an account with fakett's
 // ground truth (build brief §8, A6): the account and its username history,
 // every post with its latest counts (in posts and as the newest metrics
-// row), every top-level comment and reply with its author, nothing else.
+// row), every top-level comment and reply with its author, and no other
+// visible comment (those TikTok stopped serving are marked deleted).
 func sameStore(t *testing.T, s *Stack, acc *fakett.Account, tr truth) {
 	t.Helper()
 	ctx := context.Background()
@@ -101,7 +102,7 @@ func sameStore(t *testing.T, s *Stack, acc *fakett.Account, tr truth) {
 	rows, err = db.Query(ctx, `SELECT c.comment_id, c.parent_comment_id, c.depth, c.text, c.like_count, c.reply_count,
 			c.author_user_id, c.status, c.redacted, encode(c.author_key, 'hex'), p.author_key IS NOT NULL
 		FROM comments c LEFT JOIN people p ON p.author_key = c.author_key AND p.user_id IS NOT NULL
-		WHERE c.user_id = $1`, acc.UID)
+		WHERE c.user_id = $1 AND c.status = 'visible'`, acc.UID)
 	if err != nil {
 		t.Fatal(err)
 	}

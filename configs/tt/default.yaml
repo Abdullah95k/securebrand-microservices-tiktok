@@ -129,6 +129,12 @@ tt:
     # Top-level comments plus replies read per post and pass. After Phase 0.
     max_per_post: 1000
     include_replies: true
+    # A whole read marks the stored comments it did not return as deleted
+    # only when what it returned (comments plus the replies TikTok counts
+    # for them) is within this share of the post's comment count: TikTok's
+    # count includes comments it does not serve (T15; one post read to the
+    # end had 96 % in the recordings). After Phase 0.
+    deletion_slack: 0.1
   # Media downloads (build brief D5): off until the analysis service exists.
   # Metadata (covers, photos, video renditions, avatars) is always published;
   # TKS_TT__MEDIA__INCLUDE=true queues the downloads too.

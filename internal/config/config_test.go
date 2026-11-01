@@ -189,8 +189,9 @@ func TestTTValidate(t *testing.T) {
 		"windows order": {func(t *TT) {
 			t.Freshness.CommentWindows = []CommentWindow{{MaxAge: 48 * time.Hour, Interval: time.Hour}, {MaxAge: time.Hour, Interval: time.Hour}}
 		}, "comment_windows"},
-		"comment order": {func(t *TT) { t.Comments.Order = "time" }, "tt.comments.order"},
-		"comment cap":   {func(t *TT) { t.Comments.MaxPerPost = -1 }, "max_per_post"},
+		"comment order":  {func(t *TT) { t.Comments.Order = "time" }, "tt.comments.order"},
+		"comment cap":    {func(t *TT) { t.Comments.MaxPerPost = -1 }, "max_per_post"},
+		"deletion slack": {func(t *TT) { t.Comments.DeletionSlack = 1.5 }, "deletion_slack"},
 	} {
 		c, err := Load("")
 		if err != nil {
