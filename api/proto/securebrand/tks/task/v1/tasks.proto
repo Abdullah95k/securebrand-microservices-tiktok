@@ -88,6 +88,14 @@ message PostScope {
   int64 items_seen = 5;
   // Top-level comments this read found that were not stored before.
   int64 new_seen = 6;
+  // The account's username and the post's kind, for the post's page (the
+  // comment calls' referer, and an identity's bootstrap).
+  string username = 7;
+  bool photo = 8;
+  // The post's incomplete mark (a reply thread lost since its last whole
+  // read) this read began with: it re-reads every thread, and clears the
+  // mark once it read the post whole.
+  string incomplete_mark = 9;
 }
 
 message ThreadScope {
@@ -98,6 +106,8 @@ message ThreadScope {
   // reply_comment_total when the task was made.
   int64 reported_reply_count = 5;
   int64 items_seen = 6;
+  string username = 7;
+  bool photo = 8;
 }
 
 message MediaScope {

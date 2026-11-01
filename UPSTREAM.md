@@ -47,6 +47,8 @@ igs has not generalised the crawl pipeline (igs main `670a762`, 2026-11-01), so 
 
 Additions to shared code for them (no change for the copied pipeline): `gdpr.Suppression.ForAccounts` (tks's `account` subjects where fbs has `page`), `checkpoint.State.Stuck`, `checkpoint.PostCache.ReadAt`, the metric `tks_list_stops_total`.
 
+M5b added `internal/tt/stage/post.go` (the post and thread stages, from `internal/crawl/stage/post.go`: TikTok's ranked comments are re-read whole to the cap instead of newest first, threads are skipped when their reply count did not grow, and an identity is bootstrapped on the post's page) and these additions to shared code, each off unless a caller sets it (no change for the copied pipeline): `graphql.Client.Signer` and `graphql.ErrSign` (a signer gives a built request its final URL and headers just before it is sent: docs/tiktok ADR 0006 §4), `browser.Session.Sign` (the page's script changes a call, which is then failed instead of sent, and its URL returned), `jobs.PostPartial`, the metrics `tks_signer_*` and `tks_comment_reads_total`.
+
 ## tks fixes igs or fbs may want
 
 Fixes made in tks's copy of shared code that igs or fbs still lack. Their own sessions decide whether to port them.

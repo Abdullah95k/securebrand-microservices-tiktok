@@ -262,6 +262,35 @@ func (w *World) addComment(p *Post, t time.Time) {
 	w.comments[cm.ID] = cm
 }
 
+// AddReplies adds n replies to the comment c, at the world's present.
+func (w *World) AddReplies(c *Comment, n int) {
+	w.Mutate(func() {
+		for range n {
+			i := len(c.Replies)
+			rp := &Comment{ID: ItemID(w.Now, w.rng.Uint32()), Created: w.Now, Likes: int64(w.rng.IntN(20)),
+				Text: fmt.Sprintf("late reply %d to comment %d", i, c.ID), Author: Person{UID: ItemID(w.Now.Add(-900*24*time.Hour), w.rng.Uint32()),
+					SecUID: fmt.Sprintf("MS4wLjABAAAAlaterep%06d%08x", i, w.rng.Uint32()), Username: fmt.Sprintf("late_replier_%d", i), Nickname: fmt.Sprintf("late replier %d", i)}}
+			c.Replies = append(c.Replies, rp)
+			w.comments[rp.ID] = rp
+		}
+	})
+}
+
+// DeleteComment removes a top-level comment (with its replies) or a
+// reply: it is no longer served.
+func (w *World) DeleteComment(p *Post, c *Comment) {
+	w.Mutate(func() {
+		p.Comments = slices.DeleteFunc(p.Comments, func(x *Comment) bool { return x == c })
+		for _, top := range p.Comments {
+			top.Replies = slices.DeleteFunc(top.Replies, func(x *Comment) bool { return x == c })
+		}
+		delete(w.comments, c.ID)
+		for _, r := range c.Replies {
+			delete(w.comments, r.ID)
+		}
+	})
+}
+
 // DeletePost removes a post: it is no longer listed or served.
 func (w *World) DeletePost(p *Post) {
 	w.Mutate(func() {

@@ -172,7 +172,7 @@ func (w *Worker) Run(ctx context.Context, t *tkstaskv1.Task) error {
 // costKeys are the counters a retried attempt adds to its job for the work
 // its checkpoint did not save: what it cost and why it failed, not what it
 // collected (the retry collects that again).
-var costKeys = []string{"requests", "wire_bytes", "blocked", "soft_errors", "transport_errors", "drift"}
+var costKeys = []string{"requests", "wire_bytes", "blocked", "soft_errors", "transport_errors", "drift", "sign_errors"}
 
 // unsaved returns c less what the checkpoint saved, keeping what grew.
 func unsaved(c, saved map[string]int64) map[string]int64 {

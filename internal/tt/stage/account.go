@@ -546,7 +546,7 @@ func (s *AccountStage) posts(ctx context.Context, b *kafka.Batch, t *tkstaskv1.T
 		}
 		c["posts"]++
 		c["media_queued"] += n
-		child, state := s.commentsTask(ctx, t, w.mode, p)
+		child, state := s.commentsTask(ctx, t, sc, w.mode, p)
 		if child == nil {
 			_, _ = d.Jobs.SetPost(ctx, t.JobId, p.PostId, created.Unix(), p.GetCounts().GetComments(), state)
 			if state == jobs.PostSkipped && t.Limits.GetIncludeComments() {
@@ -566,7 +566,7 @@ func (s *AccountStage) posts(ctx context.Context, b *kafka.Batch, t *tkstaskv1.T
 // §4, §5): never read, or its comment count went up since the last read
 // and its comment window allows another read. A post past the last window
 // is read again only on a metrics walk (REFRESH) that sees its count grow.
-func (s *AccountStage) commentsTask(ctx context.Context, t *tkstaskv1.Task, mode commonv1.CrawlMode, p *ttv1.Post) (*tkstaskv1.Task, string) {
+func (s *AccountStage) commentsTask(ctx context.Context, t *tkstaskv1.Task, sc *tkstaskv1.AccountScope, mode commonv1.CrawlMode, p *ttv1.Post) (*tkstaskv1.Task, string) {
 	d := s.D
 	if !t.Limits.GetIncludeComments() {
 		return nil, jobs.PostSkipped
@@ -584,7 +584,10 @@ func (s *AccountStage) commentsTask(ctx context.Context, t *tkstaskv1.Task, mode
 			return nil, jobs.PostSkipped
 		}
 	}
-	scope := &tkstaskv1.PostScope{PostId: p.PostId, UserId: p.UserId, CreatedAt: p.CreatedAt, CommentCountSeen: prev.Reported}
+	// The count the read is planned on: the post is read again once its
+	// count goes past it.
+	scope := &tkstaskv1.PostScope{PostId: p.PostId, UserId: p.UserId, CreatedAt: p.CreatedAt, CommentCountSeen: count,
+		Username: sc.Username, Photo: p.Kind == ttv1.PostKind_POST_KIND_PHOTO}
 	// Ranked comments (T13) are re-read to the cap on every read; a newest
 	// first order would read only what is new (tt.comments.order).
 	cmode := commonv1.CrawlMode_CRAWL_MODE_FULL

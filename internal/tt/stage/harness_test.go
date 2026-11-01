@@ -36,7 +36,8 @@ import (
 // it reads every task record the stages produce and hands it to the worker
 // at once (parked retries too, without their wait), and keeps every public
 // record for the test to compare with fakett's ground truth. Post and thread
-// tasks are kept, not run (their stages come with M5b), and counted done.
+// tasks run too when runComments is set; otherwise they are kept, not run,
+// and counted done (the account stage's own tests).
 type harness struct {
 	t      *testing.T
 	env    *tttest.Env
@@ -47,6 +48,8 @@ type harness struct {
 	// redeliver hands every task record to the worker twice, as Kafka may
 	// after a crash before the offset commit.
 	redeliver bool
+	// runComments runs post and thread tasks through the worker.
+	runComments bool
 
 	mu   sync.Mutex
 	recs map[string][]*kgo.Record // by topic, without the prefix
@@ -120,7 +123,8 @@ func newHarness(t *testing.T, o tttest.Options) *harness {
 	t.Cleanup(cl.Close)
 	h := &harness{t: t, env: env, d: d, prefix: prefix, cl: cl, recs: map[string][]*kgo.Record{}}
 	h.w = &Worker{D: d, LeaseTTL: time.Minute, MaxAttempts: 6,
-		Stages: map[tkstaskv1.Kind]Stage{tkstaskv1.Kind_KIND_ACCOUNT: &AccountStage{D: d, SoftPause: 10 * time.Millisecond}}}
+		Stages: map[tkstaskv1.Kind]Stage{tkstaskv1.Kind_KIND_ACCOUNT: &AccountStage{D: d, SoftPause: 10 * time.Millisecond},
+			tkstaskv1.Kind_KIND_POST: &PostStage{D: d}, tkstaskv1.Kind_KIND_THREAD: &ThreadStage{D: d}}}
 	return h
 }
 
@@ -170,7 +174,8 @@ func (h *harness) drain(job string) jobs.Status {
 			h.recs[base] = append(h.recs[base], r)
 			h.mu.Unlock()
 			switch {
-			case strings.HasPrefix(base, "tks.task.account."), strings.HasPrefix(base, "tks.task.retry."):
+			case strings.HasPrefix(base, "tks.task.account."), strings.HasPrefix(base, "tks.task.retry."),
+				h.runComments && (strings.HasPrefix(base, "tks.task.post.") || strings.HasPrefix(base, "tks.task.thread.")):
 				for range 1 + btoi(h.redeliver) {
 					if err := h.w.Handle(ctx, r); err != nil {
 						h.t.Fatalf("handle %s: %v", base, err)
@@ -232,6 +237,8 @@ func hasJob(m proto.Message, job string) bool {
 	case *ttv1.Music:
 		obs = v.Obs
 	case *ttv1.Media:
+		obs = v.Obs
+	case *ttv1.Comment:
 		obs = v.Obs
 	case *tkstaskv1.Task:
 		return v.JobId == job

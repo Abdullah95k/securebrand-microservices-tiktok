@@ -439,7 +439,13 @@ func (s *Server) commentPage(w http.ResponseWriter, q url.Values, list []*Commen
 	end := min(off+count, len(list))
 	var out []any
 	for _, c := range list[min(off, end):end] {
-		out = append(out, comment(c, item, parent))
+		m := comment(c, item, parent)
+		if parent == "0" && len(c.Replies) > 0 {
+			// The web app's inline preview: the first reply under the
+			// comment (reply_comment; the recordings).
+			m["reply_comment"] = []any{comment(c.Replies[0], item, strconv.FormatInt(c.ID, 10))}
+		}
+		out = append(out, m)
 	}
 	more := 0
 	if end < len(list) {
