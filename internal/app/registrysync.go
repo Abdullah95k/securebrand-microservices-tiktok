@@ -50,7 +50,8 @@ func NewRegistrySync(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, 
 		rc.Tier = proxies.TiersFor("registry_sync")[0]
 	}
 	pool, err := session.NewPool(session.PoolConfig{
-		BaseURL: cfg.FB.BaseURL, Profile: cfg.FB.FingerprintProfile, Timeout: cfg.FB.RequestTimeout,
+		BaseURL: cfg.FB.BaseURL, Profile: cfg.FB.FingerprintProfile, Profiles: cfg.FB.FingerprintProfiles,
+		Timeout:     cfg.FB.RequestTimeout,
 		IdentityRPS: cfg.FB.IdentityRPS, IdentityBurst: cfg.FB.IdentityBurst,
 		MaxRequestsMin: cfg.FB.IdentityMaxRequestsMin, MaxRequestsMax: cfg.FB.IdentityMaxRequestsMax,
 		MaxPerTier: len(rc.CanaryPages) + 2,
@@ -58,7 +59,10 @@ func NewRegistrySync(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, 
 	if err != nil {
 		return nil, nil, err
 	}
-	rules := detect.DefaultRules()
+	rules, err := detect.DefaultRules().Apply(detect.Overrides(cfg.FB.Detect))
+	if err != nil {
+		return nil, nil, fmt.Errorf("fb.detect: %w", err)
+	}
 	s := &registrysync.Sync{
 		DB: db, Cfg: rc, Pool: pool, Rules: rules, Params: reg.ClientParams,
 		Loader:         &session.Loader{Rules: rules, AcceptLanguage: cfg.FB.AcceptLanguage, Hooks: fbclient.Hooks(cfg.FB.AcceptLanguage)},
@@ -70,6 +74,7 @@ func NewRegistrySync(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, 
 		if err != nil {
 			return nil, nil, fmt.Errorf("fb.browser is enabled: %w", err)
 		}
+		b.Rules = rules
 		s.Loader.Browser = b
 		s.Render = b.Capture
 	}

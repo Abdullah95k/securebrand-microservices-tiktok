@@ -45,6 +45,12 @@ func (w *Worker) Handle(ctx context.Context, rec *kgo.Record) error {
 	if err := proto.Unmarshal(rec.Value, &t); err != nil {
 		return w.deadLetterRaw(ctx, rec, "undecodable", err.Error())
 	}
+	if _, ok := w.Stages[t.Kind]; !ok {
+		// Dead-lettered as received: a kind this worker has no stage for
+		// (an empty record, a newer producer, another service's task) may
+		// have no topic name of its own (topics.Task panics on it).
+		return w.deadLetterRaw(ctx, rec, "no_stage", "no stage for kind "+t.Kind.String())
+	}
 	return w.Run(ctx, &t)
 }
 
@@ -55,7 +61,10 @@ func (w *Worker) Run(ctx context.Context, t *taskv1.Task) error {
 	lane := topics.LaneName(t.Lane)
 	st, ok := w.Stages[t.Kind]
 	if !ok {
-		return w.deadLetter(ctx, t, "no_stage", "no stage for kind "+t.Kind.String(), nil)
+		// Handle dead-letters these as received; a caller of Run gets an
+		// error (dead-lettering one needs its topic, which an unknown kind
+		// does not have).
+		return fmt.Errorf("stage: no stage for kind %v", t.Kind)
 	}
 	if d.Jobs.Cancelled(ctx, t.JobId) {
 		metrics.Tasks.WithLabelValues(name, lane, "cancelled").Inc()

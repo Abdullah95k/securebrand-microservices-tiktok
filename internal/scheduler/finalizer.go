@@ -152,6 +152,11 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	if st.Pending > 0 && status != "cancelling" {
+		// Reopened since it was queued (a dead letter replayed: fbctl dlq
+		// replay): its last task's Done queues it again.
+		return nil
+	}
 	posts, err := f.Jobs.Posts(ctx, id)
 	if err != nil {
 		return err

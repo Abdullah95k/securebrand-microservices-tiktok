@@ -169,3 +169,60 @@ func TestFullPasses(t *testing.T) {
 		t.Fatalf("after clear: %v %v %v", done, posts, seen)
 	}
 }
+
+// Reopen takes a finished task back into its job (a dead letter replayed):
+// pending again, no longer failed, the job out of the finalize set, and
+// its keys kept for the full retention again. A task not done, a task the
+// job never spawned and a job whose state is gone are left alone.
+func TestReopen(t *testing.T) {
+	mr := miniredis.RunT(t)
+	r := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	tr := New(r)
+	ctx := context.Background()
+	if err := tr.Spawn(ctx, "j", "root", "a", "b"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"root", "a"} {
+		if _, err := tr.Done(ctx, "j", id, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ok, err := tr.Reopen(ctx, "j", "b"); ok || err != nil {
+		t.Fatalf("a task not done was reopened: %v %v", ok, err)
+	}
+	if _, err := tr.Done(ctx, "j", "b", map[string]int64{"tasks_failed": 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Expire(ctx, "j", 24*time.Hour); err != nil { // as the finalizer does
+		t.Fatal(err)
+	}
+	if ok, err := tr.Reopen(ctx, "j", "stranger"); ok || err != nil {
+		t.Fatalf("a task never spawned was reopened: %v %v", ok, err)
+	}
+	if ok, err := tr.Reopen(ctx, "j", "b"); !ok || err != nil {
+		t.Fatalf("reopen: %v %v", ok, err)
+	}
+	st, _ := tr.Status(ctx, "j")
+	if st.Pending != 1 || st.Done != 2 || st.Counters["tasks_failed"] != 0 {
+		t.Fatalf("after reopening: %+v", st)
+	}
+	if ttl := mr.TTL(key("j", "done")); ttl < 6*24*time.Hour {
+		t.Fatalf("the job's keys keep the finalised job's short retention: %s", ttl)
+	}
+	if ready, _ := tr.ReadyToFinalize(ctx, 10); len(ready) != 0 {
+		t.Fatalf("a reopened job is still queued for finalisation: %v", ready)
+	}
+	if ok, _ := tr.Reopen(ctx, "j", "b"); ok {
+		t.Fatal("reopened twice")
+	}
+	if p, err := tr.Done(ctx, "j", "b", nil); err != nil || p != 0 {
+		t.Fatalf("done again: %d %v", p, err)
+	}
+	if ready, _ := tr.ReadyToFinalize(ctx, 10); len(ready) != 1 {
+		t.Fatalf("not queued again: %v", ready)
+	}
+	mr.FastForward(8 * 24 * time.Hour)
+	if ok, err := tr.Reopen(ctx, "j", "b"); ok || err != nil {
+		t.Fatalf("a job whose state is gone was reopened: %v %v", ok, err)
+	}
+}

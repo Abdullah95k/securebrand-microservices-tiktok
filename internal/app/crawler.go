@@ -98,7 +98,8 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 		}
 	}
 	pool, err := session.NewPool(session.PoolConfig{
-		BaseURL: cfg.FB.BaseURL, Profile: cfg.FB.FingerprintProfile, Timeout: cfg.FB.RequestTimeout,
+		BaseURL: cfg.FB.BaseURL, Profile: cfg.FB.FingerprintProfile, Profiles: cfg.FB.FingerprintProfiles,
+		Timeout:     cfg.FB.RequestTimeout,
 		IdentityRPS: cfg.FB.IdentityRPS, IdentityBurst: cfg.FB.IdentityBurst,
 		MaxRequestsMin: cfg.FB.IdentityMaxRequestsMin, MaxRequestsMax: cfg.FB.IdentityMaxRequestsMax,
 		MaxPerTier: max(16, slots*len(cfg.Crawler.Stages)*13/10),
@@ -106,7 +107,10 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 	if err != nil {
 		return nil, err
 	}
-	rules := detect.DefaultRules()
+	rules, err := detect.DefaultRules().Apply(detect.Overrides(cfg.FB.Detect))
+	if err != nil {
+		return nil, fmt.Errorf("fb.detect: %w", err)
+	}
 	gql := &graphql.Client{
 		Registry: reg, Rules: rules, Limiter: ratelimit.NewRedis(rdb),
 		PageRPS: cfg.FB.PageRPS, PageRPSFast: cfg.FB.PageRPSP0, GlobalRPS: cfg.FB.GlobalRPS,
@@ -124,6 +128,7 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 		if err != nil {
 			return nil, fmt.Errorf("fb.browser is enabled: %w", err)
 		}
+		b.Rules = rules
 		loader.Browser = b
 	}
 	deps := &stage.Deps{

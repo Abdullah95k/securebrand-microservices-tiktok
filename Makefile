@@ -45,7 +45,7 @@ infra-down:
 
 ## Integration tests against real Postgres/Redpanda/Valkey (make infra-up first).
 test-integration:
-	$(TEST_ENV) $(GO) test -count=1 ./internal/persist/... ./internal/e2e/... ./internal/spike/... ./internal/registrysync/... ./internal/platform/schemareg/...
+	$(TEST_ENV) $(GO) test -count=1 -timeout 25m ./...
 
 ## Load tests against fakefb (opt-in; prints a report). Size with
 ## TKS_LOADTEST_PAGES, _POSTS, _COMMENTS, _ROWS, _LATENCY; TKS_LOADTEST_OUT=file.

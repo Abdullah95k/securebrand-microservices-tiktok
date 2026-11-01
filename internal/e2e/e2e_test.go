@@ -17,6 +17,7 @@ import (
 
 	fbv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/api"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakefb"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/pilot"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/redisx"
@@ -140,6 +141,24 @@ func TestEndToEnd(t *testing.T) {
 	}
 	if n := count(t, s, `SELECT count(*) FROM pages WHERE page_id = $1 AND name = $2 AND followers_count > 0`, page.ID, page.Name); n != 1 {
 		t.Fatal("page profile not stored")
+	}
+	// A job belongs to the client that made it (and admins): others get
+	// 404. Before M2 any client could read, cancel and download another's.
+	other := s.Key(t, api.ScopeJobsWrite, api.ScopeDataRead)
+	for _, c := range []struct{ key, method, path string }{
+		{other, "GET", "/v1/jobs/" + j.ID}, {other, "GET", "/v1/jobs/" + j.ID + "/results"}, {other, "POST", "/v1/jobs/" + j.ID + "/cancel"},
+	} {
+		resp := s.Do(t, c.key, c.method, c.path, nil)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("another client: %s %s = %d", c.method, c.path, resp.StatusCode)
+		}
+	}
+	if v := decodeBody[jobView](t, s.Do(t, adminKey, "GET", "/v1/jobs/"+j.ID, nil), http.StatusOK); v.ID != j.ID {
+		t.Fatalf("admin read %+v", v)
+	}
+	if v := decodeBody[jobView](t, s.Do(t, key, "GET", "/v1/jobs/"+j.ID, nil), http.StatusOK); v.Status != "completed" {
+		t.Fatalf("the owner's read %+v", v)
 	}
 	if n := count(t, s, `SELECT count(*) FROM comments WHERE page_id = $1 AND depth = 2`, page.ID); n == 0 {
 		t.Fatal("expected depth-2 replies")
@@ -313,11 +332,19 @@ func TestEndToEnd(t *testing.T) {
 func TestBlockedIdentitiesRetryAndTruncation(t *testing.T) {
 	// Every 4th GraphQL request of an identity is rate limited; tasks must
 	// retry on other identities and still collect everything.
+	//
+	// Up to a quarter of a task's attempts can stall (the first request of
+	// the attempt is its identity's 4th), so with the default cap of 5
+	// stalls in a row about one task in a thousand was dead-lettered and
+	// the job ended partial: the test failed now and then (igs's PR #1).
+	// The cap is TestExhausted's subject; here it is 12, which a task
+	// reaches about once in 17 million, while a job that needs more than
+	// 8 retries in a row of one task (4 minutes) times out instead.
 	s := Start(t, Options{
 		Spec:   fakefb.Spec{Seed: 7, Pages: 1, PostsPerPage: 6, PostSpacing: 20 * time.Hour, MaxComments: 40, ReplyProbability: 0.3, MaxReplies: 12, Depth2Prob: 0.2},
 		Faults: fakefb.Faults{RateLimitEvery: 4},
+		Config: func(c *config.Config) { c.Crawler.MaxAttempts = 12 },
 	})
-	// Retries go through the 30s retry topic; shorten the wait for the test.
 	key := s.Key(t, api.ScopeJobsWrite, api.ScopeDataRead)
 	page := s.Fake.World.Pages()[0]
 	j := s.runJobWithin(t, key, page.Vanity, 4*time.Minute)
@@ -396,5 +423,50 @@ func TestPageWithoutAnIDInItsHTML(t *testing.T) {
 	t.Logf("job %s %s: posts %d counters=%v", j.ID, j.Status, posts, j.Counters)
 	if j.Status != "completed" || posts != 3 {
 		t.Fatalf("page registered by id: status=%s posts=%d/3", j.Status, posts)
+	}
+}
+
+// max_comments_per_post caps a post's comments, not each segment of its
+// comment stream: a post task yields every crawler.yield_pages pages (2
+// here) and its continuation goes on counting. Before M2 the count
+// started again at every continuation, so a cap above one segment's
+// comments never applied (fbs reference, Known issues).
+func TestCommentCapSpansSegments(t *testing.T) {
+	s := Start(t, Options{
+		Spec: fakefb.Spec{Seed: 5, Pages: 1, PostsPerPage: 6, PostSpacing: 20 * time.Hour, MaxComments: 1200},
+	})
+	const capPerPost = 120
+	key := s.Key(t, api.ScopeJobsWrite, api.ScopeDataRead)
+	page := s.Fake.World.Pages()[0]
+	body := fmt.Sprintf(`{"page":%q,"max_comments_per_post":%d,"include_replies":false}`, page.Vanity, capPerPost)
+	j := decodeBody[jobView](t, s.Do(t, key, "POST", "/v1/jobs", []byte(body)), http.StatusAccepted)
+	waitFor(t, "the job", 3*time.Minute, func() bool {
+		v := decodeBody[jobView](t, s.Do(t, key, "GET", "/v1/jobs/"+j.ID, nil), http.StatusOK)
+		j = v
+		return v.Status != "running" && v.Status != "queued" && v.Status != "finalizing"
+	})
+	truth, _ := s.Fake.World.TruthFor(page.ID, time.Time{})
+	capped := 0
+	for _, p := range truth.Posts {
+		got := count(t, s, `SELECT count(*) FROM comments WHERE post_id = $1`, p.PostID)
+		t.Logf("post %d: %d of %d top-level comments stored", p.PostID, got, p.TopLevel)
+		switch {
+		case p.TopLevel <= capPerPost:
+			if got != p.TopLevel {
+				t.Errorf("post %d under the cap: %d of %d comments", p.PostID, got, p.TopLevel)
+			}
+		default:
+			// The cap is checked after each page (25 comments in fakefb).
+			capped++
+			if got < capPerPost || got >= capPerPost+25 {
+				t.Errorf("post %d over the cap: %d comments stored, want %d to %d", p.PostID, got, capPerPost, capPerPost+24)
+			}
+		}
+	}
+	if capped == 0 {
+		t.Fatal("no post has more comments than the cap: pick another seed")
+	}
+	if j.Status != "completed" {
+		t.Fatalf("job %s", j.Status)
 	}
 }

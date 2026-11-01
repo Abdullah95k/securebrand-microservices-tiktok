@@ -11,6 +11,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/configs"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/breaker"
 	pconfig "github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 )
 
 // EnvPrefix is the prefix of environment variable overrides.
@@ -133,10 +134,14 @@ type S3 struct {
 }
 
 type FB struct {
-	BaseURL                string        `koanf:"base_url"`
-	RegistrySeed           string        `koanf:"registry_seed"`
-	RegistryRefresh        time.Duration `koanf:"registry_refresh"`
-	FingerprintProfile     string        `koanf:"fingerprint_profile"`
+	BaseURL            string        `koanf:"base_url"`
+	RegistrySeed       string        `koanf:"registry_seed"`
+	RegistryRefresh    time.Duration `koanf:"registry_refresh"`
+	FingerprintProfile string        `koanf:"fingerprint_profile"`
+	// FingerprintProfiles, when set, are the profiles new identities pick
+	// from at random, so a pod's identities do not all send one TLS and
+	// header fingerprint; empty means FingerprintProfile alone.
+	FingerprintProfiles    []string      `koanf:"fingerprint_profiles"`
 	Locale                 string        `koanf:"locale"`
 	AcceptLanguage         string        `koanf:"accept_language"`
 	RequestTimeout         time.Duration `koanf:"request_timeout"`
@@ -161,6 +166,34 @@ type FB struct {
 	// ShadowRate is the share of responses a registered candidate parser
 	// also parses (internal/crawl/shadow); nothing runs without one.
 	ShadowRate float64 `koanf:"shadow_rate"`
+	// Detect replaces parts of the built-in detect rules.
+	Detect Detect `koanf:"detect"`
+}
+
+// Detect replaces parts of the platform's built-in detect rules
+// (internal/scrape/detect), so a new error code, marker or HTTP status can
+// be classed without a deploy. A list that is set replaces the built-in
+// one; one left unset keeps it. Same fields as detect.Overrides, which it
+// converts to.
+type Detect struct {
+	RateLimitCodes   []int64 `koanf:"rate_limit_codes"`
+	SoftCodes        []int64 `koanf:"soft_codes"`
+	LoginCodes       []int64 `koanf:"login_codes"`
+	CheckpointCodes  []int64 `koanf:"checkpoint_codes"`
+	UnavailableCodes []int64 `koanf:"unavailable_codes"`
+	// StaleMessages are regular expressions matched against error messages.
+	StaleMessages         []string `koanf:"stale_messages"`
+	LoginMarkers          []string `koanf:"login_markers"`
+	BlockMarkers          []string `koanf:"block_markers"`
+	CheckpointPaths       []string `koanf:"checkpoint_paths"`
+	LoginPaths            []string `koanf:"login_paths"`
+	CheckpointPageMarkers []string `koanf:"checkpoint_page_markers"`
+	LoginPageMarkers      []string `koanf:"login_page_markers"`
+	// Statuses classes HTTP statuses before the built-in rules: "403" or
+	// "html:400" (page loads only; "graphql:" for API calls) to a class
+	// name: rate_limited, login_wall, checkpoint, soft_error,
+	// registry_stale, content_unavailable, transport or ok.
+	Statuses map[string]string `koanf:"statuses"`
 }
 
 // Browser configures the headless-Chromium fallback: bootstraps of pages
@@ -393,6 +426,9 @@ func MustLoadFromFlags(fs *flag.FlagSet, args []string) *Config {
 // Validate rejects configs that would misbehave at runtime.
 func (c *Config) Validate() error {
 	var errs []error
+	if _, err := detect.DefaultRules().Apply(detect.Overrides(c.FB.Detect)); err != nil {
+		errs = append(errs, fmt.Errorf("fb.detect: %w", err))
+	}
 	if c.Crawler.YieldPages <= 0 {
 		errs = append(errs, errors.New("crawler.yield_pages must be > 0"))
 	}

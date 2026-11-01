@@ -67,6 +67,11 @@ message PostScope {
   // INCREMENTAL: newest comment time already stored.
   google.protobuf.Timestamp comments_watermark = 7;
   int64 comments_seen = 8;
+  // Comments the stream's earlier segments read, so that
+  // limits.max_comments_per_post caps the post, not each segment. (9 and
+  // 10 are new_seen and incomplete_mark in fbs's copy; kept free so a port
+  // of them keeps fbs's numbers.)
+  int64 items_seen = 11;
 }
 
 message ThreadScope {

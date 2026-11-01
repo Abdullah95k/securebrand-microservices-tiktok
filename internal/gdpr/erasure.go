@@ -77,6 +77,12 @@ func (e *Eraser) process(ctx context.Context, r request) (map[string]int64, erro
 		ev.SubjectType, ev.AuthorKey = fbv1.SubjectType_SUBJECT_TYPE_AUTHOR, r.authorKey
 		var commentIDs []int64
 		err := pgx.BeginFunc(ctx, e.DB, func(tx pgx.Tx) error {
+			// Writers wait for this transaction (see Guard): what they wrote
+			// before is redacted here, what they write after is redacted by
+			// them.
+			if err := lockExclusive(ctx, tx); err != nil {
+				return err
+			}
 			if _, err := tx.Exec(ctx, `INSERT INTO suppression (subject_type, subject_key) VALUES ('author', $1) ON CONFLICT DO NOTHING`,
 				hex.EncodeToString(r.authorKey)); err != nil {
 				return err
@@ -109,8 +115,16 @@ func (e *Eraser) process(ctx context.Context, r request) (map[string]int64, erro
 		}
 		pid := *r.pageID
 		ev.SubjectType, ev.PageId = fbv1.SubjectType_SUBJECT_TYPE_PAGE, pid
-		if _, err := e.DB.Exec(ctx, `INSERT INTO suppression (subject_type, subject_key) VALUES ('page', $1) ON CONFLICT DO NOTHING`,
-			strconv.FormatInt(pid, 10)); err != nil {
+		// Once this commits, writers drop the page's data (see Guard);
+		// whatever they wrote before is deleted below.
+		if err := pgx.BeginFunc(ctx, e.DB, func(tx pgx.Tx) error {
+			if err := lockExclusive(ctx, tx); err != nil {
+				return err
+			}
+			_, err := tx.Exec(ctx, `INSERT INTO suppression (subject_type, subject_key) VALUES ('page', $1) ON CONFLICT DO NOTHING`,
+				strconv.FormatInt(pid, 10))
+			return err
+		}); err != nil {
 			return nil, err
 		}
 		n, err := e.deleteMedia(ctx, `page_id = $1`, pid)

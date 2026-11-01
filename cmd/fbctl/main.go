@@ -9,7 +9,7 @@
 //	fbctl registry set --file query.json
 //	fbctl registry import --file phase0/out/registry.yaml   make every query of a registry file active
 //	fbctl report load [--since 24h] [--pages N] [--cost-per-gb P]   requests, bytes and blocks per page per day
-//	fbctl dlq replay [--reason R] [--max N]
+//	fbctl dlq replay [--topic T] [--reason R] [--max N]
 //	fbctl replay [--query Q] [--since 24h] [--fixtures-dir DIR]   re-parse captured raw responses; exit 3 while some drift
 //	fbctl fixtures scrub --dir testdata/fb/<query>/<case>
 //	fbctl media ack --consumer analysis [--status processed]   (dev: simulate analysis-service acks)
@@ -41,7 +41,7 @@ commands:
   apikey revoke --prefix PREFIX
   registry list | registry set --file query.json | registry import --file registry.yaml
   report load [--since 24h] [--pages N] [--cost-per-gb P] [--json]
-  dlq replay [--reason R] [--max N]
+  dlq replay [--topic T] [--reason R] [--max N]
   replay [--prefix raw-failures] [--query Q,..] [--since 168h] [--fixtures-dir DIR --name N --samples 3]
   fixtures scrub --dir DIR
   media ack --consumer NAME [--status processed|failed_permanent|failed_retryable] [--max N]

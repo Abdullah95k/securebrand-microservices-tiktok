@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -62,5 +63,56 @@ func TestSchedulingDefaults(t *testing.T) {
 	c.Scheduler.Tiers[1].MinPostsPerDay = 50
 	if err := c.Validate(); err == nil {
 		t.Fatal("unordered tiers must fail validation")
+	}
+}
+
+// Detect rules come from the configuration too (fb.detect), and one the
+// classifier cannot read fails validation.
+func TestDetectOverrides(t *testing.T) {
+	c, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.FB.Detect.RateLimitCodes != nil || c.FB.Detect.Statuses != nil {
+		t.Fatalf("defaults must keep the built-in rules: %+v", c.FB.Detect)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(t.TempDir(), "d.yaml")
+	_ = os.WriteFile(f, []byte("fb:\n  detect:\n    rate_limit_codes: [77, 78]\n    block_markers: [\"slow down\"]\n    statuses:\n      \"403\": checkpoint\n      \"html:400\": content_unavailable\n"), 0o644)
+	if c, err = Load(f); err != nil {
+		t.Fatal(err)
+	}
+	d := c.FB.Detect
+	if len(d.RateLimitCodes) != 2 || d.RateLimitCodes[1] != 78 || len(d.BlockMarkers) != 1 || d.Statuses["html:400"] != "content_unavailable" {
+		t.Fatalf("fb.detect not loaded: %+v", d)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	c.FB.Detect.Statuses["403"] = "blocked"
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "fb.detect") {
+		t.Fatalf("an unknown class must fail validation: %v", err)
+	}
+}
+
+// A pod's identities can rotate fingerprint profiles (fb.fingerprint_profiles,
+// passed to session.PoolConfig.Profiles); by default they all use
+// fb.fingerprint_profile.
+func TestFingerprintProfiles(t *testing.T) {
+	c, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.FB.FingerprintProfiles) != 0 || c.FB.FingerprintProfile == "" {
+		t.Fatalf("defaults: %q %v", c.FB.FingerprintProfile, c.FB.FingerprintProfiles)
+	}
+	t.Setenv("TKS_FB__FINGERPRINT_PROFILES", "chrome_152,chrome_146")
+	if c, err = Load(""); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.FB.FingerprintProfiles) != 2 || c.FB.FingerprintProfiles[0] != "chrome_152" {
+		t.Fatalf("fb.fingerprint_profiles: %v", c.FB.FingerprintProfiles)
 	}
 }

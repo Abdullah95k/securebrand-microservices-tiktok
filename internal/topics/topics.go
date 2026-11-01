@@ -24,6 +24,11 @@ const (
 	Retry5m   = "fbs.task.retry.5m"
 	Retry1h   = "fbs.task.retry.1h"
 	DLQ       = "fbs.task.dlq"
+
+	// PersistQuarantine holds the records the persister set aside: those
+	// that do not decode or that Postgres refuses (tks.persist.dlq in
+	// tks's own names, M3; ADR 0007 §3).
+	PersistQuarantine = "fbs.persist.dlq"
 )
 
 // Entity lists the public entity topics the persister consumes; the job

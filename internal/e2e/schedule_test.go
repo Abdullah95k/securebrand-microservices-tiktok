@@ -142,6 +142,37 @@ func TestAdaptiveScheduleAndPostRefresh(t *testing.T) {
 	if got := count(t, s, `SELECT count(*) FROM comments WHERE page_id = $1`, page.ID); got != want {
 		t.Fatalf("comments %d, want %d", got, want)
 	}
+	// A scheduled job shows to the clients registered to its page, in the
+	// list and by id, and to no other client; none of them may cancel it.
+	type jobList struct {
+		Jobs []jobView `json:"jobs"`
+	}
+	listed := func(k string) bool {
+		for _, v := range decodeBody[jobList](t, s.Do(t, k, "GET", "/v1/jobs?limit=100", nil), http.StatusOK).Jobs {
+			if v.ID == jobID {
+				return true
+			}
+		}
+		return false
+	}
+	outsider := s.Key(t, api.ScopeDataRead, api.ScopeJobsWrite)
+	for _, c := range []struct {
+		key, method, path string
+		want              int
+	}{
+		{outsider, "GET", "/v1/jobs/" + jobID, http.StatusNotFound},
+		{outsider, "POST", "/v1/jobs/" + jobID + "/cancel", http.StatusNotFound},
+		{key, "POST", "/v1/jobs/" + jobID + "/cancel", http.StatusNotFound},
+	} {
+		resp := s.Do(t, c.key, c.method, c.path, nil)
+		_ = resp.Body.Close()
+		if resp.StatusCode != c.want {
+			t.Fatalf("%s %s = %d, want %d", c.method, c.path, resp.StatusCode, c.want)
+		}
+	}
+	if !listed(key) || listed(outsider) {
+		t.Fatalf("scheduled job visibility: registered client %v, outsider %v", listed(key), listed(outsider))
+	}
 }
 
 // TestOnDemandAdmission checks the fleet-wide cap on running on-demand jobs.

@@ -149,6 +149,30 @@ Symptom: `tks_parse_total{outcome="drift"}` (alert `TksSchemaDrift`), or a field
   - `tks_lane_slots{state="waiting",lane="p0"}` above 0 for long means on-demand work is queuing behind tasks that are still finishing. Tasks yield after `crawler.yield_after`, so it clears within a minute; if it persists, add pods.
 * Persister lag delays job completion (the finalizer waits up to
   `scheduler.finalize_timeout`). Scale the persister; check Postgres I/O.
+  A persister stuck on one batch logs `persist: batch failed; retrying`:
+  more than 3 records of the batch were refused (a code or schema change,
+  not a bad record), see [Persister quarantine](#persister-quarantine).
+
+## Persister quarantine
+
+The persister sets aside a record it cannot write, instead of retrying its
+batch for ever: one that does not decode, or one Postgres refuses for what
+it holds (a data exception, SQLSTATE class 22, a missing NOT NULL field, a
+value too large for its index). It goes to the quarantine topic
+`fbs.persist.dlq` (`tks.persist.dlq` from M3) with the original topic, the
+reason (`undecodable`, `refused`), the SQLSTATE and its partition and
+offset; the log line says the same, never the content (it is personal
+data). `tks_persist_quarantined_total{entity,reason}` counts them and
+`TksPersisterQuarantine` fires on any.
+
+1. Read the log lines (`persist: record set aside`) for the SQLSTATE and the
+   topic. `22021` is a NUL character in text; `22001` a value too long.
+2. Fix the parser, the emitter or the schema, and deploy.
+3. Replay the records as they are: `fbctl dlq replay --topic fbs.persist.dlq`.
+
+More than 3 refusals in one batch are taken for a systematic error: the
+batch is not set aside but retried, so the persister stalls and
+`TksPersisterLag` fires. Fix the cause; the batch is then written.
 
 ## Media backlog / TTL expiries
 
@@ -164,14 +188,25 @@ processes it within ~10s: suppression entry, comment redaction (rows stay as
 tombstones so coverage numbers stay correct), author row deletion, media
 deletion and an `fb.erasure.v1` event downstream must honour. Crawlers refresh
 the suppression set every `crawler.suppression_refresh` (60s) and redact
-before publishing, so re-scrapes never reintroduce the data. Kafka topics and
-raw payloads age out by retention (7 days).
+before publishing, so re-scrapes never reintroduce the data. The persister
+also checks the suppression table on every write, under a lock the erasure
+takes, so records already in Kafka when the erasure ran are dropped (or, for
+an author, stored redacted) instead of writing the data back. Kafka topics
+and raw payloads age out by retention (7 days).
 
 ## Stuck jobs
 
 The reaper marks jobs `partial` after `scheduler.reaper_after` (30m) without
 activity, or `failed` when their accounting state is gone. Inspect the DLQ
 and `GET /v1/jobs/{id}` counters.
+
+`fbctl dlq replay` sends dead-lettered tasks back to their topics, ready to
+run again: each task's done mark is cleared and its retries start afresh.
+Its job counts it as pending again and no longer as failed; a job already
+finalised goes back to `running` and is finalised again when the task (and
+all it spawns) finishes. A job finalised more than a day before has no
+accounting left: its tasks run (their data is stored) and the job keeps its
+final state. Tasks of cancelled jobs are skipped.
 
 ## Schedule and tiers
 

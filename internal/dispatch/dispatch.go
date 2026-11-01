@@ -273,7 +273,37 @@ func scanJob(row pgx.CollectableRow) (*Job, error) {
 
 // Get loads a job, merging live counters from Redis while it runs.
 func (d *Dispatcher) Get(ctx context.Context, id uuid.UUID) (*Job, error) {
-	rows, err := d.DB.Query(ctx, selectJob+` WHERE job_id = $1`, id)
+	return d.get(ctx, selectJob+` WHERE job_id = $1`, id)
+}
+
+// Access is what a client may do with a job.
+type Access int
+
+const (
+	// Read: the client made the job, or it is a scheduled job of a page
+	// the client registered.
+	Read Access = iota
+	// Write: the client made the job. A scheduled job is shared by every
+	// client registered to its page, so none of them alone may cancel it.
+	Write
+)
+
+// GetFor returns job id if client may access it as asked (pgx.ErrNoRows
+// otherwise, as for a missing job, so a client cannot tell another's job
+// from none); a nil client is an admin.
+func (d *Dispatcher) GetFor(ctx context.Context, id uuid.UUID, client *uuid.UUID, a Access) (*Job, error) {
+	switch {
+	case client == nil:
+		return d.Get(ctx, id)
+	case a == Write:
+		return d.get(ctx, selectJob+` WHERE job_id = $1 AND api_client_id = $2`, id, *client)
+	default:
+		return d.get(ctx, selectJob+` WHERE job_id = $1 AND `+visibleTo(2), id, *client)
+	}
+}
+
+func (d *Dispatcher) get(ctx context.Context, q string, args ...any) (*Job, error) {
+	rows, err := d.DB.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +312,7 @@ func (d *Dispatcher) Get(ctx context.Context, id uuid.UUID) (*Job, error) {
 		return nil, err
 	}
 	if j.Status == "running" || j.Status == "finalizing" || j.Status == "cancelling" {
-		if st, err := d.Jobs.Status(ctx, id.String()); err == nil {
+		if st, err := d.Jobs.Status(ctx, j.ID.String()); err == nil {
 			j.Counters = st.Counters
 			p := st.Pending
 			j.Pending = &p
@@ -297,7 +327,7 @@ func (d *Dispatcher) List(ctx context.Context, client *uuid.UUID, pageRef, statu
 	args := []any{before}
 	if client != nil {
 		args = append(args, *client)
-		q += fmt.Sprintf(" AND api_client_id = $%d", len(args))
+		q += " AND " + visibleTo(len(args))
 	}
 	if pageRef != "" {
 		args = append(args, pageRef)
@@ -314,6 +344,15 @@ func (d *Dispatcher) List(ctx context.Context, client *uuid.UUID, pageRef, statu
 		return nil, err
 	}
 	return pgx.CollectRows(rows, scanJob)
+}
+
+// visibleTo is the condition on a jobs row that the client in parameter n
+// may see it: the client made the job, or it is a scheduled job of a page
+// the client registered.
+func visibleTo(n int) string {
+	return fmt.Sprintf(`(api_client_id = $%[1]d OR (api_client_id IS NULL AND EXISTS (
+		SELECT 1 FROM page_registrations r JOIN page_schedule s ON s.page_ref = r.page_ref
+		WHERE r.api_client_id = $%[1]d AND (s.page_ref = jobs.page_ref OR s.page_id = jobs.page_id))))`, n)
 }
 
 // Cancel flags a running job.

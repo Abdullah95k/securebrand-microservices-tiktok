@@ -78,6 +78,7 @@ var (
 
 	// Persistence and jobs.
 	PersistRows          = counterVec("persist_rows_total", "Rows written by the persister.", "entity", "op")
+	PersistQuarantined   = counterVec("persist_quarantined_total", "Records the persister set aside in its quarantine topic: undecodable, or refused by Postgres.", "entity", "reason")
 	CommentChanges       = counterVec("comment_changes_total", "Stored comments edited, marked deleted or seen again after a deletion, by kind (edited, deleted, restored).", "kind")
 	DeletionChecks       = counterVec("deletion_checks_total", "Full comment reads of a post checked for deleted comments, by outcome (checked, skipped_partial).", "outcome")
 	PersistBatch         = histVec("persist_batch_seconds", "Persister batch flush duration.", prometheus.ExponentialBuckets(0.005, 2, 12), "entity")
@@ -101,6 +102,7 @@ var (
 	APIRequests          = counterVec("api_requests_total", "API requests.", "route", "code")
 	KafkaProduce         = counterVec("kafka_produce_total", "Produced records.", "topic", "outcome")
 	KafkaCommitted       = counterVec("kafka_commits_total", "Offset commits.", "group", "outcome")
+	KafkaHandlerPanics   = counterVec("kafka_handler_panics_total", "Record handlers that panicked (the record is retried; its partition waits).", "group")
 	ConsumerLag          = gaugeVec("kafka_consumer_lag", "Records behind the end of each topic, per fbs consumer group (leader scheduler).", "group", "topic")
 
 	// Registry sync (fbs-registry-sync).
