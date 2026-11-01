@@ -2,12 +2,7 @@
 
 Each build session updates this file at the end of its work. The plan and rules are in [`build-brief.md`](build-brief.md).
 
-**Next step:** the probe is done. Test pass run 3 and the full pass (C3) on 2026-11-01 answered the method's questions ([run 3](c2-findings-2026-10-31.md#10-run-3-2026-11-01), [full pass](c3-findings-2026-11-01.md)):
-- **plain HTTP** for accounts, posts, metrics, pinned flags and the backfill (273 accounts, 10 IPs, an hour, no captcha);
-- **TikTok's own script in a few browser pages to sign comment and reply requests**, which plain HTTP then sends from any identity;
-- video files with the `tt_chain_token` cookie.
-
-**The owner chose the method (G1, 2026-11-01): plain HTTP plus a browser signer.** The build goes on with M2 (inherited fixes) and M3 (contracts), then M4–M6 (parsers, crawl stages with the signer pool, persister and API), and the Phase 0 kit (M7) to measure calls per IP per day and the signer's throughput (C4).
+**Next step:** M2 (inherited fixes) is done ([#12](https://github.com/Abdullah95k/securebrand-microservices-tiktok/pull/12)). M2 found that fbs has many more review fixes in code tks reuses as it is (crawl worker, Kafka consumer, persister, erasure and media, scheduler, API), and **the owner chose to port them now (M2b)**, before M3 renames topics, protos and the schema. So the next build session does **M2b**, from the list in [`UPSTREAM.md`](../../UPSTREAM.md#fbs-fixes-not-ported-yet); then M3 (contracts), M4–M6 (parsers, crawl stages with the signer pool, persister and API) and the Phase 0 kit (M7).
 
 ## Decisions taken in the kickoff session (2026-10-31)
 
@@ -19,6 +14,7 @@ Each build session updates this file at the end of its work. The plan and rules 
 | Which proxy country? (asked after the plan) | European ISP proxies (Germany or the Netherlands) were recommended. **For now the owner keeps the existing US ISP tier** (shared with the igs and fbs tests; buying more would replace it); a European tier comes later | The test pass runs through the `isp` tier (US) only. T23 (country effects) and T30 (filtered posts) stay open until a second tier is added; the runbook says how. A US exit reaches TikTok's US service (TikTok USDS Joint Venture), so the probe's `region` and `filter_reasons` are worth reading with that in mind |
 | **Method (G1, 2026-11-01)**, from C2 and C3 | **Plain HTTP plus a browser signer** (recommended) | D11 confirmed: plain HTTP for accounts, posts, metrics, pinned flags and the backfill; a few browser pages sign each comment and reply request, sent by plain-HTTP workers from any identity; video files with the `tt_chain_token` cookie, off by default. Not chosen: the browser for everything (3–19 MB a page load), a provider for comments, or deciding after Phase 0 |
 | How fast should the full pass (C3) run? (asked 2026-11-01, after the owner raised speed) | **10 accounts at a time**, each through its own IP of the US ISP tier (recommended: 5) | `--parallel` in the probe (M1g); `make tks-probe-all` uses 10, capped at the tier's IP count: about 2 to 4 hours instead of a day. Production speed comes from the same lever (parallel identities, one call per account per check); see Findings |
+| fbs's later review fixes (asked 2026-11-01, after M2 found them) | **Port them now, as M2b, before M3** (recommended) | Brief §6 gains M2b; the next build session ports them from `UPSTREAM.md`'s list. Not chosen: area by area during M5 and M6, or not at all |
 | The account list | **273 public accounts** (media, brands, public figures), sent in the session on 2026-10-31 | Kept only in a git-ignored folder and on the owner's Mac; never committed. The test pass uses 3 to 5 of them |
 
 ## Milestones
@@ -36,7 +32,8 @@ Each build session updates this file at the end of its work. The plan and rules 
 | C3 | Owner: probe full pass (whole list, 365 days, 10 accounts at a time) | **done** (2026-11-01) | | [`c3-findings-2026-11-01.md`](c3-findings-2026-11-01.md): 273 accounts, 104,045 posts, 11,509 requests in 62 min through 10 IPs, no captcha or challenge; 0.12 % passing errors; posting rates for the scheduling model |
 | M1j | Walk fixes from C3 | **done** when its PR merges (2026-11-01) | (this session's PR) | A page holding only the cursor's post moves past it (3 in a row stop the walk); a soft error (10101/10102) is retried once after a pause; an empty first page that says older posts remain starts the walk. `fakett` gains TikTok's list window and its occasional errors; a test walks through both. The brief's rules now say: always give the owner all the steps |
 | G1 | Owner decision: method, from C2 and C3 | **done** (2026-11-01): plain HTTP plus a browser signer | | D11 confirmed (`build-brief.md` §2) |
-| M2 | Inherited fixes (igs's M2, ported or made) | not started | | igs's M2 not merged at `9463b91` |
+| M2 | Inherited fixes (igs's M2, ported or made) | **done** when #12 merges (2026-11-01) | [#12](https://github.com/Abdullah95k/securebrand-microservices-tiktok/pull/12) | igs has not done its M2 (igs main `8ed9c61`); fbs fixed several of the same defects after igs copied it, so each fix is fbs's where fbs has one (ported by hand) and made in igs's shape where not; [`UPSTREAM.md`](../../UPSTREAM.md) lists both. (1) `fbctl dlq replay` readies each dead letter (`stage.Replayer`): done mark cleared, retry budget reset, job reopened and finalised again. (2) The persister sets aside a record that does not decode or that Postgres refuses (`fbs.persist.dlq`, metric, alert `TksPersisterQuarantine`, runbook; more than 3 refusals in a batch stall it instead). (3) Jobs: another client's job is 404; a scheduled job shows to the clients registered to its page. (4) The persister checks suppression on every write under an advisory lock the erasure takes. (5) `max_comments_per_post` caps the post, not each segment (`PostScope.items_seen`). (6) 401, 403, 400 and other 4xx classed; detect rules replaceable from the configuration (`fb.detect`); rate-limit cooldowns grow (1, 2, 4 min, then retire); `fb.fingerprint_profiles`. (7) A task of an unknown kind is dead-lettered as received; the Kafka consumer recovers a handler's panic; the flaky e2e test fixed. A regression test each (two shown failing on the old code). CI's integration job runs every package. Tested locally with `go test -race ./...`, every package against Postgres 18, Redpanda and Valkey (e2e included), `golangci-lint` v2.15.0 and `buf breaking` |
+| M2b | fbs's review fixes in shared code (owner, 2026-11-01) | not started | | The list: [`UPSTREAM.md`](../../UPSTREAM.md#fbs-fixes-not-ported-yet) |
 | M3 | Contracts | not started | | `common.v1` from igs's M3 if it has landed |
 | M4 | Parsers, scrubber, golden fixtures | not started | | Needs C1 or C2 data |
 | M5 | Crawl stages, full `fakett`, e2e with ground truth | not started | | After G1 |
@@ -52,6 +49,10 @@ Each build session updates this file at the end of its work. The plan and rules 
 30 hypotheses (T1–T30). The recordings **confirmed** T8, T9, T10, T13, T19, and T12 and T14 for a browser. C2 runs 1 and 2 **answered T4** for unsigned calls (the `creator` list works; the app's list, comments and the account call do not), **T7 for comments** (yes from a headless page without the automation flag), **T10** (the `creator` list carries the pinned flag), **T11** (time cursor, any depth, 15 a page), **T22** (yes), **T24** (no, not needed), and moved T1–T3, T5, T6, T12, T18, T19, T21, T23, T26–T30. See [`open-questions.md`](open-questions.md). Run 3 and C3 then answered **T12**, **T14** (comments and replies through the signer), **T13**, **T18** (video files need the cookie), **T27** (signed URLs work from any identity for at least 90 s, one signature per request), **T29** (not seen) and **T11** (TikTok's window). Still open: **T20** at length (Phase 0), a signature's lifetime past 90 s and the signer's throughput (Phase 0), **T23** country effects (a second tier), **T25** (how often TikTok changes things: the canary).
 
 ## Findings
+
+From M2 (2026-11-01, no TikTok request):
+- **igs has not started its M2**, so tks made it, porting **fbs's own fixes** wherever fbs had one. fbs merged 42 commits of review fixes on 2026-10-31 and 11-01, after igs copied it at `f1377a9`. About half touch code tks reuses as it is (crawl worker and leases, Kafka consumer, persister, erasure and media, scheduler, API); M2 ported only the parts that fix M2's defects. The rest are listed in [`UPSTREAM.md`](../../UPSTREAM.md#fbs-fixes-not-ported-yet); Facebook-only fixes (parsers, page-load gates, the pilot) are not for tks.
+- **Seven fixes go further than fbs's**, and igs and fbs may want them (`UPSTREAM.md`): a replayed dead letter also gets a fresh retry budget and reopens its job; records the persister cannot write go to a quarantine topic with a metric and an alert; the comment cap holds across continuations; 4xx answers are classed; rate-limit cooldowns grow; fingerprints rotate per identity; the flaky e2e test is fixed.
 
 From test pass run 3 and the full pass (2026-11-01; [run 3](c2-findings-2026-10-31.md#10-run-3-2026-11-01), [full pass](c3-findings-2026-11-01.md)):
 - **The plain-HTTP part holds at the real list's scale**:
@@ -92,13 +93,13 @@ From the kickoff research (public sources only; details and citations in [`metho
 
 ## What the owner needs to do
 
-Nothing to run now: the method is chosen (G1). The next owner checkpoint is Phase 0 (C4), after the Phase 0 kit (M7).
-
+Nothing to run now. The next owner checkpoint is Phase 0 (C4), after the Phase 0 kit (M7).
 
 **Legal:** share [`methods.md` §5](methods.md#5-legal-and-terms-of-service-notes-for-the-legal-team) with the legal team.
 
 ## Log
 
+- **2026-11-01 (build session, M2):** read igs (main `8ed9c61`: no M2 yet) and fbs (main `b50b4a7`: 42 review-fix commits since `f1377a9`); made M2 ([#12](https://github.com/Abdullah95k/securebrand-microservices-tiktok/pull/12)), porting fbs's fixes where it had them. The owner chose to port fbs's other review fixes in shared code next, as M2b, before M3. Tested locally with `go test -race ./...` and every package against Postgres 18, Redpanda v24.2.7 and Valkey 8 in Docker (e2e included), `golangci-lint` v2.15.0 and `buf breaking`. No TikTok request.
 - **2026-11-01 (build session, run 3 and C3):** the owner ran test pass run 3 and the full pass back to back (bundles shared through Drive); the session recorded both ([run 3](c2-findings-2026-10-31.md#10-run-3-2026-11-01), [C3](c3-findings-2026-11-01.md)), fixed the walk (M1j), added the owner's rule to always give all the steps to the brief, and asked for the method decision: the owner chose plain HTTP plus a browser signer (G1).
 - **2026-11-01 (build session, review):** at the owner's request, a code and logic review of everything written since M1b; 9 findings fixed in M1i, each tested (`go test -race ./...`, `golangci-lint`, a browser dry run).
 - **2026-11-01 (build session, C2 run 2):** the owner ran the fixed probe; the session recorded run 2 ([findings §7–8](c2-findings-2026-10-31.md#7-run-2-2026-11-01)), merged M1g ([#8](https://github.com/Abdullah95k/securebrand-microservices-tiktok/pull/8)) and built M1h (comments through the page, signed-URL replays, the video cookie). Tested locally with `go test -race ./...`, `golangci-lint` and a browser dry run.
