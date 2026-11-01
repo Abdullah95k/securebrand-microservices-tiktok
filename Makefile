@@ -60,7 +60,7 @@ soak:
 
 ## Full pipeline end-to-end test only.
 e2e:
-	$(TEST_ENV) $(GO) test -count=1 -v ./internal/e2e/...
+	$(TEST_ENV) $(GO) test -count=1 -v ./internal/e2e/... ./internal/tt/e2e/...
 
 docker:
 	docker build -f deploy/docker/Dockerfile -t $(IMAGE) .

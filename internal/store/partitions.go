@@ -107,16 +107,21 @@ func (t Tables) Ensure(ctx context.Context, pool *pgxpool.Pool, now time.Time, w
 // EnsurePartitionFor creates the partition of table that holds ts. The
 // persister calls it when an insert fails with "no partition".
 func EnsurePartitionFor(ctx context.Context, pool *pgxpool.Pool, table string, ts time.Time) error {
+	return FBTables.EnsureFor(ctx, pool, table, ts)
+}
+
+// EnsureFor creates the partition of one of t's tables that holds ts.
+func (t Tables) EnsureFor(ctx context.Context, pool *pgxpool.Pool, table string, ts time.Time) error {
 	ts = ts.UTC()
-	for _, t := range FBTables.Daily {
-		if t == table {
+	for _, d := range t.Daily {
+		if d == table {
 			d := dayStart(ts)
-			_, err := ensureRange(ctx, pool, table, dayName(table, d), d, d.AddDate(0, 0, 1), FBTables.LZ4[table])
+			_, err := ensureRange(ctx, pool, table, dayName(table, d), d, d.AddDate(0, 0, 1), t.LZ4[table])
 			return err
 		}
 	}
 	m := monthStart(ts)
-	_, err := ensureRange(ctx, pool, table, monthName(table, m), m, m.AddDate(0, 1, 0), FBTables.LZ4[table])
+	_, err := ensureRange(ctx, pool, table, monthName(table, m), m, m.AddDate(0, 1, 0), t.LZ4[table])
 	return err
 }
 

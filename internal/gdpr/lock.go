@@ -24,10 +24,17 @@ const lockKey int64 = 4_400_002
 // and pages are suppressed. Writers of crawled data call it first in the
 // transaction that writes the data.
 func Guard(ctx context.Context, tx pgx.Tx, authorKeys [][]byte, pageIDs []int64) (*Suppression, error) {
+	return GuardAccounts(ctx, tx, authorKeys, pageIDs, "page")
+}
+
+// GuardAccounts is Guard for a schema whose crawled entity has another
+// suppression subject type: tks's schema tt calls it with "account" and
+// the accounts' user ids. The result reads them with PageSuppressed.
+func GuardAccounts(ctx context.Context, tx pgx.Tx, authorKeys [][]byte, ids []int64, subjectType string) (*Suppression, error) {
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock_shared($1)", lockKey); err != nil {
 		return nil, err
 	}
-	return Lookup(ctx, tx, authorKeys, pageIDs)
+	return lookup(ctx, tx, authorKeys, ids, subjectType)
 }
 
 // lockExclusive is the erasure's side of Guard.
@@ -45,7 +52,12 @@ type Querier interface {
 // Suppression holding only those entries. Without the lock it is a hint:
 // an erasure may commit right after it.
 func Lookup(ctx context.Context, q Querier, authorKeys [][]byte, pageIDs []int64) (*Suppression, error) {
+	return lookup(ctx, q, authorKeys, pageIDs, "page")
+}
+
+func lookup(ctx context.Context, q Querier, authorKeys [][]byte, pageIDs []int64, pageType string) (*Suppression, error) {
 	s := NewSuppression(nil)
+	s.pageType = pageType
 	authors := make([]string, 0, len(authorKeys))
 	for _, k := range authorKeys {
 		if len(k) > 0 {
@@ -62,7 +74,7 @@ func Lookup(ctx context.Context, q Querier, authorKeys [][]byte, pageIDs []int64
 		return s, nil
 	}
 	rows, err := q.Query(ctx, `SELECT subject_type, subject_key FROM suppression
-		WHERE (subject_type = 'author' AND subject_key = ANY($1)) OR (subject_type = 'page' AND subject_key = ANY($2))`, authors, pages)
+		WHERE (subject_type = 'author' AND subject_key = ANY($1)) OR (subject_type = $3 AND subject_key = ANY($2))`, authors, pages, pageType)
 	if err != nil {
 		return nil, err
 	}
