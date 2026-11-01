@@ -1,0 +1,130 @@
+# tks's TikTok client and freshness defaults (docs/tiktok ADR 0006 §6, ADR
+# 0007 §4), loaded after configs/default.yaml and before any config file or
+# TKS_ variable (TKS_TT__SIGNER__MODE=none, for example). Values marked
+# "after Phase 0" are provisional: C4's measurements confirm or change them
+# with the owner (build brief §6, D9).
+tt:
+  # The logged-out web client. Tests and local dev point this at fakett.
+  base_url: "https://www.tiktok.com"
+  # The operation registry's seed (configs/tt/...), applied to tt.operations
+  # by `tksctl migrate up`.
+  operation_seed: "tt/operations.seed.yaml"
+  registry_refresh: 30s
+  # The probe's Chrome 152 fingerprint, as the recordings' browser sent it.
+  fingerprint_profile: chrome_152
+  fingerprint_profiles: []
+  accept_language: "en-US,en;q=0.9"
+  request_timeout: 30s
+  # A person's pace per identity (the probe's: one request every ~3 s, no
+  # captcha in 11,509 requests through 10 IPs; C3).
+  identity_rps: 0.33
+  identity_burst: 2
+  # Requests an identity serves before it is replaced (each replacement is
+  # one page load).
+  identity_max_requests_min: 400
+  identity_max_requests_max: 800
+  # Per account, fleet wide (Redis GCRA), and the fleet's ceiling (AIMD's
+  # starting point). After Phase 0.
+  account_rps: 1
+  account_rps_p0: 2
+  global_rps: 50
+  # Page sizes: the creator list answers at most 15 posts a page whatever
+  # count asks (C2); comments 20 and replies 3 a page, as the web app asks.
+  list_page_size: 15
+  comments_page_size: 20
+  replies_page_size: 3
+  capture_raw: failures    # all | failures | none
+  proxy:
+    tiers: []
+    routing:
+      default: [direct]
+    breaker:
+      window: 1m
+      min_events: 20
+      open_rate: 0.15
+      cooldown: 2m
+      max_cooldown: 30m
+      probe_successes: 3
+    # TikTok did not wall page loads in C2 or C3, so they are not paced
+    # apart from API calls. Zeros turn the pacing off.
+    page_loads:
+      interval: 0s
+      backoff: 0s
+      max_backoff: 0s
+  query_breaker:
+    window: 5m
+    min_events: 20
+    open_rate: 0.5
+    cooldown: 2m
+    max_cooldown: 30m
+    probe_successes: 3
+  aimd:
+    enabled: true
+    interval: 10s
+    min_rps: 5
+    max_rps: 500
+    increase: 0.02
+    decrease: 0.7
+    low_block_rate: 0.02
+    high_block_rate: 0.06
+    min_samples: 100
+    min_utilization: 0.8
+  # Headless Chromium for bootstraps whose page carries no values (a shell
+  # page, T1). The signer below has its own pages.
+  browser:
+    enabled: false
+    binary: ""
+    max_concurrent: 2
+    max_share: 0.02
+    timeout: 45s
+    no_sandbox: false
+  # Replaces parts of TikTok's detect rules (internal/tt/detect).
+  detect: {}
+  # The browser signer (build brief D11, G1): a few TikTok pages in Chrome
+  # without its automation flag sign each comment and reply request, which
+  # plain-HTTP workers send from any identity (a signature covers its
+  # query, so one per request; T27). mode none sends every call unsigned
+  # (the post list and the account need no signature); a registry entry's
+  # own signing need overrides it per operation.
+  signer:
+    mode: browser          # none | browser
+    pages: 2               # per crawler process
+    page_max_signs: 500    # a page is reopened after this many signatures
+    page_max_age: 30m
+    sign_timeout: 30s
+    page_timeout: 60s
+    # Alert when signed calls exceed this share of all calls (comments and
+    # replies only, so a rise means an operation lost its unsigned variant).
+    max_share: 0.5
+  # How fresh the data is kept (build brief D2, ADR 0007 §4).
+  freshness:
+    # Each account's post list: 99 % of new posts stored within 3 h needs a
+    # check every 2 h 45 min (owner, 2026-10-31).
+    list_interval: 2h45m
+    # The account itself: daily, from the list's author objects.
+    account_refresh: 24h
+    # The profile page, the only source of the bio link.
+    page_refresh: 168h
+    # New accounts: every post back this far, or to the first post.
+    backfill_days: 365
+    # Deeper metric refreshes than the list check gives: walk the list
+    # every `every` back `back`. After Phase 0.
+    metrics_walks:
+      - {every: 24h, back: 720h}
+      - {every: 168h, back: 8760h}
+    # Comments are re-read only when a post's comment count went up, at
+    # most every `interval` while the post is younger than `max_age`;
+    # older posts only when the weekly metrics walk sees the count grow.
+    # After Phase 0.
+    comment_windows:
+      - {max_age: 48h, interval: 6h}
+      - {max_age: 168h, interval: 24h}
+      - {max_age: 720h, interval: 168h}
+  comments:
+    # TikTok serves top-level comments in its ranking order (T13), so a
+    # refresh re-reads them to the cap: ranked. newest reads until the
+    # first stored comment (for a future sort parameter).
+    order: ranked          # ranked | newest
+    # Top-level comments plus replies read per post and pass. After Phase 0.
+    max_per_post: 1000
+    include_replies: true

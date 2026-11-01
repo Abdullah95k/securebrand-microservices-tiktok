@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package securebrand.common.v1;
+
+import "google/protobuf/timestamp.proto";
+import "securebrand/common/v1/common.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/common/v1;commonv1";
+
+// MediaKind is the platform-neutral kind of a media file. The platform's
+// own, finer kind (TikTok's dynamic_cover, Instagram's carousel child) is
+// in platform_kind.
+enum MediaKind {
+  MEDIA_KIND_UNSPECIFIED = 0;
+  MEDIA_KIND_PHOTO = 1;
+  MEDIA_KIND_VIDEO = 2;
+  // A post's cover or thumbnail image.
+  MEDIA_KIND_COVER = 3;
+  // An account's or a person's profile picture.
+  MEDIA_KIND_AVATAR = 4;
+  // A sound's or album's cover image.
+  MEDIA_KIND_AUDIO_COVER = 5;
+  // An image or sticker attached to a comment.
+  MEDIA_KIND_COMMENT_IMAGE = 6;
+}
+
+// MediaReady is published on <platform>.media.ready.v1 once the file is in
+// object storage. The analysis service answers with MediaProcessed.
+message MediaReady {
+  string event_id = 1;
+  // UUIDv5 in the platform's namespace: stable across scrapes.
+  string media_id = 2;
+  Platform platform = 3;
+  // The platform's id of the file or of its owner, as the platform names it.
+  string source_media_id = 4;
+  MediaKind kind = 5;
+  string platform_kind = 6;
+  // original | sd | hd | thumbnail
+  string variant = 7;
+  // The account (page, profile, TikTok account) the media belongs to.
+  int64 account_id = 8;
+  optional int64 post_id = 9;
+  optional int64 comment_id = 10;
+  S3Object object = 11;
+  int32 width = 12;
+  int32 height = 13;
+  int64 duration_ms = 14;
+  string alt_text = 15;
+  google.protobuf.Timestamp discovered_at = 16;
+  google.protobuf.Timestamp stored_at = 17;
+  // The object is deleted at this time even without an acknowledgement.
+  google.protobuf.Timestamp delete_after = 18;
+  uint32 attempt = 19;
+  // Set only when presigned URLs are enabled.
+  string presigned_url = 20;
+  repeated string job_ids = 21;
+}
+
+enum ProcessStatus {
+  PROCESS_STATUS_UNSPECIFIED = 0;
+  PROCESS_STATUS_PROCESSED = 1;
+  PROCESS_STATUS_FAILED_PERMANENT = 2;
+  PROCESS_STATUS_FAILED_RETRYABLE = 3;
+}
+
+// MediaProcessed is produced by the analysis service on
+// <platform>.media.processed.v1.
+message MediaProcessed {
+  string event_id = 1;
+  string media_id = 2;
+  // Name of the consuming service; must match a configured required consumer.
+  string consumer = 3;
+  ProcessStatus status = 4;
+  google.protobuf.Timestamp processed_at = 5;
+  string error = 6;
+  Platform platform = 7;
+}
+
+enum DeleteReason {
+  DELETE_REASON_UNSPECIFIED = 0;
+  DELETE_REASON_ACKED = 1;
+  DELETE_REASON_TTL_EXPIRED = 2;
+  DELETE_REASON_ERASURE = 3;
+  DELETE_REASON_ORPHAN = 4;
+}
+
+// MediaDeleted is published on <platform>.media.deleted.v1 after the object
+// is gone.
+message MediaDeleted {
+  string event_id = 1;
+  string media_id = 2;
+  S3Object object = 3;
+  DeleteReason reason = 4;
+  google.protobuf.Timestamp deleted_at = 5;
+  Platform platform = 6;
+}

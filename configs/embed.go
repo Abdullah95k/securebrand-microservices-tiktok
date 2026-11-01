@@ -15,3 +15,13 @@ func Default() []byte {
 	}
 	return b
 }
+
+// TTDefault returns the embedded tt/default.yaml: tks's tt: section, loaded
+// after default.yaml.
+func TTDefault() []byte {
+	b, err := FS.ReadFile("tt/default.yaml")
+	if err != nil {
+		panic(err)
+	}
+	return b
+}

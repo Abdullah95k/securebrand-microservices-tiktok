@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package securebrand.tt.v1;
+
+import "securebrand/common/v1/common.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1;ttv1";
+
+// Music is published on tt.music.v1, keyed by music_id: a sound many posts
+// share.
+message Music {
+  securebrand.common.v1.Observation obs = 1;
+  int64 music_id = 2;
+  string title = 3;
+  // Personal data for original sounds, which are named after their creator.
+  string author_name = 4;
+  optional bool original = 5;
+  int64 duration_ms = 6;
+  string album = 7;
+  string cover_media_id = 8;
+  optional bool copyrighted = 9;
+  optional bool commerce = 10;
+}

@@ -1,0 +1,40 @@
+# tks's topics (docs/tiktok ADR 0007 §3), applied by `tksctl kafka apply`.
+# Names get kafka.topic_prefix prepended. Partition counts are sized like
+# fbs's for the 300k-account target; local dev and rehearsals use
+# `tksctl kafka apply --partitions-cap 3`. Every name is tks's own (tt.*,
+# tks.*), so tks shares fbs's Kafka in testing without touching its topics
+# (ADR 0006 §5); internal/tt/topics names each one, and a test keeps the
+# two in step.
+replicas: 3
+topics:
+  # Internal work queues (securebrand.tks.task.v1.Task).
+  - {name: tks.task.account.p0, partitions: 24, retention: 72h}
+  - {name: tks.task.account.p1, partitions: 24, retention: 72h}
+  - {name: tks.task.account.p2, partitions: 24, retention: 72h}
+  - {name: tks.task.post.p0,    partitions: 48, retention: 72h}
+  - {name: tks.task.post.p1,    partitions: 48, retention: 72h}
+  - {name: tks.task.post.p2,    partitions: 48, retention: 72h}
+  - {name: tks.task.thread.p0,  partitions: 48, retention: 72h}
+  - {name: tks.task.thread.p1,  partitions: 48, retention: 72h}
+  - {name: tks.task.thread.p2,  partitions: 48, retention: 72h}
+  - {name: tks.task.media,      partitions: 24, retention: 72h}
+  - {name: tks.task.retry.30s,  partitions: 12, retention: 48h}
+  - {name: tks.task.retry.5m,   partitions: 12, retention: 48h}
+  - {name: tks.task.retry.1h,   partitions: 12, retention: 48h}
+  - {name: tks.task.dlq,        partitions: 6,  retention: 336h}
+  # Records the persister set aside (undecodable, or refused by Postgres):
+  # entity records, so personal data, kept no longer than their topics.
+  - {name: tks.persist.dlq,     partitions: 3,  retention: 168h}
+  # Public contract (securebrand.tt.v1 and securebrand.common.v1). PII
+  # topics use delete retention, never compaction, so erased data ages out.
+  - {name: tt.account.v1,         partitions: 12, retention: 168h}
+  - {name: tt.post.v1,            partitions: 48, retention: 168h}
+  - {name: tt.post_metrics.v1,    partitions: 24, retention: 168h}
+  - {name: tt.comment.v1,         partitions: 96, retention: 168h}
+  - {name: tt.music.v1,           partitions: 12, retention: 168h}
+  - {name: tt.media.v1,           partitions: 24, retention: 168h}
+  - {name: tt.media.ready.v1,     partitions: 24, retention: 168h}
+  - {name: tt.media.processed.v1, partitions: 24, retention: 168h}
+  - {name: tt.media.deleted.v1,   partitions: 12, retention: 168h}
+  - {name: tt.job.v1,             partitions: 12, retention: 168h}
+  - {name: tt.erasure.v1,         partitions: 6,  retention: 720h}

@@ -1,6 +1,6 @@
 # ADR 0007: tks data model and contracts
 
-Status: accepted (owner approved the plan, 2026-10-31). Field names were checked against the owner's recordings of 2026-10-31 ([har-findings-2026-10-31.md](../har-findings-2026-10-31.md)) where they show them; the rest are hypotheses ([open-questions.md](../open-questions.md)). M3 finalises this ADR against the evidence; the shape does not depend on it.
+Status: accepted (owner approved the plan, 2026-10-31); **finalised against the evidence in M3 (2026-11-01)**: the recordings ([har-findings-2026-10-31.md](../har-findings-2026-10-31.md)), the probe's test pass ([c2-findings-2026-10-31.md](../c2-findings-2026-10-31.md)) and full pass ([c3-findings-2026-11-01.md](../c3-findings-2026-11-01.md)). What M3 settled or changed is in [§8](#8-finalised-in-m3); the contracts themselves are the files it names.
 
 ## Context
 tks monitors public TikTok accounts (build brief §2, D1–D2):
@@ -32,7 +32,7 @@ What the data is expected to look like (public sources, [methods.md §2](../meth
 
 **Integer range.** If T8 holds, the top 32 bits of a post or comment id are Unix seconds, so ids stay below int64's limit until 2038-01-19 (2³¹ seconds). Accounts created before TikTok merged with musical.ly have smaller ids. tks stores ids as `bigint`; M4 checks every id in the fixtures, and the parsers reject (and count) an id that does not fit, rather than wrapping it. A later move to `numeric(20)` would be a migration, well before 2038.
 
-**If a user object lacks the numeric id** (T17; for example a comment author served with `sec_uid` only), the author key falls back to `HMAC(secret, "tt:sec:" + secUid)`, flagged `key_kind = sec`, and is re-keyed to the id when the id is seen. M3 decides whether the fallback is needed from the recordings.
+**If a user object lacks the numeric id** (T17): **no fallback key** (decided in M3). The recordings carried `uid` on all 706 comment authors, and the `creator` list's items carry the author's `id`. A person without a numeric id is dropped by the parser and counted (M4), never keyed on `secUid` or the username; if the count is ever more than noise, a `sec`-keyed fallback is a new, add-only column.
 
 ### 2. Proto packages
 * **`securebrand.common.v1`**: igs's file, copied byte for byte once igs's M3 lands (ADR 0006 §1): `Platform` (tks adds `TIKTOK` only through igs, so the enum stays one definition), `CrawlMode`, `Observation`, `ImageRef`, `S3Object`, the media handoff (`MediaReady`, `MediaProcessed`, `MediaDeleted`), `JobEvent`, `Completeness`, `ErasureEvent`. If tks needs it before igs has it, tks writes it in igs's shape and lists it in `UPSTREAM.md` for igs.
@@ -54,7 +54,7 @@ Public contract (keys keep one post's records in order):
 | `tt.job.v1` | job id | `securebrand.common.v1.JobEvent` |
 | `tt.erasure.v1` | erasure request id | `securebrand.common.v1.ErasureEvent` |
 
-Internal: `tks.task.account.{p0,p1,p2}`, `tks.task.post.{p0,p1,p2}`, `tks.task.media`, `tks.task.retry.{30s,5m}`, `tks.task.dlq`, and the persister's quarantine topic `tks.persist.dlq`. Wire format as fbs and igs: plain protobuf, the full message name in the `tks-type` header, subjects `<topic>-value`. PII topics use delete retention, never compaction.
+Internal: `tks.task.account.{p0,p1,p2}`, `tks.task.post.{p0,p1,p2}`, `tks.task.thread.{p0,p1,p2}` (reply reads, signed one request each, scaled apart from the top-level reads; added in M3), `tks.task.media`, `tks.task.retry.{30s,5m,1h}` (the copied worker's three retry steps; `1h` added in M3), `tks.task.dlq`, and the persister's quarantine topic `tks.persist.dlq`. Wire format as fbs and igs: plain protobuf, the full message name in the `tks-type` header, subjects `<topic>-value`. PII topics use delete retention, never compaction.
 
 `tt.post.v1` is published when a post is first read in full (from the list or its page), so every post record has `createTime`.
 
@@ -122,3 +122,35 @@ Retention drops whole partitions; comment retention equals the maximum backfill 
 * **One `jobs` table shared with fbs or igs:** couples three services' migrations, retention and finalizers.
 * **Storing each post's raw JSON:** easiest for future fields, but it repeats PII (author objects) and multiplies storage; raw answers are sampled to the raw bucket for drift debugging instead, as in fbs, and new fields become columns.
 * **Re-using `ig.v1` messages:** their fields are named for Instagram (`pk`, `shortcode`, carousels).
+
+## 8. Finalised in M3
+
+M3 (2026-11-01) wrote the contracts. igs's M3 had not landed (igs main `670a762`), so tks wrote `common.v1` itself, in the shape igs's ADR 0005 §2 plans, and listed it in `UPSTREAM.md` for igs.
+
+**Where each part lives:**
+
+| Part | Files |
+|---|---|
+| `securebrand.common.v1` | `api/proto/securebrand/common/v1/{common,media,job,erasure}.proto` |
+| `securebrand.tt.v1` | `api/proto/securebrand/tt/v1/{common,account,post,comment,music,media}.proto` |
+| `securebrand.tks.task.v1` | `api/proto/securebrand/tks/task/v1/tasks.proto` |
+| Topics | `configs/tt/topics.yaml` (partitions, retention); `internal/tt/topics` (names, value schemas, the `tks-type` values, task routing) |
+| Schema `tt` | `migrations/tt/00001_init.sql`; `internal/tt/ttstore` (a pool pinned to `search_path = tt`, goose's `tt.goose_db_version`, the start-up check, partitions, the registry's `operations` and `client_params`) |
+| Config | the `tt:` section, `configs/tt/default.yaml` and `internal/config` (validation) |
+| Operations | `tksctl migrate up|down|status`, `tksctl kafka apply`, `tksctl schemas apply|check` |
+
+**Settled from the evidence:**
+* **Keys** (§1): the numeric user id is on every user object seen, so there is no `secUid` fallback key.
+* **Counts** come exact from `statsV2` (posts: plays, likes, comments, shares, saves and reposts; accounts: followers, following, hearts, videos, likes given, friends). `AccountCounts.exact` says whether a record's counts are exact; list items carry the author's counts rounded, so an account read from a list (`ACCOUNT_SOURCE_POST_LIST`) does not overwrite the page's exact counts or its bio link.
+* **Pinned** is `isPinnedItem` from the `creator` list (T10); `posts.is_pinned` stays nullable for posts read elsewhere.
+* **Comments** are in ranking order (T13), so `tt.comments.order` defaults to `ranked`; replies are served (T14), so `tks.task.v1` has `KIND_THREAD` and its topics.
+* **Never stored:** `predicted_age_group` and other inferences have no field anywhere in `tt.v1`.
+
+**Changed from the draft above:**
+* **`common.v1`:** `Observation` and `CrawlMode` keep fbs's numbers and gain `platform`; the media handoff carries a neutral `MediaKind` and the platform's own kind in `platform_kind`; `JobEvent` names its account `subject_ref` and `subject_id`; `ErasureEvent` names it `account_id`.
+* **`tks.task.v1`:** kinds `ACCOUNT = 200`, `POST = 201`, `MEDIA = 202`, `THREAD = 203`; the scope oneof at fields 40–43 (each scope's own fields number from 1). The generic fields keep fbs's names and numbers, `waits = 20` included; fields 10–13 (fbs's scopes) and 21–29 (igs's) are reserved. A test decodes each service's task as the other's: unknown kind, no scope.
+* **`tt.v1`:** a `Person` message for comment authors and mentioned users (author key always set; the rest empty when pseudonymized), `TextRange` for hashtags and mentions in UTF-16 units, `PostLabels` (AI-generated, `aigcLabelType`, warnings, anchors), `Post.counts` (the counts at the read; the history is `tt.post_metrics.v1`), `DiscoveredVia.POST_PAGE` beside `LIST` (and the reserved `SEARCH`, `HASHTAG`).
+* **Tables:** `people` holds comment authors and mentioned users (igs's `comment_authors`); `posts` also keeps the latest counts and `comment_count_read` (the count when comments were last read, for the "count went up" rule); `post_metrics` keeps fbs's **daily** partitions (the copied partition code's), the rest monthly; `media.source_media_id` is igs's name for fbs's `fb_media_id`; the registry tables carry registry-sync's check columns, so the canary (M8) records its checks the same way.
+* **Topics:** `tks.task.thread.*` and `tks.task.retry.1h` (§3).
+* **Media switch:** `limits.include_media` stays `true` in `configs/default.yaml` while the copied Facebook pipeline's tests and chart smoke run on it; tks's binaries default it to `false` (D5) when they start reading `limits` (M5).
+

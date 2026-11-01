@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package securebrand.common.v1;
+
+import "google/protobuf/timestamp.proto";
+import "securebrand/common/v1/common.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/common/v1;commonv1";
+
+enum SubjectType {
+  SUBJECT_TYPE_UNSPECIFIED = 0;
+  // A person: a comment author or a mentioned user, by author key.
+  SUBJECT_TYPE_AUTHOR = 1;
+  // A monitored account (page, profile, TikTok account), by its id.
+  SUBJECT_TYPE_ACCOUNT = 2;
+}
+
+// ErasureEvent is published on <platform>.erasure.v1. Every downstream
+// consumer that stores scraped data deletes the subject's data when it
+// receives one.
+message ErasureEvent {
+  string event_id = 1;
+  string request_id = 2;
+  SubjectType subject_type = 3;
+  bytes author_key = 4;
+  int64 account_id = 5;
+  google.protobuf.Timestamp requested_at = 6;
+  google.protobuf.Timestamp completed_at = 7;
+  Platform platform = 8;
+}

@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+// securebrand.common.v1 holds what fbs, igs and tks publish alike: the
+// observation stamp, the media handoff, job and erasure events (igs ADR
+// 0005 §2, tks ADR 0007 §2). Written by tks in igs's planned shape before
+// igs's M3 (UPSTREAM.md): igs copies it byte for byte, or tks takes igs's
+// once it lands. Add-only; the subjects are BACKWARD_TRANSITIVE.
+package securebrand.common.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/common/v1;commonv1";
+
+// Platform says which service observed a record. One definition for all
+// three services, so a consumer of the shared topics tells them apart.
+enum Platform {
+  PLATFORM_UNSPECIFIED = 0;
+  PLATFORM_FACEBOOK = 1;
+  PLATFORM_INSTAGRAM = 2;
+  PLATFORM_TIKTOK = 3;
+}
+
+// CrawlMode says how the entity was observed (fbs's values and numbers).
+enum CrawlMode {
+  CRAWL_MODE_UNSPECIFIED = 0;
+  // First scrape or backfill: every post inside the age window.
+  CRAWL_MODE_FULL = 1;
+  // Scheduled check: only new posts and posts whose counts changed.
+  CRAWL_MODE_INCREMENTAL = 2;
+  // Counts-only refresh of an older post.
+  CRAWL_MODE_REFRESH = 3;
+  // Full comment pass on an aged post to capture edits and deletions.
+  CRAWL_MODE_RECRAWL = 4;
+}
+
+// Observation is attached to every public entity message. Consumers dedupe
+// on (entity id, content_hash); event_id is derived from both, so a
+// redelivered event is byte-identical. fbs's fields and numbers.
+message Observation {
+  string event_id = 1;
+  google.protobuf.Timestamp observed_at = 2;
+  repeated string job_ids = 3;
+  // Logical registry operation name (post_list, comment_list, ...).
+  string query_name = 4;
+  // The registry entry's doc_id, or the variant label on platforms without
+  // doc_ids (TikTok: creator, web, web-signed).
+  string doc_id = 5;
+  uint32 parser_version = 6;
+  bytes content_hash = 7;
+  CrawlMode mode = 8;
+  Platform platform = 9;
+}
+
+message ImageRef {
+  string url = 1;
+  int32 width = 2;
+  int32 height = 3;
+}
+
+message S3Object {
+  string bucket = 1;
+  string key = 2;
+  int64 size = 3;
+  bytes sha256 = 4;
+  string content_type = 5;
+}

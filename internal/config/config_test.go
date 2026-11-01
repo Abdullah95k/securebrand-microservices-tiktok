@@ -131,3 +131,91 @@ func TestFingerprintProfiles(t *testing.T) {
 		t.Fatalf("fb.fingerprint_profiles: %v", c.FB.FingerprintProfiles)
 	}
 }
+
+// The tt: section loads from configs/tt/default.yaml with the values ADR
+// 0007 §4 and the build brief set, and env vars override it.
+func TestTTDefaults(t *testing.T) {
+	t.Setenv("TKS_TT__SIGNER__MODE", "none")
+	c, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tt := c.TT
+	if tt.BaseURL != "https://www.tiktok.com" || tt.OperationSeed != "tt/operations.seed.yaml" || tt.FingerprintProfile != "chrome_152" {
+		t.Fatalf("client defaults: %+v", tt)
+	}
+	if tt.Signer.Mode != SignerNone {
+		t.Fatalf("env override lost: %q", tt.Signer.Mode)
+	}
+	f := tt.Freshness
+	if f.ListInterval != 2*time.Hour+45*time.Minute || f.AccountRefresh != 24*time.Hour || f.BackfillDays != 365 {
+		t.Fatalf("freshness: %+v", f)
+	}
+	if len(f.MetricsWalks) != 2 || f.MetricsWalks[1].Back != 365*24*time.Hour || len(f.CommentWindows) != 3 {
+		t.Fatalf("tiers: %+v", f)
+	}
+	if tt.Comments.Order != CommentsRanked || !tt.Comments.IncludeReplies {
+		t.Fatalf("comments: %+v", tt.Comments)
+	}
+	// The copied Facebook section is still there for the copied pipeline.
+	if c.FB.BaseURL != "https://www.facebook.com" {
+		t.Fatalf("fb section lost: %q", c.FB.BaseURL)
+	}
+}
+
+func TestTTValidate(t *testing.T) {
+	for name, tc := range map[string]struct {
+		edit func(*TT)
+		want string
+	}{
+		"defaults":           {func(*TT) {}, ""},
+		"no base url":        {func(t *TT) { t.BaseURL = "" }, "tt.base_url"},
+		"missing seed":       {func(t *TT) { t.OperationSeed = "tt/nope.yaml" }, "tt.operation_seed"},
+		"bad seed":           {func(t *TT) { t.OperationSeed = "topics.yaml" }, "tt.operation_seed"},
+		"bad detect pattern": {func(t *TT) { t.Detect.StaleMessages = []string{"("} }, "tt.detect"},
+		"bad detect status":  {func(t *TT) { t.Detect.Statuses = map[string]string{"403": "nope"} }, "tt.detect"},
+		"identity range":     {func(t *TT) { t.IdentityMaxRequestsMin = 900 }, "identity_max_requests_min"},
+		"page size":          {func(t *TT) { t.CommentsPageSize = 0 }, "page_size"},
+		"capture":            {func(t *TT) { t.CaptureRaw = "some" }, "tt.capture_raw"},
+		"signer mode":        {func(t *TT) { t.Signer.Mode = "native" }, "tt.signer.mode"},
+		"signer pages":       {func(t *TT) { t.Signer.Pages = 0 }, "tt.signer: browser mode"},
+		"signer off":         {func(t *TT) { t.Signer.Mode, t.Signer.Pages = SignerNone, 0 }, ""},
+		"signer share":       {func(t *TT) { t.Signer.MaxShare = 1.5 }, "max_share"},
+		"list interval":      {func(t *TT) { t.Freshness.ListInterval = 0 }, "list_interval"},
+		"backfill":           {func(t *TT) { t.Freshness.BackfillDays = 0 }, "backfill_days"},
+		"walks order": {func(t *TT) {
+			t.Freshness.MetricsWalks = []MetricsWalk{{Every: time.Hour, Back: 48 * time.Hour}, {Every: time.Hour, Back: 24 * time.Hour}}
+		}, "metrics_walks"},
+		"windows order": {func(t *TT) {
+			t.Freshness.CommentWindows = []CommentWindow{{MaxAge: 48 * time.Hour, Interval: time.Hour}, {MaxAge: time.Hour, Interval: time.Hour}}
+		}, "comment_windows"},
+		"comment order": {func(t *TT) { t.Comments.Order = "time" }, "tt.comments.order"},
+		"comment cap":   {func(t *TT) { t.Comments.MaxPerPost = -1 }, "max_per_post"},
+	} {
+		c, err := Load("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tc.edit(&c.TT)
+		err = c.Validate()
+		switch {
+		case tc.want == "" && err != nil:
+			t.Errorf("%s: %v", name, err)
+		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+			t.Errorf("%s: %v, want an error naming %s", name, err, tc.want)
+		}
+	}
+}
+
+// A config file sets the tt: section like any other.
+func TestTTFromFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "c.yaml")
+	_ = os.WriteFile(p, []byte("tt:\n  base_url: http://fakett\n  freshness:\n    list_interval: 1h\n"), 0o644)
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.TT.BaseURL != "http://fakett" || c.TT.Freshness.ListInterval != time.Hour || c.TT.Freshness.AccountRefresh != 24*time.Hour {
+		t.Fatalf("%+v", c.TT)
+	}
+}

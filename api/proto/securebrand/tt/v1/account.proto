@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package securebrand.tt.v1;
+
+import "google/protobuf/timestamp.proto";
+import "securebrand/common/v1/common.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1;ttv1";
+
+enum AccountStatus {
+  ACCOUNT_STATUS_UNSPECIFIED = 0;
+  ACCOUNT_STATUS_ACTIVE = 1;
+  // Private: TikTok shows the account but not its posts.
+  ACCOUNT_STATUS_PRIVATE = 2;
+  // Not found: deleted, or the username moved on.
+  ACCOUNT_STATUS_UNAVAILABLE = 3;
+  ACCOUNT_STATUS_BANNED = 4;
+  // Erased on request: only the ids and the status are set.
+  ACCOUNT_STATUS_SUPPRESSED = 5;
+}
+
+// Where an account record was read: the profile page has everything; a
+// post list item's author lacks the bio link and the exact counts the page
+// has, so a consumer keeps the last page values for those.
+enum AccountSource {
+  ACCOUNT_SOURCE_UNSPECIFIED = 0;
+  ACCOUNT_SOURCE_PROFILE_PAGE = 1;
+  ACCOUNT_SOURCE_POST_LIST = 2;
+  ACCOUNT_SOURCE_USER_DETAIL = 3;
+}
+
+// Counts are the account's counts. The profile page's statsV2 carries them
+// exact (as strings); stats and list items carry them rounded.
+message AccountCounts {
+  optional int64 followers = 1;
+  optional int64 following = 2;
+  // Likes the account's posts received (heartCount).
+  optional int64 hearts = 3;
+  optional int64 videos = 4;
+  // Likes the account gave (diggCount).
+  optional int64 likes_given = 5;
+  optional int64 friends = 6;
+  // True when the counts are exact (statsV2), false when rounded.
+  bool exact = 7;
+}
+
+// Account is published on tt.account.v1, keyed by user_id.
+message Account {
+  securebrand.common.v1.Observation obs = 1;
+  // TikTok's numeric user id: the key (ADR 0007 §1).
+  int64 user_id = 2;
+  string sec_uid = 3;
+  // Personal data from here to avatar_media_id (behind pii:read).
+  string username = 4;
+  string nickname = 5;
+  string bio = 6;
+  optional string bio_link = 7;
+  // TikTok's risk value for the bio link (bioLink.risk).
+  optional int32 bio_link_risk = 8;
+  string avatar_url = 9;
+  string avatar_media_id = 10;
+  optional bool verified = 11;
+  optional bool private = 12;
+  optional bool organization = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp username_modified_at = 15;
+  google.protobuf.Timestamp nickname_modified_at = 16;
+  AccountCounts counts = 17;
+  string language = 18;
+  AccountStatus status = 19;
+  AccountSource source = 20;
+  // HMAC of the user id, so the account relates to the comments its owner
+  // writes elsewhere without names.
+  bytes author_key = 21;
+}

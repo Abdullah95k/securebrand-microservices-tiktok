@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+// securebrand.tt.v1 is tks's public contract: what logged-out TikTok
+// serves about a monitored account, its posts and their comments (tks ADR
+// 0007). Field names follow the owner's recordings
+// (docs/tiktok/har-findings-2026-10-31.md); fields TikTok may stop serving
+// are optional. Add-only; the subjects are BACKWARD_TRANSITIVE.
+package securebrand.tt.v1;
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1;ttv1";
+
+// Person is a TikTok user met in passing: a comment author or a mentioned
+// user. Everything but author_key is personal data, empty when
+// privacy.pii_mode is pseudonymized or the person was erased.
+message Person {
+  // HMAC-SHA256(tks secret, "tt:user:" + user id): the stable pseudonymous
+  // key (ADR 0007 §1). Never empty.
+  bytes author_key = 1;
+  optional int64 user_id = 2;
+  string sec_uid = 3;
+  // The username (uniqueId), which can change.
+  string username = 4;
+  string nickname = 5;
+  string avatar_url = 6;
+  optional bool verified = 7;
+}
+
+// TextRange marks a hashtag or a mention inside a caption or a comment, in
+// UTF-16 code units as TikTok counts them (textExtra start and end).
+message TextRange {
+  int32 offset = 1;
+  int32 length = 2;
+  // hashtag | mention
+  string type = 3;
+  // The hashtag's name, without '#'.
+  string name = 4;
+  // A mention's person.
+  Person person = 5;
+}

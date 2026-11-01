@@ -21,16 +21,25 @@ const ddlLockTimeout = "5s"
 // partitionLockKey serialises partition DDL across processes.
 const partitionLockKey = 4_400_001
 
-// Monthly partitioned tables (by post month or capture month).
-var monthlyTables = []string{"posts", "comments", "page_snapshots"}
+// Tables names a schema's partitioned tables. The names are unqualified:
+// they resolve through the pool's search_path (tks pins schema tt).
+type Tables struct {
+	// Monthly are partitioned by month (post month or capture month).
+	Monthly []string
+	// Daily are partitioned by day.
+	Daily []string
+	// LZ4 are each table's large text and jsonb columns that compress well.
+	LZ4 map[string][]string
+}
 
-// Daily partitioned tables.
-var dailyTables = []string{"post_metrics"}
-
-// lz4 columns are large text/jsonb columns that compress well.
-var lz4Columns = map[string][]string{
-	"posts":    {"text", "text_ranges", "links", "extra"},
-	"comments": {"text", "text_ranges", "attachments", "extra"},
+// FBTables are the copied Facebook schema's partitioned tables.
+var FBTables = Tables{
+	Monthly: []string{"posts", "comments", "page_snapshots"},
+	Daily:   []string{"post_metrics"},
+	LZ4: map[string][]string{
+		"posts":    {"text", "text_ranges", "links", "extra"},
+		"comments": {"text", "text_ranges", "attachments", "extra"},
+	},
 }
 
 // PartitionWindow describes which partitions must exist.
@@ -50,18 +59,24 @@ func (w PartitionWindow) wanted(table string, end time.Time) bool {
 	return !ok || end.After(nb)
 }
 
-// EnsurePartitions creates every missing partition inside the window.
+// EnsurePartitions creates every missing partition of the copied Facebook
+// schema's tables inside the window.
 func EnsurePartitions(ctx context.Context, pool *pgxpool.Pool, now time.Time, w PartitionWindow) (int, error) {
+	return FBTables.Ensure(ctx, pool, now, w)
+}
+
+// Ensure creates every missing partition of t's tables inside the window.
+func (t Tables) Ensure(ctx context.Context, pool *pgxpool.Pool, now time.Time, w PartitionWindow) (int, error) {
 	now = now.UTC()
 	created := 0
 	start := monthStart(now).AddDate(0, -w.MonthsBack, 0)
 	end := monthStart(now).AddDate(0, w.MonthsAhead+1, 0)
 	for m := start; m.Before(end); m = m.AddDate(0, 1, 0) {
-		for _, t := range monthlyTables {
-			if !w.wanted(t, m.AddDate(0, 1, 0)) {
+		for _, tb := range t.Monthly {
+			if !w.wanted(tb, m.AddDate(0, 1, 0)) {
 				continue
 			}
-			ok, err := ensureRange(ctx, pool, t, monthName(t, m), m, m.AddDate(0, 1, 0))
+			ok, err := ensureRange(ctx, pool, tb, monthName(tb, m), m, m.AddDate(0, 1, 0), t.LZ4[tb])
 			if err != nil {
 				return created, err
 			}
@@ -73,11 +88,11 @@ func EnsurePartitions(ctx context.Context, pool *pgxpool.Pool, now time.Time, w 
 	dstart := dayStart(now).AddDate(0, 0, -w.DaysBack)
 	dend := dayStart(now).AddDate(0, 0, w.DaysAhead+1)
 	for d := dstart; d.Before(dend); d = d.AddDate(0, 0, 1) {
-		for _, t := range dailyTables {
-			if !w.wanted(t, d.AddDate(0, 0, 1)) {
+		for _, tb := range t.Daily {
+			if !w.wanted(tb, d.AddDate(0, 0, 1)) {
 				continue
 			}
-			ok, err := ensureRange(ctx, pool, t, dayName(t, d), d, d.AddDate(0, 0, 1))
+			ok, err := ensureRange(ctx, pool, tb, dayName(tb, d), d, d.AddDate(0, 0, 1), t.LZ4[tb])
 			if err != nil {
 				return created, err
 			}
@@ -93,15 +108,15 @@ func EnsurePartitions(ctx context.Context, pool *pgxpool.Pool, now time.Time, w 
 // persister calls it when an insert fails with "no partition".
 func EnsurePartitionFor(ctx context.Context, pool *pgxpool.Pool, table string, ts time.Time) error {
 	ts = ts.UTC()
-	for _, t := range dailyTables {
+	for _, t := range FBTables.Daily {
 		if t == table {
 			d := dayStart(ts)
-			_, err := ensureRange(ctx, pool, table, dayName(table, d), d, d.AddDate(0, 0, 1))
+			_, err := ensureRange(ctx, pool, table, dayName(table, d), d, d.AddDate(0, 0, 1), FBTables.LZ4[table])
 			return err
 		}
 	}
 	m := monthStart(ts)
-	_, err := ensureRange(ctx, pool, table, monthName(table, m), m, m.AddDate(0, 1, 0))
+	_, err := ensureRange(ctx, pool, table, monthName(table, m), m, m.AddDate(0, 1, 0), FBTables.LZ4[table])
 	return err
 }
 
@@ -111,7 +126,7 @@ func IsNoPartition(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23514" && strings.Contains(pgErr.Message, "no partition")
 }
 
-func ensureRange(ctx context.Context, pool *pgxpool.Pool, table, name string, from, to time.Time) (bool, error) {
+func ensureRange(ctx context.Context, pool *pgxpool.Pool, table, name string, from, to time.Time, lz4 []string) (bool, error) {
 	var exists bool
 	if err := pool.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", name).Scan(&exists); err != nil {
 		return false, err
@@ -150,7 +165,7 @@ func ensureRange(ctx context.Context, pool *pgxpool.Pool, table, name string, fr
 	if err != nil {
 		return false, err
 	}
-	for _, col := range lz4Columns[table] {
+	for _, col := range lz4 {
 		// lz4 needs a server built with lz4 (official images are); ignore otherwise.
 		q := fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET COMPRESSION lz4",
 			pgx.Identifier{name}.Sanitize(), pgx.Identifier{col}.Sanitize())
