@@ -287,6 +287,11 @@ type TTComments struct {
 	Order          string `koanf:"order"`
 	MaxPerPost     int64  `koanf:"max_per_post"`
 	IncludeReplies bool   `koanf:"include_replies"`
+	// DeletionSlack: how far, as a share of the post's comment count, the
+	// comments a whole read returned (each with the replies TikTok counts
+	// for it) may be from that count for the read to be checked for
+	// deletions (hidden and filtered comments make up a gap; T15).
+	DeletionSlack float64 `koanf:"deletion_slack"`
 }
 
 // Detect replaces parts of the platform's built-in detect rules
@@ -700,6 +705,9 @@ func (t TT) validate() []error {
 	case CommentsRanked, CommentsNewest:
 	default:
 		errs = append(errs, fmt.Errorf("tt.comments.order %q must be ranked or newest", t.Comments.Order))
+	}
+	if t.Comments.DeletionSlack < 0 || t.Comments.DeletionSlack > 1 {
+		errs = append(errs, fmt.Errorf("tt.comments.deletion_slack %v must be between 0 and 1", t.Comments.DeletionSlack))
 	}
 	if t.Comments.MaxPerPost < 0 {
 		errs = append(errs, errors.New("tt.comments.max_per_post must be >= 0 (0: no cap)"))

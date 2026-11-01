@@ -51,6 +51,16 @@ M5b added `internal/tt/stage/post.go` (the post and thread stages, from `interna
 
 M5c added tks's writer for schema tt (`internal/tt/persist`, its own code: TikTok's tables) and these changes to shared code, each keeping the copied pipeline's behaviour (its tests unchanged and green): the persister's consumer takes a schema's `Sink` (`persist.NewSinkConsumer`, `SinkConfig`: topics, messages, writer, group and quarantine topic; fbs's Writer is wrapped as before by `NewConsumer`), `persist.StripNUL` and `persist.JSONBSafe` exported, `gdpr.GuardAccounts` (the erasure lock and lookup for a subject type other than `page`: tks's `account`), `store.Tables.EnsureFor` (a missing partition of a named table set; `EnsurePartitionFor` keeps fbs's), and `internal/platform/connect` (the Kafka and Valkey client configuration, which `internal/app` now delegates to, so tks's binaries link no Facebook code).
 
+M6a added tks's own copies of the job and scheduler code, on schema tt and tks's envelope (the copied pipeline's `internal/dispatch` and `internal/scheduler` are unchanged; tks's binary uses only their `Every` loop and `LagGauges`):
+
+| tks package | Copied from | What changed |
+|---|---|---|
+| `internal/tt/dispatch` | `internal/dispatch` | Jobs on `account_ref`/`user_id`; the root task's scope from the stored account (`Resolve`: by user id, secUid, a current or former username, or the schedule; the read times only for an active account); `id:` of an unknown account refused (`ErrUnknownAccount`); modes `auto`, `full`, `incremental`, `refresh`; no extra post roots (TikTok's comment windows are applied by the account stage) |
+| `internal/tt/scheduler` (`finalizer.go`, `reaper.go`, `maintenance.go`) | `internal/scheduler` (`finalizer.go`, `loops.go`) | `common.v1` job events on `tt.job.v1` with `platform`; deletions as `tt.v1` comments with a slack on TikTok's count (`tt.comments.deletion_slack`); coverage on `tt.posts`, a comment read stopped at the cap counted apart and not a partial job; the schedule moved on by the finalizer (failures, last success, walks, a daily interval for accounts that are not active); the reaper counts a stalled job as a failed check; retention of schema tt's tables (`people`, `account_snapshots`, `canary_runs`); the task backlog read from tks's groups and topics |
+| `internal/tt/scheduler` (`planner.go`) | `internal/scheduler` (`loops.go` `Planner`) | Backfills, metrics walks and incremental checks (ADR 0007 §12) instead of adaptive tiers and post refreshes |
+
+Additions to shared code (no change for the copied pipeline): the metrics `tks_checks_total`, `tks_account_check_oldest_seconds`, `tks_scheduled_accounts`.
+
 ## tks fixes igs or fbs may want
 
 Fixes made in tks's copy of shared code that igs or fbs still lack. Their own sessions decide whether to port them.
