@@ -61,6 +61,9 @@ type Options struct {
 	BrowserNoSandbox bool
 	OEmbed           bool
 	MaxCaptchas      int
+	// RetryPause is the wait before a list page that failed is asked again
+	// (5 s when zero).
+	RetryPause time.Duration
 	// Parallel is how many accounts are read at once, each on its own
 	// identity (and so its own exit, when the tier has enough); 1 reads them
 	// one after another.
@@ -89,6 +92,9 @@ func Run(ctx context.Context, o Options) Report {
 	}
 	if o.Parallel < 1 {
 		o.Parallel = 1
+	}
+	if o.RetryPause <= 0 {
+		o.RetryPause = retryPause
 	}
 	r := &runner{o: o, rep: Report{Version: o.Version, Tier: o.Tier, Fingerprint: o.Fingerprint, Signer: o.Signer, StartedAt: o.Now().UTC()},
 		cost: map[string]*Cost{}, rawSeen: map[string]bool{}}
@@ -348,7 +354,10 @@ func (r *runner) account(ctx context.Context, index int, name string) Account {
 	}
 	// 6. Walk the list that answered.
 	switch {
-	case cs.Class == detect.OK.String() && cs.Items > 0:
+	case cs.Class == detect.OK.String() && (cs.Items > 0 || cs.HasMore):
+		// An empty first page that says older posts remain is an account
+		// quiet for longer than TikTok's window (one in the C3 full pass):
+		// the walk steps back.
 		r.walk(ctx, id, &a, "creator_list", creator, start)
 	case as.Class == detect.OK.String() && as.Items > 0:
 		r.walk(ctx, id, &a, "post_list", app, 0)
@@ -462,6 +471,7 @@ func (r *runner) walk(ctx context.Context, id *session.Identity, a *Account, var
 	a.Walk = w
 	seen := map[string]bool{}
 	resp := first
+	stale := 0 // pages in a row that brought no new post
 	for {
 		p := resp.Parts[0]
 		if p.Get("filter_reasons").Exists() {
@@ -496,11 +506,21 @@ func (r *runner) walk(ctx context.Context, id *session.Identity, a *Account, var
 		} else {
 			next = p.Get("cursor").String()
 		}
+		// A page holding only the boundary post again means TikTok had
+		// nothing more in its window before the cursor (the C3 full pass, 4
+		// accounts): the cursor moves past it and the walk goes on. Only a
+		// run of such pages, as a device whose list repeats would give
+		// (T29), stops it.
+		if len(posts) > 0 && fresh == 0 {
+			stale++
+		} else {
+			stale = 0
+		}
 		switch {
 		case !more:
 			w.Stop = "end"
 			return
-		case len(posts) > 0 && fresh == 0:
+		case stale >= maxStalePages:
 			w.Stop = "stuck"
 			return
 		case w.Pages >= r.o.MaxListPages:
@@ -518,6 +538,17 @@ func (r *runner) walk(ctx context.Context, id *session.Identity, a *Account, var
 			vars["count"] = 16
 		}
 		nextResp, s := r.call(ctx, r.o.Client, id, variant+"_page", variant, vars, a.URL)
+		if s.Class == detect.SoftError.String() {
+			// TikTok answers a list page now and then with statusCode 10101
+			// or 10102 (0.1 % in the C3 full pass), and the same identity's
+			// next calls succeed: one retry after a pause.
+			w.Retries++
+			if !r.pause(ctx, r.o.RetryPause) {
+				w.Stop = stopped
+				return
+			}
+			nextResp, s = r.call(ctx, r.o.Client, id, variant+"_page_retry", variant, vars, a.URL)
+		}
 		if s.Class == stopped {
 			w.Stop = stopped
 			return
@@ -531,6 +562,27 @@ func (r *runner) walk(ctx context.Context, id *session.Identity, a *Account, var
 		if w.Pages%progressEvery == 0 {
 			r.progress(fmt.Sprintf("%s: %d posts so far, back to %s", a.Username, w.Posts, w.Oldest.Format("2006-01-02")))
 		}
+	}
+}
+
+const (
+	// maxStalePages is how many pages in a row may bring no new post before
+	// the walk stops as stuck.
+	maxStalePages = 3
+	// retryPause is the default wait before a list page that failed is
+	// asked again.
+	retryPause = 5 * time.Second
+)
+
+// pause waits d, or less if the run stops; it reports whether to go on.
+func (r *runner) pause(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
 	}
 }
 

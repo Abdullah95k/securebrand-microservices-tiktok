@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Faults model walls and the open questions (docs/tiktok/open-questions.md).
@@ -44,6 +45,14 @@ type Faults struct {
 	// MediaNeedsCookie refuses media without the page's tt_chain_token
 	// cookie (T18).
 	MediaNeedsCookie bool
+	// ListWindow makes the creator list serve only posts within this long
+	// before its cursor, as yt-dlp reports TikTok does (about a week): an
+	// account quiet for longer answers an empty page, and after a gap a
+	// page holds only the post at the cursor's second.
+	ListWindow time.Duration
+	// ListErrorEvery answers every Nth creator-list call with statusCode
+	// 10102, the occasional error of the C3 full pass.
+	ListErrorEvery int
 }
 
 // Options configure a server.
@@ -56,10 +65,11 @@ type Server struct {
 	World *World
 	opts  Options
 
-	mu       sync.Mutex
-	devices  map[string]*device
-	minted   uint64
-	apiCalls atomic.Int64
+	mu        sync.Mutex
+	devices   map[string]*device
+	minted    uint64
+	apiCalls  atomic.Int64
+	listCalls atomic.Int64
 	// Requests counts API calls by path.
 	Requests sync.Map
 }
@@ -317,15 +327,24 @@ func (s *Server) creatorList(w http.ResponseWriter, r *http.Request, dev *device
 	if s.opts.Faults.DeviceBanAfter > 0 && dev.calls > s.opts.Faults.DeviceBanAfter {
 		cursor = (s.World.Now.Unix() + 1) * 1000 // a banned device sees its first page again
 	}
+	if n := s.opts.Faults.ListErrorEvery; n > 0 && s.listCalls.Add(1)%int64(n) == 0 {
+		writeJSON(w, map[string]any{"statusCode": 10102, "status_code": 0, "status_msg": ""})
+		return
+	}
 	var page []*Post
-	skipped := 0
+	skipped, older := 0, 0
 	for _, p := range acc.Posts {
-		if p.Created.Unix()*1000 >= cursor {
+		ms := p.Created.Unix() * 1000
+		if ms >= cursor {
 			skipped++
 			continue
 		}
+		older++
 		if len(page) == count {
-			break
+			continue
+		}
+		if win := s.opts.Faults.ListWindow; win > 0 && ms < cursor-win.Milliseconds() {
+			continue
 		}
 		page = append(page, p)
 	}
@@ -337,7 +356,7 @@ func (s *Server) creatorList(w http.ResponseWriter, r *http.Request, dev *device
 	if len(page) > 0 {
 		next = page[len(page)-1].Created.Unix() * 1000
 	}
-	more := skipped+len(page) < len(acc.Posts)
+	more := older > len(page)
 	s.issue(dev, strconv.FormatInt(next, 10))
 	// Like TikTok's (the C2 run): no cursor and no hasMore in the answer;
 	// the next cursor is the last post's createTime in ms, and

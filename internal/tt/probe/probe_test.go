@@ -16,7 +16,13 @@ import (
 
 func run(t *testing.T, f fakett.Faults, mod func(*probe.Options)) (probe.Report, *tttest.Env, string) {
 	t.Helper()
-	env := tttest.New(t, tttest.Options{Faults: f})
+	return runSpec(t, fakett.Spec{}, f, mod)
+}
+
+// runSpec is run on a world built from spec (the default world when zero).
+func runSpec(t *testing.T, spec fakett.Spec, f fakett.Faults, mod func(*probe.Options)) (probe.Report, *tttest.Env, string) {
+	t.Helper()
+	env := tttest.New(t, tttest.Options{Spec: spec, Faults: f})
 	var names []string
 	for _, a := range env.World.Accounts() {
 		names = append(names, a.Username)
@@ -25,7 +31,7 @@ func run(t *testing.T, f fakett.Faults, mod func(*probe.Options)) (probe.Report,
 	o := probe.Options{BaseURL: env.HTTP.URL, Accounts: names, Tier: "direct", Pool: env.Pool, Loader: env.Loader, Client: env.Client,
 		AcceptLanguage: tttest.AcceptLanguage, Fingerprint: "chrome_152", MaxListPages: 40, MaxCommentPages: 5, CountChecks: 1,
 		Covers: 2, Videos: 1, OEmbed: true, ImageDir: filepath.Join(dir, "images"), VideoDir: filepath.Join(dir, "videos"),
-		RawDir: filepath.Join(dir, "raw"), RawPages: 1}
+		RawDir: filepath.Join(dir, "raw"), RawPages: 1, RetryPause: time.Millisecond}
 	if mod != nil {
 		mod(&o)
 	}
@@ -256,5 +262,32 @@ func TestProbeParallel(t *testing.T) {
 	rep, _, _ := run(t, fakett.Faults{CaptchaAfter: 2}, func(o *probe.Options) { o.MaxCaptchas, o.Parallel = 2, 2 })
 	if rep.Summary.StoppedEarly != "captchas" || rep.Summary.Captchas < 2 || rep.Summary.Accounts == 3 {
 		t.Fatalf("captchas in parallel: %+v", rep.Summary)
+	}
+}
+
+// TikTok's list window and its occasional errors (the C3 full pass): with
+// posts 10 days apart and a 7-day window, pages alternate between the post
+// at the cursor alone, an empty page and the next post; every 4th list
+// call answers statusCode 10102. The walk still reads every post, retrying
+// the errors, and ends at the first post.
+func TestProbeWalkThroughWindowAndErrors(t *testing.T) {
+	spec := fakett.Spec{Seed: 2, Accounts: 2, PostsPerAccount: 8, MaxComments: 3, MaxReplies: 1, PostSpacing: 10 * 24 * time.Hour}
+	rep, env, _ := runSpec(t, spec, fakett.Faults{ListWindow: 7 * 24 * time.Hour, ListErrorEvery: 4}, func(o *probe.Options) {
+		o.MaxListPages, o.CountChecks = 200, 0
+	})
+	for i, acc := range env.World.Accounts() {
+		a := rep.Accounts[i]
+		if a.Walk == nil || a.Walk.Stop != "end" || a.Walk.Posts != len(acc.Posts) {
+			t.Fatalf("account %d: walk %+v, want all %d posts and end", i, a.Walk, len(acc.Posts))
+		}
+	}
+	retries, empty, repeats := 0, 0, 0
+	for _, a := range rep.Accounts {
+		retries += a.Walk.Retries
+		empty += a.Walk.EmptyPages
+		repeats += a.Walk.Repeats
+	}
+	if retries == 0 || empty == 0 || repeats == 0 {
+		t.Fatalf("retries %d, empty pages %d, repeats %d: the window and the errors were not exercised", retries, empty, repeats)
 	}
 }

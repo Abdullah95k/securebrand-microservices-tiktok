@@ -107,8 +107,10 @@ type Walk struct {
 	Repeats int `json:"repeats"`
 	// EmptyPages counts empty pages the walk stepped back a week from.
 	EmptyPages int `json:"empty_pages,omitempty"`
-	// Stop is "end", "cap", "age", "stuck" (a page brought nothing new),
-	// "stopped" or "wall:<class>".
+	// Retries counts list pages asked again after a soft error.
+	Retries int `json:"retries,omitempty"`
+	// Stop is "end", "cap", "age", "stuck" (3 pages in a row brought
+	// nothing new), "stopped" or "wall:<class>" (after one retry).
 	Stop   string    `json:"stop"`
 	Oldest time.Time `json:"oldest,omitzero"`
 	// Filtered counts pages that said filter_reasons (T30).
