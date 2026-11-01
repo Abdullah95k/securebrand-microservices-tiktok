@@ -292,8 +292,7 @@ func emitComments(ctx context.Context, d *Deps, b *kafka.Batch, t *tkstaskv1.Tas
 		if cm.CreatedAt != nil {
 			st.NewestSeenUnix = max(st.NewestSeenUnix, cm.CreatedAt.AsTime().Unix())
 		}
-		keep, err := d.Emit.Comment(ctx, b, src, cm)
-		if err != nil {
+		if err := d.Emit.Comment(ctx, b, src, cm); err != nil {
 			return err
 		}
 		st.ItemsSeen++
@@ -301,10 +300,6 @@ func emitComments(ctx context.Context, d *Deps, b *kafka.Batch, t *tkstaskv1.Tas
 			c["replies"]++
 		} else {
 			c["comments"]++
-		}
-		if !keep {
-			c["comments_redacted"]++
-			continue
 		}
 		n, err := d.media(ctx, b, t, src, cb.Media, true)
 		if err != nil {

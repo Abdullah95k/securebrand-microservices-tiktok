@@ -9,11 +9,9 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/emit"
 )
 
-// truth says what the store must hold beyond fakett's world: the authors
-// whose comments are stored redacted (erased in flight).
-type truth struct {
-	erasedAuthors map[int64]bool
-}
+// truth says what the store must hold beyond fakett's world (nothing yet:
+// tks erases no one, ADR 0007 §14).
+type truth struct{}
 
 // sameStore compares what schema tt holds for an account with fakett's
 // ground truth (build brief §8, A6): the account and its username history,
@@ -98,9 +96,10 @@ func sameStore(t *testing.T, s *Stack, acc *fakett.Account, tr truth) {
 		redacted      bool
 		authorKeyHex  string
 		hasPeopleData bool
+		ageGroup      *string
 	}
 	rows, err = db.Query(ctx, `SELECT c.comment_id, c.parent_comment_id, c.depth, c.text, c.like_count, c.reply_count,
-			c.author_user_id, c.status, c.redacted, encode(c.author_key, 'hex'), p.author_key IS NOT NULL
+			c.author_user_id, c.status, c.redacted, encode(c.author_key, 'hex'), p.author_key IS NOT NULL, p.predicted_age_group
 		FROM comments c LEFT JOIN people p ON p.author_key = c.author_key AND p.user_id IS NOT NULL
 		WHERE c.user_id = $1 AND c.status = 'visible'`, acc.UID)
 	if err != nil {
@@ -111,7 +110,7 @@ func sameStore(t *testing.T, s *Stack, acc *fakett.Account, tr truth) {
 		var id int64
 		var r commentRow
 		if err := rows.Scan(&id, &r.parent, &r.depth, &r.text, &r.likes, &r.replies, &r.author, &r.status, &r.redacted,
-			&r.authorKeyHex, &r.hasPeopleData); err != nil {
+			&r.authorKeyHex, &r.hasPeopleData, &r.ageGroup); err != nil {
 			t.Fatal(err)
 		}
 		comments[id] = r
@@ -129,12 +128,11 @@ func sameStore(t *testing.T, s *Stack, acc *fakett.Account, tr truth) {
 		if r.status != "visible" || r.authorKeyHex != hex.EncodeToString(emit.AuthorKey(key, c.Author.UID)) {
 			t.Errorf("comment %d: status %s, author key %s", c.ID, r.status, r.authorKeyHex)
 		}
-		if tr.erasedAuthors[c.Author.UID] {
-			if !r.redacted || r.text != nil || r.author != nil || r.hasPeopleData {
-				t.Errorf("comment %d of an erased author: redacted %v text %v author %v person %v", c.ID, r.redacted, r.text, r.author, r.hasPeopleData)
-			}
-		} else if r.redacted || r.text == nil || *r.text != c.Text || r.likes != c.Likes || r.author == nil || *r.author != c.Author.UID || !r.hasPeopleData {
+		if r.redacted || r.text == nil || *r.text != c.Text || r.likes != c.Likes || r.author == nil || *r.author != c.Author.UID || !r.hasPeopleData {
 			t.Errorf("comment %d: stored %+v", c.ID, r)
+		}
+		if g := c.Author.AgeGroup(); (g == "") != (r.ageGroup == nil) || (r.ageGroup != nil && *r.ageGroup != g) {
+			t.Errorf("comment %d: author's age band %v, want %q", c.ID, r.ageGroup, g)
 		}
 		switch {
 		case parent == 0 && (r.depth != 0 || r.parent != nil || r.replies == nil || *r.replies != int64(len(c.Replies))):

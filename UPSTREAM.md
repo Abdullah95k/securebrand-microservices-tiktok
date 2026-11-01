@@ -61,14 +61,14 @@ M6a added tks's own copies of the job and scheduler code, on schema tt and tks's
 
 Additions to shared code (no change for the copied pipeline): the metrics `tks_checks_total`, `tks_account_check_oldest_seconds`, `tks_scheduled_accounts`.
 
-M6b added tks's own copies of the API and the eraser, on schema tt (the copied `internal/api`, `cmd/fbs-api` and `gdpr.Eraser` are unchanged):
+M6b added tks's own copies of the API and the eraser, on schema tt (the copied `internal/api`, `cmd/fbs-api` and `gdpr.Eraser` are unchanged). **The next PR removed the eraser and tks's suppression checks** by the owner's decision (2026-11-01, docs/tiktok ADR 0007 §14: nothing deleted, everything collected); the copied `internal/gdpr` stays for the copied pipeline, and `gdpr.LockExclusive` was removed again:
 
 | tks package | Copied from | What changed |
 |---|---|---|
 | `internal/tt/api` (`server.go`, `auth.go`, `jobs.go`, `accounts.go`, `data.go`, `admin.go`), `cmd/tks-api`, `api/openapi/tks.v1.yaml` | `internal/api`, `cmd/fbs-api`, `api/openapi/fbs.v1.yaml` | Accounts (by user id, secUid, a current or former username) for pages, with their username history; TikTok's posts, comments, metrics, media and music; `accounts:write` for `pages:write`; ids as JSON strings; personal fields behind `pii:read` as ADR 0007 §6 lists them; registration as a schedule due now (the planner backfills), one schedule per account however named; an undecodable cursor is a 400; `{account}` is unescaped; keys validated against the scopes; `tksctl apikey create|revoke` (fbctl's) |
-| `internal/tt/erasure` | `internal/gdpr/erasure.go` | Subjects `author` and `account` (an account is also erased as an author: the same user id); schema tt's tables; mentions found by author key in the stored text ranges; schedules and jobs renamed or deleted so no name remains; `common.v1` events with `platform`; stored media without an S3 client retried, not orphaned; the request's names dropped when done |
+| ~~`internal/tt/erasure`~~ (removed, ADR 0007 §14) | `internal/gdpr/erasure.go` | Subjects `author` and `account` (an account is also erased as an author: the same user id); schema tt's tables; mentions found by author key in the stored text ranges; schedules and jobs renamed or deleted so no name remains; `common.v1` events with `platform`; stored media without an S3 client retried, not orphaned; the request's names dropped when done |
 
-Additions to shared code (no change for the copied pipeline): `gdpr.LockExclusive` (the erasure's side of `GuardAccounts`, for another schema's eraser).
+Shared code: none left (`gdpr.LockExclusive`, added for the eraser, went with it). tks's own retention is `tt.retention` (all 0: kept for good); `privacy.retention` stays the copied pipeline's.
 
 ## tks fixes igs or fbs may want
 

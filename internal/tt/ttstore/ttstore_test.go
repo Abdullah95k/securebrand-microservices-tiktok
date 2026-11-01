@@ -23,7 +23,7 @@ var tables = []string{
 	"accounts", "account_usernames", "account_snapshots", "posts", "post_index", "post_mentions",
 	"post_metrics", "music", "comments", "people", "media", "media_acks",
 	"api_clients", "jobs", "crawl_cursors", "account_schedule", "account_registrations", "post_refresh",
-	"erasure_requests", "suppression", "operations", "client_params", "canary_runs",
+	"operations", "client_params", "canary_runs",
 }
 
 func tablesIn(t *testing.T, db interface {
@@ -170,7 +170,7 @@ func TestSchemaHoldsData(t *testing.T) {
 	exec(`INSERT INTO music (music_id, title, original) VALUES (9, 'sound', true)`)
 	exec(`INSERT INTO comments (post_created_at, post_id, comment_id, user_id, depth, parent_comment_id, author_key, content_hash, first_seen_at, last_seen_at)
 		VALUES ($1, 7400000000000000001, 7400000000000000002, 7, 1, 7400000000000000003, $2, $2, now(), now())`, created, key)
-	exec(`INSERT INTO people (author_key, user_id, first_seen_at, last_seen_at) VALUES ($1, 8, now(), now())`, key)
+	exec(`INSERT INTO people (author_key, user_id, predicted_age_group, first_seen_at, last_seen_at) VALUES ($1, 8, 'band', now(), now())`, key)
 	exec(`INSERT INTO media (media_id, source_media_id, kind, variant, post_id) VALUES ('00000000-0000-0000-0000-000000000001', '7400000000000000001', 'photo', 'original', 7400000000000000001)`)
 	exec(`INSERT INTO media_acks VALUES ('00000000-0000-0000-0000-000000000001', 'analysis', 'processed', NULL, now())`)
 	exec(`INSERT INTO api_clients (id, name, key_prefix, key_hash, scopes) VALUES ('00000000-0000-0000-0000-0000000000a1', 'c', 'p', '\x00', '{data:read}')`)
@@ -180,8 +180,6 @@ func TestSchemaHoldsData(t *testing.T) {
 	exec(`INSERT INTO account_schedule (account_ref, user_id, interval_seconds, next_run_at) VALUES ('u:someone', 7, 9900, now())`)
 	exec(`INSERT INTO account_registrations (api_client_id, account_ref) VALUES ('00000000-0000-0000-0000-0000000000a1', 'u:someone')`)
 	exec(`INSERT INTO post_refresh (post_id, user_id, post_created_at, next_refresh_at) VALUES (7400000000000000001, 7, $1, now())`, created)
-	exec(`INSERT INTO erasure_requests (id, subject_type, user_id, input, status) VALUES ('00000000-0000-0000-0000-0000000000c1', 'account', 7, '{}', 'pending')`)
-	exec(`INSERT INTO suppression (subject_type, subject_key) VALUES ('account', '7')`)
 	exec(`INSERT INTO canary_runs (started_at, finished_at, status, report) VALUES (now(), now(), 'ok', '{}')`)
 	for _, tb := range tables {
 		var rows int

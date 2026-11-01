@@ -74,14 +74,6 @@ func (w *Worker) Run(ctx context.Context, t *tkstaskv1.Task) error {
 		// does not have).
 		return fmt.Errorf("stage: no stage for kind %v", t.Kind)
 	}
-	// Tasks queued before their account was erased (backlog, retries,
-	// continuations, threads) stop before anything is requested. An account
-	// task whose user id isn't known yet is checked by its stage once
-	// resolved.
-	if d.Suppression.PageSuppressed(scopeAccount(t)) {
-		metrics.Tasks.WithLabelValues(name, lane, "suppressed").Inc()
-		return w.finish(ctx, t, map[string]int64{"accounts_suppressed": 1})
-	}
 	if d.Jobs.Cancelled(ctx, t.JobId) {
 		metrics.Tasks.WithLabelValues(name, lane, "cancelled").Inc()
 		// What the task left unread makes the post's next pass read it
@@ -242,19 +234,6 @@ func (w *Worker) exhausted(next *tkstaskv1.Task) string {
 func (w *Worker) runStage(ctx context.Context, st Stage, t *tkstaskv1.Task, lease *checkpoint.Lease) Outcome {
 	defer lease.Release(ctx)
 	return st.Run(ctx, t)
-}
-
-// scopeAccount is the account a task works on (0 when not known yet).
-func scopeAccount(t *tkstaskv1.Task) int64 {
-	switch t.Kind {
-	case tkstaskv1.Kind_KIND_ACCOUNT:
-		return t.GetAccount().GetUserId()
-	case tkstaskv1.Kind_KIND_POST:
-		return t.GetPost().GetUserId()
-	case tkstaskv1.Kind_KIND_THREAD:
-		return t.GetThread().GetUserId()
-	}
-	return 0
 }
 
 // begun reports whether t's stream has read anything: a reply thread (its

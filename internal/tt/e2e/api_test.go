@@ -13,10 +13,9 @@ import (
 	"time"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakett"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/emit"
 	ttapi "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/api"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/erasure"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/emit"
 )
 
 // client calls tks-api as one API key.
@@ -79,25 +78,24 @@ func (c *client) lines(path string) []map[string]any {
 	return out
 }
 
-// TestAPIAndErasure drives tks through its API (tks-api as cmd/tks-api
-// wires it) with the scheduler's planner, finalizer and eraser, the crawler
+// TestAPI drives tks through its API (tks-api as cmd/tks-api wires it)
+// with the scheduler's planner and finalizer, the crawler
 // and the persister against fakett:
 //  1. accounts registered through the API are backfilled by the planner;
 //     what the API answers equals fakett's world (accounts, every post,
 //     every comment and reply), personal fields only with pii:read;
 //  2. an on-demand job runs, and its results stream the account, its posts
 //     and their comments to an end line;
-//  3. an account and a commenter erased through the API are erased from
-//     the store, and stay erased through scheduled checks, new comments by
-//     the commenter and an on-demand read of the erased account (build
-//     brief §8, A6: no row of an erased subject after a re-scrape).
-func TestAPIAndErasure(t *testing.T) {
+//  3. nothing is deleted (ADR 0007 §14): an account every client
+//     unregistered keeps its data and answers, a commenter's comments all
+//     stay, and there is no erasure endpoint.
+func TestAPI(t *testing.T) {
 	s := Start(t, Options{Spec: fakett.Spec{Seed: 23, Accounts: 3, PostsPerAccount: 10, MaxComments: 12, MaxReplies: 3,
 		PostSpacing: 30 * time.Hour}})
 	w := s.World
 	accs := w.Accounts()
 	ctx := context.Background()
-	fresh := w.AddPost(accs[0], 5) // the erased commenter comments here again later
+	fresh := w.AddPost(accs[0], 5) // a commenter comments here again later
 	sc := newSched(s)
 	srv := &ttapi.Server{Cfg: s.Cfg, DB: s.DB, Redis: s.Redis, Now: w.Clock,
 		Dispatch: &dispatch.Dispatcher{DB: s.DB, Jobs: s.Tracker, Producer: s.Producer}}
@@ -112,7 +110,6 @@ func TestAPIAndErasure(t *testing.T) {
 	}
 	user := mk(ttapi.ScopeDataRead, ttapi.ScopeAccountsWrite, ttapi.ScopeJobsWrite)
 	pii := mk(ttapi.ScopeDataRead, ttapi.ScopePIIRead)
-	admin := mk(ttapi.ScopeAdmin)
 
 	// 1. Registration and backfill.
 	for _, a := range accs {
@@ -170,60 +167,30 @@ func TestAPIAndErasure(t *testing.T) {
 	}
 	sameStore(t, s, accs[1], truth{})
 
-	// 3. Erasures through the API, then everything that could write them
-	// back: scheduled checks, new comments, an on-demand read.
-	gone := accs[2]
+	// 3. Nothing is deleted: an account every client unregistered keeps
+	// all its data and stays readable; a commenter seen before is stored
+	// with every comment when they comment again.
+	kept := accs[2]
+	user.want(204, "DELETE", "/accounts/@"+kept.Username, nil, nil)
 	commenter := fresh.Comments[0].Author
-	var er map[string]any
-	admin.want(202, "POST", "/erasure-requests", map[string]any{"subject_type": "account", "username": gone.Username}, &er)
-	accountReq := er["id"].(string)
-	admin.want(202, "POST", "/erasure-requests", map[string]any{"subject_type": "author", "user_id": strconv.FormatInt(commenter.UID, 10)}, &er)
-	authorReq := er["id"].(string)
-	eraser := &erasure.Eraser{DB: s.DB, Producer: s.Producer, HMACKey: []byte(s.Cfg.Privacy.AuthorHMACKey)}
-	if err := eraser.Tick(ctx); err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range []string{accountReq, authorReq} {
-		admin.want(200, "GET", "/erasure-requests/"+id, nil, &er)
-		if er["status"] != "done" {
-			t.Fatalf("erasure %s: %v", id, er)
-		}
-	}
-	erasedGone := func(stage string) {
-		t.Helper()
-		for _, tb := range []string{"accounts", "account_usernames", "account_snapshots", "posts", "post_index", "post_metrics", "comments", "media"} {
-			if n := count(t, s, `SELECT count(*) FROM `+tb+` WHERE user_id = $1`, gone.UID); n != 0 {
-				t.Errorf("%s: %d rows of the erased account in %s", stage, n, tb)
-			}
-		}
-		if n := count(t, s, `SELECT count(*) FROM people WHERE user_id = $1`, commenter.UID); n != 0 {
-			t.Errorf("%s: the erased commenter is in people", stage)
-		}
-		if n := count(t, s, `SELECT count(*) FROM comments WHERE author_key = $1 AND (NOT redacted OR text IS NOT NULL)`,
-			emit.AuthorKey([]byte(s.Cfg.Privacy.AuthorHMACKey), commenter.UID)); n != 0 {
-			t.Errorf("%s: %d comments of the erased commenter not redacted", stage, n)
-		}
-		if code := pii.do("GET", "/accounts/@"+gone.Username, nil, nil); code != 404 {
-			t.Errorf("%s: the erased account answers %d", stage, code)
-		}
-	}
-	erasedGone("after the erasure")
-	time.Sleep(3 * s.Cfg.Crawler.SuppressionRefresh) // the crawler's copy of the list
-
 	w.Advance(7 * time.Hour)
 	w.AddComments(fresh, 3)
 	w.Mutate(func() { fresh.Comments[len(fresh.Comments)-1].Author = commenter })
 	got = sc.tick(t)
-	if _, ok := got["u:"+gone.Username]; ok {
-		t.Error("the erased account was checked")
+	if _, ok := got["u:"+kept.Username]; ok {
+		t.Error("an unregistered account was checked")
 	}
-	user.want(202, "POST", "/jobs", map[string]any{"account": "@" + gone.Username, "mode": "full"}, &j)
-	s.Wait(t, 3*time.Minute, j["job_id"].(string))
-	erasedGone("after a re-scrape")
-	tr := truth{erasedAuthors: map[int64]bool{commenter.UID: true}}
-	sameStore(t, s, accs[0], tr)
-	sameStore(t, s, accs[1], tr)
-	user.want(409, "POST", "/accounts", map[string]any{"account": "id:" + strconv.FormatInt(gone.UID, 10)}, nil)
+	for _, a := range accs {
+		sameStore(t, s, a, truth{})
+	}
+	sameAPI(t, user, pii, kept)
+	key := emit.AuthorKey([]byte(s.Cfg.Privacy.AuthorHMACKey), commenter.UID)
+	if n := count(t, s, `SELECT count(*) FROM comments WHERE author_key = $1 AND text IS NOT NULL`, key); n < 2 {
+		t.Errorf("%d comments of the returning commenter stored, want both", n)
+	}
+	if code := user.do("POST", "/erasure-requests", map[string]any{"subject_type": "author", "user_id": "1"}, nil); code != 404 && code != 405 {
+		t.Errorf("an erasure endpoint answers %d", code)
+	}
 }
 
 // sameAPI compares what the API answers about an account with fakett's

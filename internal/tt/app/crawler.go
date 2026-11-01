@@ -23,7 +23,6 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/jobs"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/lanes"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/rawsink"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/gdpr"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/media"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/breaker"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/connect"
@@ -53,10 +52,9 @@ var Stages = []string{"account", "post", "thread", "retry"}
 
 // Crawler is a configured tks crawler process.
 type Crawler struct {
-	Deps        *stage.Deps
-	Worker      *stage.Worker
-	Registry    *registry.DB
-	Suppression *gdpr.Suppression
+	Deps     *stage.Deps
+	Worker   *stage.Worker
+	Registry *registry.DB
 	// Signer is the browser signer's pool (nil with tt.signer.mode none or
 	// a test signer).
 	Signer     *sign.Pool
@@ -158,7 +156,6 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 	if signer != nil {
 		client.Signer = ttclient.SignerFor(tc.Signer.Mode, signer)
 	}
-	supp := gdpr.NewSuppression(db).ForAccounts()
 	loader := &session.Loader{Rules: rules, AcceptLanguage: tc.AcceptLanguage, Hooks: ttclient.Hooks(), Gate: proxies}
 	if tc.Browser.Enabled {
 		b, err := browser.NewBootstrapper(tc.Browser, tc.AcceptLanguage, ttclient.Hooks())
@@ -170,9 +167,9 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 	}
 	deps := &stage.Deps{
 		Cfg: cfg, Pool: pool, Proxies: proxies, Loader: loader, Client: client,
-		Producer: producer, Jobs: jobs.New(rdb), Ckpt: checkpoint.New(rdb), DB: db, Suppression: supp,
+		Producer: producer, Jobs: jobs.New(rdb), Ckpt: checkpoint.New(rdb), DB: db,
 		Emit: &emit.Emitter{Producer: producer, HMACKey: []byte(cfg.Privacy.AuthorHMACKey),
-			Pseudonymize: cfg.Privacy.PIIMode == "pseudonymized", Suppression: supp},
+			Pseudonymize: cfg.Privacy.PIIMode == "pseudonymized"},
 	}
 	worker := &stage.Worker{D: deps, MaxAttempts: uint32(cfg.Crawler.MaxAttempts), MaxTotalAttempts: uint32(cfg.Crawler.MaxTotalAttempts),
 		MaxWaits: uint32(cfg.Crawler.MaxWaits), LeaseTTL: cfg.Crawler.LeaseTTL,
@@ -181,10 +178,9 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 			tkstaskv1.Kind_KIND_POST:    &stage.PostStage{D: deps},
 			tkstaskv1.Kind_KIND_THREAD:  &stage.ThreadStage{D: deps},
 		}}
-	c.Deps, c.Worker, c.Suppression = deps, worker, supp
+	c.Deps, c.Worker = deps, worker
 	c.Components = []run.Func{
 		func(ctx context.Context) error { return reg.Run(ctx, tc.RegistryRefresh) },
-		func(ctx context.Context) error { return supp.Run(ctx, cfg.Crawler.SuppressionRefresh) },
 	}
 	if c.Signer != nil {
 		// The pages close with the process.
@@ -206,9 +202,9 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 		c.Components = append(c.Components, ceil.Run)
 	}
 	if o.RawS3 != nil && tc.CaptureRaw != "none" {
-		// Raw answers hold comment text and authors: they expire after
-		// privacy.retention.raw_payload_days by a bucket lifecycle rule.
-		if days := cfg.Privacy.Retention.RawPayloadDays; days > 0 {
+		// Raw answers are kept for good unless tt.retention.raw_payload_days
+		// is set (a bucket lifecycle rule then expires them).
+		if days := cfg.TT.Retention.RawPayloadDays; days > 0 {
 			media.RawLifecycle(ctx, o.RawS3, cfg.S3.RawBucket, days)
 		}
 		sink := rawsink.New(o.RawS3, cfg.S3.RawBucket)

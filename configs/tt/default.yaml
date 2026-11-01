@@ -126,8 +126,9 @@ tt:
     # refresh re-reads them to the cap: ranked. newest reads until the
     # first stored comment (for a future sort parameter).
     order: ranked          # ranked | newest
-    # Top-level comments plus replies read per post and pass. After Phase 0.
-    max_per_post: 1000
+    # Top-level comments plus replies read per post and pass; 0 reads every
+    # comment and reply (owner, 2026-11-01: all data is collected).
+    max_per_post: 0
     include_replies: true
     # A whole read marks the stored comments it did not return as deleted
     # only when what it returned (comments plus the replies TikTok counts
@@ -140,3 +141,14 @@ tt:
   # TKS_TT__MEDIA__INCLUDE=true queues the downloads too.
   media:
     include: false
+  # Retention of what tks stores, in days; 0 keeps it for good. The owner
+  # chose (2026-11-01) that tks deletes nothing, so every value is 0; a
+  # positive one turns that step back on (ADR 0007 §14). privacy.retention
+  # is the copied Facebook pipeline's and tks does not read it.
+  retention:
+    comments_days: 0          # comment partitions
+    metrics_days: 0           # post_metrics and account_snapshots partitions
+    authors_inactive_days: 0  # people not seen since
+    jobs_days: 0              # finished jobs and canary runs
+    media_rows_days: 0        # media rows never handed over
+    raw_payload_days: 0       # raw answers sampled to the raw bucket

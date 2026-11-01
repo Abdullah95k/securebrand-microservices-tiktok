@@ -2,7 +2,6 @@ package stage
 
 import (
 	"context"
-	"strconv"
 	"testing"
 	"time"
 
@@ -225,12 +224,12 @@ func TestIncrementalCheck(t *testing.T) {
 
 // A renamed account is found by its secUid: its old page names nothing, the
 // list carries the new username. A private account and a gone one end the
-// check with their status; an erased one publishes nothing.
+// check with their status. tks erases no one: every account is read.
 func TestAccountChanges(t *testing.T) {
 	h := newHarness(t, tttest.Options{Spec: fakett.Spec{Seed: 7, Accounts: 4, PostsPerAccount: 20, PostSpacing: 10 * time.Hour}})
 	w := h.env.World
 	accs := w.Accounts()
-	renamed, private, gone, erased := accs[0], accs[1], accs[2], accs[3]
+	renamed, private, gone, plain := accs[0], accs[1], accs[2], accs[3]
 	scopes := map[*fakett.Account]*tkstaskv1.AccountScope{}
 	for _, a := range accs {
 		sc := task.ScopeFromRef("u:" + a.Username)
@@ -240,15 +239,6 @@ func TestAccountChanges(t *testing.T) {
 	old := renamed.Username
 	w.Rename(renamed, "renamed_account")
 	w.Mutate(func() { private.Private, gone.Gone = true, true })
-	// Erased as tks's erasure leaves it: a suppression row of subject type
-	// account, read by the crawler's set.
-	if _, err := h.d.DB.Exec(context.Background(), `INSERT INTO suppression (subject_type, subject_key) VALUES ('account', $1)`,
-		strconv.FormatInt(erased.UID, 10)); err != nil {
-		t.Fatal(err)
-	}
-	if err := h.d.Suppression.Load(context.Background()); err != nil {
-		t.Fatal(err)
-	}
 
 	st := h.check("renamed", commonv1.CrawlMode_CRAWL_MODE_FULL, scopes[renamed])
 	if st.Counters["profile_unavailable"] != 1 || st.Counters["lists_first_post"] != 1 {
@@ -292,9 +282,9 @@ func TestAccountChanges(t *testing.T) {
 		}
 	}
 
-	st = h.check("erased", commonv1.CrawlMode_CRAWL_MODE_FULL, scopes[erased])
-	if st.Counters["accounts_suppressed"] != 1 || len(accounts(h, "erased")) != 0 || len(posts(h, "erased")) != 0 {
-		t.Errorf("erased: counters %v, %d accounts, %d posts", st.Counters, len(accounts(h, "erased")), len(posts(h, "erased")))
+	h.check("plain", commonv1.CrawlMode_CRAWL_MODE_FULL, scopes[plain])
+	if len(accounts(h, "plain")) == 0 || len(posts(h, "plain")) != len(plain.Posts) {
+		t.Errorf("plain: %d accounts, %d posts, want %d", len(accounts(h, "plain")), len(posts(h, "plain")), len(plain.Posts))
 	}
 }
 

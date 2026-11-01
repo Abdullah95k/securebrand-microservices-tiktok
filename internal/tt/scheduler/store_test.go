@@ -195,11 +195,33 @@ func TestMaintenance(t *testing.T) {
 		old.Year(), int(old.Month()), old.Format("20060102"))).Scan(&before); err != nil || before != 3 {
 		t.Fatalf("%d old partitions before maintenance (%v), want 3", before, err)
 	}
+	var n int64
+	month := fmt.Sprintf("y%04dm%02d", old.Year(), int(old.Month()))
+	parts := []string{"comments_" + month, "account_snapshots_" + month, "post_metrics_d" + old.Format("20060102")}
+	// By default tks keeps everything (tt.retention all 0; ADR 0007 §14).
 	m := &Maintenance{DB: e.db, Cfg: e.cfg}
 	if err := m.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	var n int64
+	for q, want := range map[string]int64{`SELECT count(*) FROM jobs`: 1, `SELECT count(*) FROM people`: 2} {
+		if err := e.db.QueryRow(ctx, q).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != want {
+			t.Errorf("default retention: %s: %d, want %d", q, n, want)
+		}
+	}
+	for _, part := range parts {
+		var exists bool
+		if err := e.db.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, part).Scan(&exists); err != nil || !exists {
+			t.Errorf("default retention dropped partition %s (%v)", part, err)
+		}
+	}
+	// A retention set on purpose still works.
+	e.cfg.TT.Retention = config.Retention{CommentsDays: 365, MetricsDays: 180, AuthorsInactiveDays: 365, JobsDays: 90, MediaRowsDays: 30}
+	if err := m.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
 	for q, want := range map[string]int64{`SELECT count(*) FROM jobs`: 0, `SELECT count(*) FROM people`: 1} {
 		if err := e.db.QueryRow(ctx, q).Scan(&n); err != nil {
 			t.Fatal(err)
@@ -208,8 +230,7 @@ func TestMaintenance(t *testing.T) {
 			t.Errorf("%s: %d, want %d", q, n, want)
 		}
 	}
-	month := fmt.Sprintf("y%04dm%02d", old.Year(), int(old.Month()))
-	for _, part := range []string{"comments_" + month, "account_snapshots_" + month, "post_metrics_d" + old.Format("20060102")} {
+	for _, part := range parts {
 		var exists bool
 		if err := e.db.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, part).Scan(&exists); err != nil || exists {
 			t.Errorf("partition %s past retention still there (%v)", part, err)

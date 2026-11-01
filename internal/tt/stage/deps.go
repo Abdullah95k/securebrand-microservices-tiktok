@@ -27,7 +27,6 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/checkpoint"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/jobs"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/gdpr"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
@@ -51,10 +50,8 @@ type Deps struct {
 	Ckpt     *checkpoint.Store
 	// DB is schema tt (tt.crawl_cursors: the list watermarks); nil reads
 	// every account as never checked.
-	DB *pgxpool.Pool
-	// Suppression holds erased authors and accounts (ForAccounts).
-	Suppression *gdpr.Suppression
-	Now         func() time.Time
+	DB  *pgxpool.Pool
+	Now func() time.Time
 }
 
 func (d *Deps) now() time.Time {

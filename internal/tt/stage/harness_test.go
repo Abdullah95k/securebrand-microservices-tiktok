@@ -20,7 +20,6 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/checkpoint"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/jobs"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakett"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/gdpr"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/proxy"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/testenv"
@@ -110,11 +109,10 @@ func newHarness(t *testing.T, o tttest.Options) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	supp := gdpr.NewSuppression(db).ForAccounts()
 	now := func() time.Time { return env.World.Now }
 	d := &Deps{Cfg: cfg, Pool: env.Pool, Proxies: proxies, Loader: env.Loader, Client: env.Client,
-		Emit:     &emit.Emitter{Producer: prod, HMACKey: []byte("tks-test-secret"), Suppression: supp, Now: now},
-		Producer: prod, Jobs: jobs.New(rdb), Ckpt: checkpoint.New(rdb), DB: db, Suppression: supp, Now: now}
+		Emit:     &emit.Emitter{Producer: prod, HMACKey: []byte("tks-test-secret"), Now: now},
+		Producer: prod, Jobs: jobs.New(rdb), Ckpt: checkpoint.New(rdb), DB: db, Now: now}
 	cl, err := kgo.NewClient(kgo.SeedBrokers(brokers...), kgo.ConsumeRegex(), kgo.ConsumeTopics("^"+regexp.QuoteMeta(prefix)+".*"),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()), kgo.MetadataMinAge(100*time.Millisecond), kgo.MetadataMaxAge(500*time.Millisecond), kgo.FetchMaxWait(200*time.Millisecond))
 	if err != nil {

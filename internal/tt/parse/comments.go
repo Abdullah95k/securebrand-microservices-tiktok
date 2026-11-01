@@ -138,7 +138,8 @@ func comment(c gjson.Result, cc CommentContext, parent int64, o Options, rep *Re
 	u := c.Get("user")
 	author := &ttv1.Person{AuthorKey: o.key(uid), UserId: proto.Int64(uid), SecUid: u.Get("sec_uid").String(),
 		Username: u.Get("unique_id").String(), Nickname: u.Get("nickname").String(),
-		AvatarUrl: firstOf(u, "avatar_thumb.url_list.0", "avatar_medium.url_list.0").String()}
+		AvatarUrl:         firstOf(u, "avatar_thumb.url_list.0", "avatar_medium.url_list.0").String(),
+		PredictedAgeGroup: u.Get("predicted_age_group").String()}
 	cm := &ttv1.Comment{Obs: o.obs(), CommentId: id, PostId: postID, UserId: cc.UserID, PostCreatedAt: cc.PostCreatedAt,
 		Author: author, Text: c.Get("text").String(), CreatedAt: unix(c.Get("create_time")),
 		LikeCount: count(gjson.Result{}, c.Get("digg_count")), ReplyCount: count(gjson.Result{}, c.Get("reply_comment_total")),

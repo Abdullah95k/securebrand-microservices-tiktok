@@ -132,7 +132,6 @@ func Start(t *testing.T, o Options) *Stack {
 	cfg.Crawler.YieldPages = 2   // and within a list
 	cfg.Crawler.Slots, cfg.Crawler.LaneMin = 24, 2
 	cfg.Crawler.Lanes = map[string]int{"p0": 24, "p1": 16, "p2": 8}
-	cfg.Crawler.SuppressionRefresh = 200 * time.Millisecond
 	if o.Config != nil {
 		o.Config(cfg)
 	}

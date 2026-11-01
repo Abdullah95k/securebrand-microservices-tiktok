@@ -250,24 +250,24 @@ func (s *Server) getPost(w http.ResponseWriter, r *http.Request) {
 // author_key is always there, so a client can group a person's comments
 // without knowing who they are.
 type Comment struct {
-	CommentID        int64          `json:"comment_id,string"`
-	PostID           int64          `json:"post_id,string"`
-	ParentCommentID  *int64         `json:"parent_comment_id,omitempty,string"`
-	ReplyToCommentID *int64         `json:"reply_to_comment_id,omitempty,string"`
-	Depth            int16          `json:"depth"`
-	AuthorKey        string         `json:"author_key,omitempty"`
-	Author           *CommentAuthor `json:"author,omitempty"`
-	Text             *string        `json:"text,omitempty"`
+	CommentID        int64           `json:"comment_id,string"`
+	PostID           int64           `json:"post_id,string"`
+	ParentCommentID  *int64          `json:"parent_comment_id,omitempty,string"`
+	ReplyToCommentID *int64          `json:"reply_to_comment_id,omitempty,string"`
+	Depth            int16           `json:"depth"`
+	AuthorKey        string          `json:"author_key,omitempty"`
+	Author           *CommentAuthor  `json:"author,omitempty"`
+	Text             *string         `json:"text,omitempty"`
 	TextRanges       json.RawMessage `json:"text_ranges,omitempty"`
-	CreatedAt        *time.Time     `json:"created_at,omitempty"`
-	LikeCount        *int64         `json:"like_count,omitempty"`
-	ReplyCount       *int64         `json:"reply_count,omitempty"`
-	LikedByCreator   *bool          `json:"liked_by_creator,omitempty"`
-	PinnedByCreator  *bool          `json:"pinned_by_creator,omitempty"`
-	HasImages        *bool          `json:"has_images,omitempty"`
-	ImageMediaIDs    []string       `json:"image_media_ids,omitempty"`
-	Labels           []string       `json:"labels,omitempty"`
-	Language         *string        `json:"language,omitempty"`
+	CreatedAt        *time.Time      `json:"created_at,omitempty"`
+	LikeCount        *int64          `json:"like_count,omitempty"`
+	ReplyCount       *int64          `json:"reply_count,omitempty"`
+	LikedByCreator   *bool           `json:"liked_by_creator,omitempty"`
+	PinnedByCreator  *bool           `json:"pinned_by_creator,omitempty"`
+	HasImages        *bool           `json:"has_images,omitempty"`
+	ImageMediaIDs    []string        `json:"image_media_ids,omitempty"`
+	Labels           []string        `json:"labels,omitempty"`
+	Language         *string         `json:"language,omitempty"`
 	// Status is visible or deleted (a whole read of the post no longer
 	// returned it, at DeletedAt); a deleted comment keeps its last content.
 	Status    string     `json:"status"`
@@ -275,7 +275,6 @@ type Comment struct {
 	// EditCount counts text changes seen across reads, the last at EditedAt.
 	EditCount   int        `json:"edit_count"`
 	EditedAt    *time.Time `json:"edited_at,omitempty"`
-	Redacted    bool       `json:"redacted"`
 	FirstSeenAt time.Time  `json:"first_seen_at"`
 	LastSeenAt  time.Time  `json:"last_seen_at"`
 }
@@ -289,6 +288,10 @@ type CommentAuthor struct {
 	Nickname  *string `json:"nickname,omitempty"`
 	AvatarURL *string `json:"avatar_url,omitempty"`
 	Verified  *bool   `json:"verified,omitempty"`
+	// PredictedAgeGroup is TikTok's inference of the person's age band, as
+	// served on some comment authors (stored by the owner's choice, ADR
+	// 0007 §14).
+	PredictedAgeGroup *string `json:"predicted_age_group,omitempty"`
 }
 
 // commentQuery selects a post's comments, oldest first.
@@ -314,10 +317,10 @@ func commentCursor(c Comment) *cursorPos {
 func (s *Server) queryComments(ctx context.Context, q commentQuery, pii bool) ([]Comment, error) {
 	sql := `SELECT c.comment_id, c.post_id, c.parent_comment_id, c.reply_to_comment_id, c.depth, c.author_key, c.text,
 		c.text_ranges, c.created_at, c.like_count, c.reply_count, c.liked_by_creator, c.pinned_by_creator, c.has_images,
-		c.image_media_ids::text[], c.labels, c.language, c.status, c.deleted_at, c.edit_count, c.edited_at, c.redacted,
+		c.image_media_ids::text[], c.labels, c.language, c.status, c.deleted_at, c.edit_count, c.edited_at,
 		c.first_seen_at, c.last_seen_at, coalesce(c.author_user_id, p.user_id), p.sec_uid, p.username, p.nickname,
-		p.avatar_url, p.verified
-		FROM comments c LEFT JOIN people p ON p.author_key = c.author_key AND NOT c.redacted
+		p.avatar_url, p.verified, p.predicted_age_group
+		FROM comments c LEFT JOIN people p ON p.author_key = c.author_key
 		WHERE c.post_created_at = $1 AND c.post_id = $2`
 	args := []any{q.postCreated, q.postID}
 	if q.parent != nil {
@@ -348,15 +351,15 @@ func (s *Server) queryComments(ctx context.Context, q commentQuery, pii bool) ([
 		var a CommentAuthor
 		err := row.Scan(&c.CommentID, &c.PostID, &c.ParentCommentID, &c.ReplyToCommentID, &c.Depth, &key, &c.Text, &c.TextRanges,
 			&c.CreatedAt, &c.LikeCount, &c.ReplyCount, &c.LikedByCreator, &c.PinnedByCreator, &c.HasImages, &c.ImageMediaIDs,
-			&c.Labels, &c.Language, &c.Status, &c.DeletedAt, &c.EditCount, &c.EditedAt, &c.Redacted, &c.FirstSeenAt,
-			&c.LastSeenAt, &a.UserID, &a.SecUID, &a.Username, &a.Nickname, &a.AvatarURL, &a.Verified)
+			&c.Labels, &c.Language, &c.Status, &c.DeletedAt, &c.EditCount, &c.EditedAt, &c.FirstSeenAt,
+			&c.LastSeenAt, &a.UserID, &a.SecUID, &a.Username, &a.Nickname, &a.AvatarURL, &a.Verified, &a.PredictedAgeGroup)
 		if len(key) > 0 {
 			c.AuthorKey = hex.EncodeToString(key)
 		}
 		switch {
 		case !pii:
 			c.Text, c.TextRanges, c.ImageMediaIDs = nil, nil, nil
-		case !c.Redacted && (a.UserID != nil || a.Username != nil || a.Nickname != nil):
+		case a.UserID != nil || a.Username != nil || a.Nickname != nil:
 			c.Author = &a
 		}
 		return c, err

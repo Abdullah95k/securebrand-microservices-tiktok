@@ -12,7 +12,6 @@ import (
 
 	ttv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/emit"
 )
 
 var commentCols = []string{"post_created_at", "post_id", "comment_id", "user_id", "parent_comment_id",
@@ -21,7 +20,7 @@ var commentCols = []string{"post_created_at", "post_id", "comment_id", "user_id"
 	"language", "redacted", "content_hash", "first_seen_at", "last_seen_at"}
 
 var peopleCols = []string{"author_key", "user_id", "sec_uid", "username", "nickname", "avatar_url", "verified",
-	"first_seen_at", "last_seen_at"}
+	"predicted_age_group", "first_seen_at", "last_seen_at"}
 
 func commentRow(c *ttv1.Comment) []any {
 	seen := observed(c.Obs)
@@ -57,9 +56,7 @@ func commentRow(c *ttv1.Comment) []any {
 }
 
 // Comments upserts comments and replies with their authors, and applies
-// deletions. Comments on an erased account's posts are dropped, an erased
-// author's stored redacted, without a people row; erased people's mentions
-// are cleared. An observation older than the stored one changes nothing;
+// deletions. An observation older than the stored one changes nothing;
 // a newer one with other text counts as an edit, and one newer than the
 // comment's deletion makes it (and the replies deleted with it) visible
 // again.
@@ -84,37 +81,18 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 		return nil
 	}
 	start := time.Now()
-	var keys [][]byte
-	ids := make([]int64, 0, len(cs))
 	times := make([]time.Time, 0, len(cs))
 	for _, c := range cs {
-		keys = append(keys, c.GetAuthor().GetAuthorKey())
-		keys = append(keys, mentionKeys(c.TextRanges)...)
-		ids = append(ids, c.UserId)
 		times = append(times, c.PostCreatedAt.AsTime())
 	}
 	var n, edited, restored, upserted int64
-	var dropped int
 	err := w.withPartitions(ctx, "comments", times, func() error {
-		n, edited, restored, upserted, dropped = 0, 0, 0, 0, 0
+		n, edited, restored, upserted = 0, 0, 0, 0
 		return pgx.BeginFunc(ctx, w.DB, func(tx pgx.Tx) error {
-			sup, err := guard(ctx, tx, keys, ids)
-			if err != nil {
-				return err
-			}
 			rows := make([][]any, 0, len(cs))
 			var dels []*ttv1.Comment
 			people := map[string][]any{}
 			for _, c := range cs {
-				if sup.PageSuppressed(c.UserId) {
-					dropped++
-					continue
-				}
-				if !c.Redacted && sup.AuthorSuppressed(c.GetAuthor().GetAuthorKey()) {
-					emit.Redact(c)
-					dropped++
-				}
-				scrubMentions(sup, c.TextRanges)
 				if c.Status == ttv1.CommentStatus_COMMENT_STATUS_DELETED {
 					dels = append(dels, c)
 					continue
@@ -122,11 +100,11 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 				rows = append(rows, commentRow(c))
 				if a := c.Author; a != nil && len(a.AuthorKey) > 0 && !c.Redacted {
 					seen := observed(c.Obs)
-					if prev, ok := people[string(a.AuthorKey)]; ok && prev[8].(time.Time).After(seen) {
+					if prev, ok := people[string(a.AuthorKey)]; ok && prev[9].(time.Time).After(seen) {
 						continue
 					}
 					people[string(a.AuthorKey)] = []any{a.AuthorKey, a.UserId, nilIfEmpty(a.SecUid), nilIfEmpty(a.Username),
-						nilIfEmpty(a.Nickname), nilIfEmpty(a.AvatarUrl), a.Verified, seen, seen}
+						nilIfEmpty(a.Nickname), nilIfEmpty(a.AvatarUrl), a.Verified, nilIfEmpty(a.PredictedAgeGroup), seen, seen}
 				}
 			}
 			upserted = int64(len(rows))
@@ -150,15 +128,18 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 			if err := copyTemp(ctx, tx, "tmp_people", "people", peopleCols, prows); err != nil {
 				return err
 			}
-			_, err = tx.Exec(ctx, `INSERT INTO people AS p (`+strings.Join(peopleCols, ",")+`)
+			_, err := tx.Exec(ctx, `INSERT INTO people AS p (`+strings.Join(peopleCols, ",")+`)
 				SELECT `+strings.Join(peopleCols, ",")+` FROM tmp_people
 				ON CONFLICT (author_key) DO UPDATE SET `+set(peopleCols, map[string]string{"author_key": "", "first_seen_at": "",
-				"last_seen_at": "GREATEST(p.last_seen_at, EXCLUDED.last_seen_at)"})+`
+				"last_seen_at": "GREATEST(p.last_seen_at, EXCLUDED.last_seen_at)",
+				// The last band TikTok served stays when a read carries none.
+				"predicted_age_group": "COALESCE(EXCLUDED.predicted_age_group, p.predicted_age_group)"})+`
 				WHERE p.last_seen_at <= EXCLUDED.last_seen_at
 				  AND (p.last_seen_at < EXCLUDED.last_seen_at - interval '1 day'
-				   OR (p.user_id, p.sec_uid, p.username, p.nickname, p.avatar_url, p.verified)
+				   OR (p.user_id, p.sec_uid, p.username, p.nickname, p.avatar_url, p.verified, p.predicted_age_group)
 				      IS DISTINCT FROM (EXCLUDED.user_id, EXCLUDED.sec_uid, EXCLUDED.username, EXCLUDED.nickname,
-				                        EXCLUDED.avatar_url, EXCLUDED.verified))`)
+				                        EXCLUDED.avatar_url, EXCLUDED.verified,
+				                        COALESCE(EXCLUDED.predicted_age_group, p.predicted_age_group)))`)
 			return err
 		})
 	})
@@ -167,7 +148,6 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 	}
 	written("comment", n, start)
 	metrics.PersistRows.WithLabelValues("comment", "unchanged").Add(float64(upserted - n))
-	suppressed("comment", dropped)
 	metrics.CommentChanges.WithLabelValues("edited").Add(float64(edited))
 	metrics.CommentChanges.WithLabelValues("restored").Add(float64(restored))
 	return nil

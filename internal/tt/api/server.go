@@ -1,7 +1,7 @@
 // Package api implements tks's REST API (/v1) on schema tt: accounts (by
 // user id, username or secUid) with their username history, snapshots and
 // posts; posts with their metrics, comments and media; jobs; registrations
-// on the schedule; erasure. The contract is api/openapi/tks.v1.yaml, kept in
+// on the schedule. The contract is api/openapi/tks.v1.yaml, kept in
 // step with the router by a test.
 //
 // It is internal/api (fbs's) on tks's tables and envelope (docs/tiktok ADR
@@ -16,7 +16,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -105,9 +104,6 @@ func (s *Server) routes(r chi.Router) {
 	r.Get("/posts/{post}/media", require(ScopeDataRead, s.postMedia))
 	r.Get("/music/{music}", require(ScopeDataRead, s.getMusic))
 	r.Get("/media/{media}", require(ScopeDataRead, s.getMedia))
-
-	r.Post("/erasure-requests", require(ScopeAdmin, s.createErasure))
-	r.Get("/erasure-requests/{id}", require(ScopeAdmin, s.getErasure))
 
 	r.Get("/admin/operations", require(ScopeAdmin, s.listOperations))
 	r.Put("/admin/operations/{name}", require(ScopeAdmin, s.putOperation))
@@ -212,11 +208,6 @@ func cursorParam(w http.ResponseWriter, r *http.Request) (*cursorPos, bool) {
 func pathInt(r *http.Request, name string) (int64, bool) {
 	v, err := strconv.ParseInt(chi.URLParam(r, name), 10, 64)
 	return v, err == nil && v > 0
-}
-
-func boolParam(r *http.Request, name string) bool {
-	v := strings.ToLower(r.URL.Query().Get(name))
-	return v == "1" || v == "true" || v == "yes"
 }
 
 // timeParam reads an RFC 3339 query parameter.

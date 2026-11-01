@@ -107,6 +107,11 @@ func person(uid int64, name string) *ttv1.Person {
 		Nickname: "Nick " + name}
 }
 
+func aged(p *ttv1.Person) *ttv1.Person {
+	p.PredictedAgeGroup = "band"
+	return p
+}
+
 func seed(t *testing.T, w *ttpersist.Writer) {
 	t.Helper()
 	ctx := context.Background()
@@ -159,7 +164,7 @@ func seed(t *testing.T, w *ttpersist.Writer) {
 		return c
 	}
 	if err := w.Comments(ctx, []*ttv1.Comment{
-		cm(101, 0, person(authorID, "commenter"), "first"),
+		cm(101, 0, aged(person(authorID, "commenter")), "first"),
 		cm(102, 101, person(replyID, "replier"), "@ment reply", &ttv1.TextRange{Offset: 0, Length: 5, Type: "mention", Name: "ment",
 			Person: person(mentID, "ment")}),
 		cm(103, 0, person(replyID, "replier"), "second"),
@@ -223,7 +228,6 @@ func TestAuthAndScopes(t *testing.T) {
 	e.want(403, "reader", "POST", "/accounts", map[string]any{"account": "@x"}, nil)
 	e.want(403, "reader", "POST", "/jobs", map[string]any{"account": "@x"}, nil)
 	e.want(403, "reader", "GET", "/accounts/id:7001/usernames", nil, nil)
-	e.want(403, "a", "POST", "/erasure-requests", map[string]any{"subject_type": "author", "user_id": "1"}, nil)
 	e.want(403, "pii", "GET", "/admin/operations", nil, nil)
 	e.want(200, "admin", "GET", "/admin/operations", nil, nil)
 	e.want(200, "admin", "GET", "/admin/canary/runs", nil, nil)
@@ -348,6 +352,15 @@ func TestPostsCommentsMetricsMedia(t *testing.T) {
 			t.Fatalf("comment without pii: %v", c)
 		}
 	}
+	var top struct {
+		Comments []map[string]any `json:"comments"`
+	}
+	e.want(200, "pii", "GET", "/posts/"+p1+"/comments?depth=0", nil, &top)
+	for _, c := range top.Comments {
+		if c["comment_id"] == "101" && c["author"].(map[string]any)["predicted_age_group"] != "band" {
+			t.Fatalf("the author's age band with pii:read: %v", c["author"])
+		}
+	}
 	e.want(200, "pii", "GET", "/posts/"+p1+"/comments?parent_id=101", nil, &cs)
 	if len(cs.Comments) != 1 || cs.Comments[0]["text"] != "@ment reply" || cs.Comments[0]["parent_comment_id"] != "101" ||
 		cs.Comments[0]["author"].(map[string]any)["username"] != "replier" {
@@ -390,7 +403,6 @@ func TestPostsCommentsMetricsMedia(t *testing.T) {
 // others are registered; unregistering disables it once nobody is.
 func TestRegistrations(t *testing.T) {
 	e := newEnv(t)
-	ctx := context.Background()
 	var reg struct {
 		Ref      string         `json:"account_ref"`
 		Created  bool           `json:"created"`
@@ -467,67 +479,13 @@ func TestRegistrations(t *testing.T) {
 	if one[bool](t, e.db, `SELECT enabled FROM account_schedule WHERE account_ref = 'u:fresh_one'`) {
 		t.Fatal("still enabled with nobody registered")
 	}
-	e.want(403, "a", "DELETE", "/accounts/acct_new?purge=true", nil, nil)
-	var er map[string]any
-	e.want(202, "admin", "DELETE", "/accounts/acct_new?purge=true", nil, &er)
-	if er["subject_type"] != "account" || one[int64](t, e.db, `SELECT user_id FROM erasure_requests WHERE id = $1`, er["id"]) != acctID {
-		t.Fatalf("purge %v", er)
+	// Unregistering keeps the account's data (tks deletes nothing).
+	e.want(204, "a", "DELETE", "/accounts/acct_new", nil, nil)
+	e.want(204, "b", "DELETE", "/accounts/acct_new", nil, nil)
+	if n := one[int64](t, e.db, `SELECT count(*) FROM posts WHERE user_id = 7001`); n != 3 {
+		t.Fatalf("%d posts after unregistering, want 3", n)
 	}
-	// An erased account is not registered again.
-	if _, err := e.db.Exec(ctx, `INSERT INTO suppression (subject_type, subject_key) VALUES ('account', '7002')`); err != nil {
-		t.Fatal(err)
-	}
-	e.want(409, "a", "POST", "/accounts", map[string]any{"account": "@other"}, nil)
-}
-
-func TestErasureRequests(t *testing.T) {
-	e := newEnv(t)
-	cases := []struct {
-		body    map[string]any
-		code    int
-		subject string
-		key     []byte
-		user    int64
-	}{
-		{map[string]any{"subject_type": "author", "username": "@Commenter"}, 202, "author", key(authorID), 0},
-		{map[string]any{"subject_type": "author", "sec_uid": "sec-9002"}, 202, "author", key(replyID), 0},
-		{map[string]any{"subject_type": "author", "user_id": "123456789"}, 202, "author", key(123456789), 0},
-		{map[string]any{"subject_type": "author", "author_key": hex.EncodeToString(key(mentID))}, 202, "author", key(mentID), 0},
-		{map[string]any{"subject_type": "account", "username": "acct_old"}, 202, "account", nil, acctID},
-		{map[string]any{"subject_type": "account", "user_id": "7002"}, 202, "account", nil, otherID},
-		{map[string]any{"subject_type": "account", "user_id": "424242"}, 202, "account", nil, 424242},
-		{map[string]any{"subject_type": "author", "username": "nobody"}, 400, "", nil, 0},
-		{map[string]any{"subject_type": "account", "sec_uid": "sec-none"}, 400, "", nil, 0},
-		{map[string]any{"subject_type": "author", "user_id": "12x"}, 400, "", nil, 0},
-		{map[string]any{"subject_type": "author", "user_id": "007"}, 400, "", nil, 0},
-		{map[string]any{"subject_type": "author", "author_key": "abcd"}, 400, "", nil, 0},
-		{map[string]any{"subject_type": "account", "author_key": hex.EncodeToString(key(1))}, 400, "", nil, 0},
-		{map[string]any{"subject_type": "author", "user_id": "1", "username": "x"}, 400, "", nil, 0},
-		{map[string]any{"subject_type": "page", "user_id": "1"}, 400, "", nil, 0},
-	}
-	for i, c := range cases {
-		var out map[string]any
-		e.want(c.code, "admin", "POST", "/erasure-requests", c.body, &out)
-		if c.code != 202 {
-			continue
-		}
-		var subject string
-		var k []byte
-		var uid *int64
-		if err := e.db.QueryRow(context.Background(), `SELECT subject_type, author_key, user_id FROM erasure_requests WHERE id = $1`,
-			out["id"]).Scan(&subject, &k, &uid); err != nil {
-			t.Fatal(err)
-		}
-		if subject != c.subject || hex.EncodeToString(k) != hex.EncodeToString(c.key) || (c.user != 0) != (uid != nil) ||
-			(uid != nil && *uid != c.user) {
-			t.Errorf("case %d: stored %s %x %v", i, subject, k, uid)
-		}
-		var got map[string]any
-		e.want(200, "admin", "GET", "/erasure-requests/"+out["id"].(string), nil, &got)
-		if got["status"] != "pending" || got["subject_type"] != c.subject {
-			t.Errorf("case %d: %v", i, got)
-		}
-	}
+	e.want(200, "reader", "GET", "/accounts/acct_new", nil, nil)
 }
 
 // Jobs: a client sees its own jobs and the scheduled jobs of accounts it

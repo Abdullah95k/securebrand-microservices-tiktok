@@ -2,7 +2,6 @@ package persist
 
 import (
 	"context"
-	"encoding/hex"
 	"testing"
 	"time"
 
@@ -45,13 +44,6 @@ func one[T any](t *testing.T, db *pgxpool.Pool, q string, args ...any) T {
 		t.Fatalf("%s: %v", q, err)
 	}
 	return v
-}
-
-func suppress(t *testing.T, db *pgxpool.Pool, typ, key string) {
-	t.Helper()
-	if _, err := db.Exec(context.Background(), `INSERT INTO suppression (subject_type, subject_key) VALUES ($1, $2)`, typ, key); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func account(at time.Time, src ttv1.AccountSource, username string, followers int64, exact bool) *ttv1.Account {
@@ -240,10 +232,10 @@ func comment(id int64, parent int64, at time.Time, text string, author int64) *t
 }
 
 // Comments: an edit is counted, a deleted comment and its replies come
-// back together when the comment is seen again, an erased author's comment
-// is stored redacted without a people row, and comments of an erased
-// account are dropped.
-func TestCommentsEditsDeletionsAndErasure(t *testing.T) {
+// back together when the comment is seen again, and every comment and
+// author is stored, with the author's predicted age band (tks erases no
+// one: ADR 0007 §14).
+func TestCommentsEditsDeletionsAndAuthors(t *testing.T) {
 	w := newWriter(t)
 	ctx := context.Background()
 	t0 := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
@@ -275,63 +267,46 @@ func TestCommentsEditsDeletionsAndErasure(t *testing.T) {
 	if n := one[int64](t, w.DB, `SELECT count(*) FROM people`); n != 2 {
 		t.Fatalf("%d people", n)
 	}
-	// Erasures in flight: the author of comment 12 and account 7003.
-	suppress(t, w.DB, "author", hex.EncodeToString(emit.AuthorKey(secret, 9003)))
-	suppress(t, w.DB, "account", "7003")
+	// Any author and account: all written, the age band with the person.
+	aged := comment(12, 0, t0, "kept", 9003)
+	aged.Author.PredictedAgeGroup = "band"
 	other := comment(13, 0, t0, "other account", 9004)
 	other.UserId = 7003
-	if err := w.Comments(ctx, []*ttv1.Comment{comment(12, 0, t0, "secret", 9003), other}); err != nil {
+	if err := w.Comments(ctx, []*ttv1.Comment{aged, other}); err != nil {
 		t.Fatal(err)
 	}
-	var text *string
-	var redacted bool
-	var authorID *int64
-	if err := w.DB.QueryRow(ctx, `SELECT text, redacted, author_user_id FROM comments WHERE comment_id = 12`).Scan(&text, &redacted, &authorID); err != nil {
+	if n := one[int64](t, w.DB, `SELECT count(*) FROM comments WHERE comment_id IN (12, 13) AND text IS NOT NULL AND NOT redacted`); n != 2 {
+		t.Fatalf("%d of 2 comments stored whole", n)
+	}
+	if got := one[string](t, w.DB, `SELECT predicted_age_group FROM people WHERE user_id = 9003`); got != "band" {
+		t.Fatalf("age band %q", got)
+	}
+	// A later read without the band keeps the stored one (nothing is
+	// deleted); a new band replaces it.
+	again := comment(12, 0, t0.Add(48*time.Hour), "kept", 9003)
+	if err := w.Comments(ctx, []*ttv1.Comment{again}); err != nil {
 		t.Fatal(err)
 	}
-	if text != nil || !redacted || authorID != nil {
-		t.Fatalf("erased author's comment: text %v redacted %v author %v", text, redacted, authorID)
+	if got := one[string](t, w.DB, `SELECT predicted_age_group FROM people WHERE user_id = 9003`); got != "band" {
+		t.Fatalf("age band %q after a read without one", got)
 	}
-	if n := one[int64](t, w.DB, `SELECT count(*) FROM people WHERE user_id IN (9003, 9004)`); n != 0 {
-		t.Fatalf("%d people rows of an erased author or account", n)
+	newer := comment(12, 0, t0.Add(96*time.Hour), "kept", 9003)
+	newer.Author.PredictedAgeGroup = "other-band"
+	if err := w.Comments(ctx, []*ttv1.Comment{newer}); err != nil {
+		t.Fatal(err)
 	}
-	if n := one[int64](t, w.DB, `SELECT count(*) FROM comments WHERE comment_id = 13`); n != 0 {
-		t.Fatal("a comment of an erased account was written")
+	if got := one[string](t, w.DB, `SELECT predicted_age_group FROM people WHERE user_id = 9003`); got != "other-band" {
+		t.Fatalf("age band %q, want the newer one", got)
 	}
 }
 
-// Records of an erased account are dropped everywhere: account, posts,
-// metrics, media.
-func TestErasedAccountIsNotWritten(t *testing.T) {
+// The same media and music are written once.
+func TestMediaAndMusicOnce(t *testing.T) {
 	w := newWriter(t)
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Second)
-	if _, err := ttstore.EnsurePartitions(ctx, w.DB, now, storeWindow); err != nil {
-		t.Fatal(err)
-	}
-	suppress(t, w.DB, "account", "7001")
-	p := post(2, now, 5, nil)
 	m := &ttv1.Media{Obs: obs(now, "m"), MediaId: "6f1c1a2e-6a3b-5c1d-8e2f-0a1b2c3d4e5f", Kind: ttv1.MediaKind_MEDIA_KIND_COVER,
-		Variant: "original", UserId: 7001, PostId: proto.Int64(2), SourceUrl: "https://example.org/c.jpg"}
-	if err := w.Accounts(ctx, []*ttv1.Account{account(now, ttv1.AccountSource_ACCOUNT_SOURCE_PROFILE_PAGE, "x", 1, true)}); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.Posts(ctx, []*ttv1.Post{p}); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.PostMetrics(ctx, []*ttv1.PostMetrics{metricsOf(p, now)}); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.Media(ctx, []*ttv1.Media{m}); err != nil {
-		t.Fatal(err)
-	}
-	for _, tb := range []string{"accounts", "posts", "post_metrics", "media", "post_index"} {
-		if n := one[int64](t, w.DB, `SELECT count(*) FROM `+tb); n != 0 {
-			t.Errorf("%d rows in %s", n, tb)
-		}
-	}
-	// Without the erasure, the same media and music are written once.
-	m.UserId = 7005
+		Variant: "original", UserId: 7005, PostId: proto.Int64(2), SourceUrl: "https://example.org/c.jpg"}
 	mu := &ttv1.Music{Obs: obs(now, "mu"), MusicId: 9, Title: "sound", Original: proto.Bool(true)}
 	for range 2 {
 		if err := w.Media(ctx, []*ttv1.Media{m}); err != nil {
