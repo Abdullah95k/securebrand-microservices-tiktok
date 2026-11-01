@@ -61,6 +61,15 @@ M6a added tks's own copies of the job and scheduler code, on schema tt and tks's
 
 Additions to shared code (no change for the copied pipeline): the metrics `tks_checks_total`, `tks_account_check_oldest_seconds`, `tks_scheduled_accounts`.
 
+M6b added tks's own copies of the API and the eraser, on schema tt (the copied `internal/api`, `cmd/fbs-api` and `gdpr.Eraser` are unchanged):
+
+| tks package | Copied from | What changed |
+|---|---|---|
+| `internal/tt/api` (`server.go`, `auth.go`, `jobs.go`, `accounts.go`, `data.go`, `admin.go`), `cmd/tks-api`, `api/openapi/tks.v1.yaml` | `internal/api`, `cmd/fbs-api`, `api/openapi/fbs.v1.yaml` | Accounts (by user id, secUid, a current or former username) for pages, with their username history; TikTok's posts, comments, metrics, media and music; `accounts:write` for `pages:write`; ids as JSON strings; personal fields behind `pii:read` as ADR 0007 §6 lists them; registration as a schedule due now (the planner backfills), one schedule per account however named; an undecodable cursor is a 400; `{account}` is unescaped; keys validated against the scopes; `tksctl apikey create|revoke` (fbctl's) |
+| `internal/tt/erasure` | `internal/gdpr/erasure.go` | Subjects `author` and `account` (an account is also erased as an author: the same user id); schema tt's tables; mentions found by author key in the stored text ranges; schedules and jobs renamed or deleted so no name remains; `common.v1` events with `platform`; stored media without an S3 client retried, not orphaned; the request's names dropped when done |
+
+Additions to shared code (no change for the copied pipeline): `gdpr.LockExclusive` (the erasure's side of `GuardAccounts`, for another schema's eraser).
+
 ## tks fixes igs or fbs may want
 
 Fixes made in tks's copy of shared code that igs or fbs still lack. Their own sessions decide whether to port them.
@@ -77,4 +86,5 @@ Fixes made in tks's copy of shared code that igs or fbs still lack. Their own se
 | 2026-11-01 | M3 | **`securebrand.common.v1` written before igs's M3**, in the shape igs's ADR 0005 §2 plans: `Platform` (with `PLATFORM_TIKTOK = 3`), `CrawlMode` and `Observation` (fbs's numbers, plus `platform`), `ImageRef`, `S3Object`, the media handoff (`MediaReady`, `MediaProcessed`, `MediaDeleted` with neutral ids `source_media_id`, `account_id`, `post_id`, `comment_id`, a neutral `MediaKind` and the platform's own `platform_kind`), `JobEvent` and `Completeness` (`subject_ref`, `subject_id`), `ErasureEvent` (`AUTHOR`, `ACCOUNT`). igs can copy the four files byte for byte (only `go_package` differs), or tks takes igs's once it lands, if igs changes them before publishing | igs: `api/proto/securebrand/common/v1/` (new) |
 | 2026-11-01 | M3 | The registry's tables are named, not fixed to `fb_queries` and `fb_client_params`: `registry.Tables`, `ApplySeedTo`, `ListFrom`, `UpsertTo`, `NewDBFrom` (the old functions use `FBTables`). igs's M3 plans the same (`queries`, `client_params`) | igs: `internal/scrape/registry/registry.go` |
 | 2026-11-01 | M3 | Partition maintenance names its tables (`store.Tables`, `Tables.Ensure`; `EnsurePartitions` keeps fbs's set), so a second schema keeps its own partitioned tables | igs and fbs: `internal/store/partitions.go` |
+| 2026-11-01 | M6b | A `cursor` query parameter that does not decode is ignored, so the client gets the first page again and may loop: tks's API answers 400 | igs and fbs: `internal/api/server.go` `decodeCursor` and its callers |
 | 2026-11-01 | M5b | The schema registry client retried a request on a connection the registry dropped only when it read as EOF, a reset or "server closed idle connection"; a request written to a connection the transport had just closed (`net.ErrClosed`, "use of closed network connection", seen once in tks's CI against Redpanda) failed `TestSchemasApply`. It is now sent once more too | igs and fbs: `internal/platform/schemareg/schemareg.go` |
