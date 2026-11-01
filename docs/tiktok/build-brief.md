@@ -139,7 +139,7 @@ A milestone is done only when CI is green, its acceptance criteria are met, its 
 - **No signature algorithms:** tks never re-implements or copies an implementation of TikTok's request signatures (ADR 0006 §4); signed calls go through TikTok's own script in a browser page.
 - **Licences:** never copy code from a project whose licence we cannot use; read public projects for behaviour only, and cite them.
 - **Match the repo's style:** Go idioms, comment density, naming, the config layering, the metric conventions, and the `docs/` tone.
-- **Owner steps:** numbered, one command per block; files reach the droplet by `scp` from the Mac and come back by `scp` run on the Mac; no editing files on the droplet.
+- **Owner steps:** numbered, one command per block; files reach the droplet by `scp` from the Mac and come back by `scp` run on the Mac; no editing files on the droplet. **Always give all the steps, every time** (the owner's rule, 2026-11-01): from logging in (`ssh root@<droplet>`) and `cd` to the folder, through every command, to downloading the result on the Mac and uploading it, with what each step should show and what to do if it does not, even when earlier messages gave some of them. Never say "as before" or "steps 2 to 5 from last time".
 - **Ask the owner** (AskUserQuestion, with a recommendation) only for decisions that are theirs. §2 is settled once approved.
 - **At the end of each session,** update `build-status.md` (milestone states, PR links, findings, next step, what the owner must do) and reply with a short summary.
 
@@ -170,7 +170,7 @@ You are a build session for "tks", the logged-out scraper of public TikTok accou
 1. Read docs/tiktok/build-brief.md completely, then docs/tiktok/build-status.md. Follow the brief's reading order (the HAR findings and probe results first, open-questions.md, methods.md, ADRs 0006 and 0007 in docs/tiktok/adr/, reuse-plan.md, probe-spec.md).
 2. Find the next unfinished milestone in build-status.md and do it: think through the design first, verify every igs or fbs claim against the current code, then implement with tests, matching the repo's style. Open one draft PR per milestone, keep CI green, and merge it once CI is green; for copied code, run the unit, integration and e2e suites and show they pass.
 3. Continue to the following milestone in the same session only if the current one is merged and context allows; otherwise stop cleanly.
-4. Stop at owner checkpoints and decisions (C1–C5, G1) and tell me exactly what to do, in simple numbered steps with one command per block; I copy files to the droplet with scp from my Mac and do not edit files there.
+4. Stop at owner checkpoints and decisions (C1–C5, G1) and tell me exactly what to do, in simple numbered steps with one command per block, always all the steps from logging in to sending the result back; I copy files to the droplet with scp from my Mac and do not edit files there.
 5. Rules: no live requests to TikTok from this session; no paid services; never commit HARs, probe output, credentials or any real usernames, names, ids or comment text; never re-implement TikTok's request signatures; decisions in §2 of the brief are settled, so ask me (AskUserQuestion, with a recommendation) only about genuinely open trade-offs.
 6. Before finishing, update docs/tiktok/build-status.md (milestone states, PR links, findings, next step, what I need to do) and give me a short summary.
 ```
