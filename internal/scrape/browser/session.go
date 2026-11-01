@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -200,6 +201,140 @@ func (s *Session) Fetch(ctx context.Context, rawURL string) (*Fetched, error) {
 		}
 	}
 	return f, nil
+}
+
+// Mark returns the position of the newest captured request, for Captured.
+func (s *Session) Mark() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.r.seq
+}
+
+// Captured returns the captured requests that started after mark and have
+// finished, with their response bodies: the page's own API calls as well as
+// Fetch's. Only the newest requests are remembered (keepExchanges).
+func (s *Session) Captured(ctx context.Context, mark int) []Exchange {
+	s.mu.Lock()
+	var ids []string
+	var out []Exchange
+	for _, id := range s.r.order {
+		x := s.r.reqs[id]
+		if x == nil || x.seq <= mark || x.Status == 0 || s.r.inflight[id] {
+			continue
+		}
+		ids = append(ids, id)
+		out = append(out, *x)
+	}
+	s.mu.Unlock()
+	for i, id := range ids {
+		var body struct {
+			Body          string `json:"body"`
+			Base64Encoded bool   `json:"base64Encoded"`
+		}
+		if err := s.r.c.call(ctx, s.r.s, "Network.getResponseBody", map[string]any{"requestId": id}, &body); err != nil {
+			continue
+		}
+		if body.Base64Encoded {
+			out[i].Body, _ = base64.StdEncoding.DecodeString(body.Body)
+		} else {
+			out[i].Body = []byte(body.Body)
+		}
+	}
+	return out
+}
+
+// Navigate loads another URL in the page, as following a link would, and
+// waits for it to load and its captured requests to settle. URL and Status
+// then describe the new document.
+func (s *Session) Navigate(ctx context.Context, rawURL string) error {
+	s.eval.Lock()
+	defer s.eval.Unlock()
+	select {
+	case <-s.quit:
+		return ErrSessionClosed
+	default:
+	}
+	s.mu.Lock()
+	s.r.loaded = false
+	s.mu.Unlock()
+	var nav struct {
+		FrameID   string `json:"frameId"`
+		ErrorText string `json:"errorText"`
+	}
+	if err := s.r.c.call(ctx, s.r.s, "Page.navigate", map[string]any{"url": rawURL}, &nav); err != nil {
+		return err
+	}
+	if nav.ErrorText != "" {
+		return fmt.Errorf("browser: navigate %s: %s", rawURL, nav.ErrorText)
+	}
+	if err := s.wait(ctx, func() bool { return s.r.loaded }); err != nil {
+		return err
+	}
+	if err := s.quiet(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if nav.FrameID != "" {
+		s.r.frameID = nav.FrameID
+	}
+	doc := s.r.docs[s.r.frameID]
+	s.mu.Unlock()
+	s.URL, s.Status = doc.url, doc.status
+	if s.URL == "" {
+		s.URL = rawURL
+	}
+	return nil
+}
+
+// Scroll scrolls the page to its bottom, as a person reading on would, and
+// waits for the requests that starts to settle.
+func (s *Session) Scroll(ctx context.Context) error {
+	if _, err := s.Evaluate(ctx, "window.scrollTo(0, document.body.scrollHeight)"); err != nil {
+		return err
+	}
+	s.eval.Lock()
+	defer s.eval.Unlock()
+	return s.quiet(ctx)
+}
+
+// quiet waits until no captured request is in flight and none started for
+// the session's idle time, or its settle bound passed. The pump keeps the
+// state current meanwhile.
+func (s *Session) quiet(ctx context.Context) error {
+	s.mu.Lock()
+	s.r.lastNet = time.Now()
+	idle, deadline := s.r.opts.Idle, time.Now().Add(s.r.opts.MaxSettle)
+	s.mu.Unlock()
+	return s.wait(ctx, func() bool {
+		return (len(s.r.inflight) == 0 && time.Since(s.r.lastNet) >= idle) || time.Now().After(deadline)
+	})
+}
+
+// wait polls done, under s.mu, until it holds; the pump handles the page's
+// events meanwhile.
+func (s *Session) wait(ctx context.Context, done func() bool) error {
+	t := time.NewTicker(20 * time.Millisecond)
+	defer t.Stop()
+	for {
+		s.mu.Lock()
+		ok, failed := done(), s.r.authFailed
+		s.mu.Unlock()
+		if failed {
+			return errors.New("browser: proxy rejected the credentials")
+		}
+		if ok {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-s.quit:
+			return ErrSessionClosed
+		case <-s.pumpDone:
+			return errors.New("browser: devtools connection closed")
+		case <-t.C:
+		}
+	}
 }
 
 // prune forgets all but the newest captured requests. Callers hold s.mu.

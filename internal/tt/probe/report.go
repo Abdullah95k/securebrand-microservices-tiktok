@@ -100,8 +100,15 @@ type Comment struct {
 type Walk struct {
 	Variant string `json:"variant"` // creator_list or post_list
 	Pages   int    `json:"pages"`
-	Posts   int    `json:"posts"`
-	// Stop is "end", "cap", "age", "stopped" or "wall:<class>".
+	Posts   int    `json:"posts"` // unique posts
+	// Repeats counts posts a page served again (the creator list's cursor
+	// keeps the oldest post's second, so its oldest post comes back once
+	// per page when TikTok compares in milliseconds).
+	Repeats int `json:"repeats"`
+	// EmptyPages counts empty pages the walk stepped back a week from.
+	EmptyPages int `json:"empty_pages,omitempty"`
+	// Stop is "end", "cap", "age", "stuck" (a page brought nothing new),
+	// "stopped" or "wall:<class>".
 	Stop   string    `json:"stop"`
 	Oldest time.Time `json:"oldest,omitzero"`
 	// Filtered counts pages that said filter_reasons (T30).
@@ -124,6 +131,26 @@ type CommentRead struct {
 	Failed   *Step `json:"failed,omitempty"`
 }
 
+// Depth is one creator-list page read with a cursor this far back (T11):
+// how far back the list answers, without walking to it.
+type Depth struct {
+	Days   int       `json:"days"`
+	Step   Step      `json:"step"`
+	Newest time.Time `json:"newest,omitzero"`
+	Oldest time.Time `json:"oldest,omitzero"`
+}
+
+// PageCall is one API call a browser page made on its own (the fallback,
+// methods.md §3): what TikTok answered the page's own signed requests.
+type PageCall struct {
+	Path   string `json:"path"`
+	Status int    `json:"status"`
+	Bytes  int    `json:"bytes"`
+	Items  int    `json:"items"`
+	Empty  bool   `json:"empty,omitempty"`
+	Signed bool   `json:"signed"` // carried X-Gnarly
+}
+
 // SignedCall is one call made from inside a browser page (T7, T27).
 type SignedCall struct {
 	Status int  `json:"status"`
@@ -139,7 +166,24 @@ type SignedCall struct {
 
 // Signed is the browser signer's part of an account.
 type Signed struct {
-	Page  Step                   `json:"page"`
+	Page Step `json:"page"`
+	// Env is what the page's script sees of the browser (navigator.webdriver,
+	// time zone, screen) and BotType the page's verdict on it.
+	Env     map[string]any `json:"env,omitempty"`
+	BotType string         `json:"bot_type,omitempty"`
+	// PageCalls are the profile page's own API calls (after one scroll when
+	// the load made no list call); VideoPageCalls the post page's, reached
+	// by following the post's link in the same page.
+	PageCalls      []PageCall `json:"page_calls,omitempty"`
+	VideoPage      *Step      `json:"video_page,omitempty"`
+	VideoPageCalls []PageCall `json:"video_page_calls,omitempty"`
+	// ParamsMissing are query parameters the page's own post-list call sent
+	// that tks's builder does not; ParamsExtra the reverse.
+	ParamsMissing []string `json:"params_missing,omitempty"`
+	ParamsExtra   []string `json:"params_extra,omitempty"`
+	// Calls are the calls the probe made from the page: tks's own URLs
+	// (user_detail, creator_list, post_list, comments) and the next page of
+	// the page's own list and comment calls (*_from_page).
 	Calls map[string]*SignedCall `json:"calls,omitempty"`
 	Error string                 `json:"error,omitempty"`
 }
@@ -162,6 +206,10 @@ type Account struct {
 	CreatorList *Step           `json:"creator_list,omitempty"`
 	PostList    *Step           `json:"post_list,omitempty"`
 	CountChecks map[string]Step `json:"count_checks,omitempty"`
+	// PageStatus is the profile page's user-detail statusCode when the page
+	// carried no account (a shell): 10202 no such user, 10221 banned, ...
+	PageStatus int     `json:"page_status,omitempty"`
+	Depth      []Depth `json:"depth,omitempty"`
 	// AppListPinned counts pinned posts on the first page of the app's own
 	// list (unsigned or, failing that, signed in the browser): T10.
 	AppListPinned int   `json:"app_list_pinned"`
@@ -176,13 +224,18 @@ type Account struct {
 	ReplyReads     []CommentRead   `json:"reply_reads,omitempty"`
 	ReplyCount20   *Step           `json:"replies_count_20,omitempty"`
 	Media          map[string]Step `json:"media,omitempty"`
-	Signed         *Signed         `json:"signed,omitempty"`
-	OEmbed         *Step           `json:"oembed,omitempty"`
-	Embed          *Step           `json:"creator_embed,omitempty"`
-	Posts          []Post          `json:"posts,omitempty"`
-	Comments       []Comment       `json:"comments,omitempty"`
-	Stopped        bool            `json:"stopped,omitempty"`
-	Error          string          `json:"error,omitempty"`
+	// VideoCookies are the cookie names the identity sends to the video
+	// host (T18: the links carry tk=tt_chain_token).
+	VideoCookies []string  `json:"video_cookies,omitempty"`
+	Signed       *Signed   `json:"signed,omitempty"`
+	OEmbed       *Step     `json:"oembed,omitempty"`
+	Embed        *Step     `json:"creator_embed,omitempty"`
+	Posts        []Post    `json:"posts,omitempty"`
+	Comments     []Comment `json:"comments,omitempty"`
+	Stopped      bool      `json:"stopped,omitempty"`
+	Error        string    `json:"error,omitempty"`
+
+	pageVideoURL string // the post page's own video link (T18)
 }
 
 // Report is a run's result.
@@ -215,6 +268,10 @@ type Summary struct {
 	IDTimeMatches    int   `json:"id_time_matches"`
 	IDTimeMismatches int   `json:"id_time_mismatches"`
 	IDTimeMaxGap     int64 `json:"id_time_max_gap_s"`
+	// IDTimeScheduled counts posts published more than 60 s after their id
+	// was made: scheduled posts, whose createTime is the publish time and
+	// whose id is the upload time (the C2 run).
+	IDTimeScheduled int `json:"id_time_scheduled"`
 	// T9, T10, T16, T19.
 	Posts          int `json:"posts"`
 	PostsWithStats int `json:"posts_with_stats"`
@@ -225,6 +282,10 @@ type Summary struct {
 	WalkStops     map[string]int `json:"walk_stops"`
 	OldestReached time.Time      `json:"oldest_reached,omitzero"`
 	FilteredPages int            `json:"filtered_pages"`
+	WalkRepeats   int            `json:"walk_repeats"`
+	// DepthServed: per days back, how many accounts' lists answered posts
+	// from that far back.
+	DepthServed map[string]int `json:"depth_served,omitempty"`
 	// T12-T15.
 	CommentReads   int            `json:"comment_reads"`
 	CommentsServed int            `json:"comments_served"`

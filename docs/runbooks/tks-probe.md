@@ -112,7 +112,7 @@ tmux new -s tks
 make tks-probe
 ```
 
-It runs the 5 test accounts through your `isp` tier, a few minutes per account (about 25 minutes in all). It prints a line per account, and every 10 list pages on a long account. To leave it running, press **Ctrl-B, then D**; to come back, `tmux attach -t tks`.
+It runs the 5 test accounts through your `isp` tier, a few minutes per account (about 30 minutes in all). It prints a line per account, and every 10 list pages on a long account. To leave it running, press **Ctrl-B, then D**; to come back, `tmux attach -t tks`.
 
 **Ctrl-C stops the run** and keeps what was read; the summary says it stopped early. After 10 captchas the probe stops by itself, so a bad batch of IPs is not burned.
 
@@ -121,8 +121,9 @@ At the end of each tier it prints a summary, for example:
 ```
 bootstrapped 5/5; page forms map[ssr:5]; captchas 0, challenges 0
 calls map[creator_list:map[ok:5] post_list:map[registry_stale_empty:5] ...]
-posts 2100 (with counts 2100, pinned 4, ads 0, photos 12); id time matches 2100, mismatches 0
-list stops map[cap:3 end:2], oldest 2025-11-02; comments served 900 in 15 reads, order map[not_time_ordered:15], replies 60
+posts 2100 (with counts 2100, pinned 4, ads 0, photos 12); id time matches 2000, scheduled 100, other mismatches 0
+list stops map[cap:3 end:2], oldest 2025-11-02, repeats 140; depth served map[30:5 90:5 180:5 365:4 730:3]
+comments served 900 in 15 reads, order map[not_time_ordered:15], replies 60; cursor portable 5/5
 ```
 
 ## 9. Send the results back
@@ -134,6 +135,44 @@ scp "root@YOUR_DROPLET_IP:securebrand-microservices-tiktok/phase0/out-tt/*.tar.g
 ```
 
 Then put the `.tar.gz` files in your Drive folder and paste the link into the build session. The session records the answers in `docs/tiktok/build-status.md` and the open questions, and keeps the files out of git.
+
+## Running the test pass again
+
+When the session fixes the probe and asks for another test pass. On the droplet:
+
+```bash
+ssh root@YOUR_DROPLET_IP
+```
+
+```bash
+cd ~/securebrand-microservices-tiktok
+```
+
+```bash
+git pull --ff-only origin main
+```
+
+Keep the previous run's output under another name, so the new run starts clean:
+
+```bash
+mv phase0/out-tt phase0/out-tt-run1
+```
+
+(For a third run, use `out-tt-run2`, and so on.)
+
+```bash
+make tks-probe-dryrun
+```
+
+```bash
+tmux new -s tks2
+```
+
+```bash
+make tks-probe
+```
+
+Then download the bundle on your **Mac** as in step 9.
 
 ## The full pass (checkpoint C3), when the session asks for it
 
@@ -164,7 +203,7 @@ For each tier, `phase0/out-tt/<tier>/` holds:
 | `comments.csv` | Comments and replies read: post, author, time, likes, reply count, text |
 | `images/` | Avatars and covers |
 | `videos/` | The sampled videos (test pass only) |
-| `raw/` | TikTok's raw answers, to check their shape: the first answer of each call kind, every failed one, and the first pages' HTML |
+| `raw/` | TikTok's raw answers, to check their shape: the first answer of each call kind (including the browser page's own calls), every failed one, the first pages' HTML; `raw/failed/` also keeps shell pages and refused video answers |
 | `report.json` | Everything above, plus every request's outcome, timing and size, and the answers under `summary` |
 
 and `phase0/out-tt/<tier>.tar.gz` packs the folder for downloading.

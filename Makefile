@@ -205,7 +205,7 @@ tks-probe:
 	@for t in $$(echo $(TKS_PROBE_TIERS) | tr , ' '); do \
 	  if [ $$t != direct ] && [ ! -f $(PHASE0_CONFIG) ]; then echo "missing $(PHASE0_CONFIG) for tier $$t (docs/runbooks/tks-probe.md)"; exit 2; fi; \
 	  $(GO) run ./cmd/tks-spike probe --accounts $(TKS_PROBE_ACCOUNTS) $(if $(wildcard $(PHASE0_CONFIG)),--config $(PHASE0_CONFIG)) \
-	    --tier $$t --out-dir $(TKS_PROBE_OUT)/$$t --videos 1 --signer browser --oembed $(TKS_PROBE_ARGS) || exit 1; \
+	    --tier $$t --out-dir $(TKS_PROBE_OUT)/$$t --max-list-pages 60 --videos 1 --signer browser --oembed $(TKS_PROBE_ARGS) || exit 1; \
 	done
 
 ## tks probe, full pass (checkpoint C3): the whole list, back a year, few covers, no videos.
@@ -213,7 +213,7 @@ tks-probe-all:
 	@test -f $(TKS_PROBE_ACCOUNTS_ALL) || { echo "missing $(TKS_PROBE_ACCOUNTS_ALL): copy your full accounts file there (docs/runbooks/tks-probe.md)"; exit 2; }
 	@for t in $$(echo $(TKS_PROBE_TIERS) | tr , ' '); do \
 	  $(GO) run ./cmd/tks-spike probe --accounts $(TKS_PROBE_ACCOUNTS_ALL) $(if $(wildcard $(PHASE0_CONFIG)),--config $(PHASE0_CONFIG)) \
-	    --tier $$t --out-dir $(TKS_PROBE_OUT)-all/$$t --max-age-days 365 --max-list-pages 100 --covers 3 --videos 0 --count-checks 0 $(TKS_PROBE_ARGS) || exit 1; \
+	    --tier $$t --out-dir $(TKS_PROBE_OUT)-all/$$t --max-age-days 365 --max-list-pages 100 --covers 3 --videos 0 --count-checks 0 --depth-checks 100000 --depth-days 365 $(TKS_PROBE_ARGS) || exit 1; \
 	done
 
 ## Rehearse the probe against a built-in fake TikTok: no traffic, no proxies.
