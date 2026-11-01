@@ -32,6 +32,7 @@ const (
 	PostPending   = "pending"
 	PostComplete  = "complete"
 	PostTruncated = "truncated"
+	PostPartial   = "partial" // stopped at the cap per post (tks's ranked comments)
 	PostSkipped   = "skipped" // unchanged since the last scrape, or no comments
 	PostFailed    = "failed"
 )

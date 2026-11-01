@@ -84,7 +84,23 @@ type Client struct {
 	// rejected or failing to parse, so a Facebook change does not turn into
 	// a wave of wasted requests. nil disables them.
 	Breakers *breaker.Set
+	// Signer, when set, gives each built request its final URL and headers
+	// just before it is sent (TikTok's calls that need a signature: docs/
+	// tiktok ADR 0006 §4). nil sends every request as built (fbs, igs).
+	Signer Signer
 }
+
+// Signer signs a built request: it returns the URL and headers to send
+// instead of rawURL and hdr, or the same when the query needs nothing. It
+// runs after the identity's pacing, so a signature is as fresh as it can
+// be when the request goes out.
+type Signer interface {
+	Sign(ctx context.Context, id *session.Identity, q registry.Query, rawURL string, hdr [][2]string) (string, [][2]string, error)
+}
+
+// ErrSign wraps a signer's failure: no request was sent, and the identity
+// and its exit are not to blame.
+var ErrSign = errors.New("graphql: sign")
 
 func breakerKey(q registry.Query) string { return q.Name + "|" + q.DocID }
 
@@ -190,8 +206,14 @@ func (c *Client) do(ctx context.Context, id *session.Identity, q registry.Query,
 	}
 	body := b.Body
 	hdr := withHeaders(b.Header, q.Headers)
+	target := endpoint.String()
+	if c.Signer != nil {
+		if target, hdr, err = c.Signer.Sign(ctx, id, q, target, hdr); err != nil {
+			return nil, fmt.Errorf("%w: %s: %w", ErrSign, q.Name, err)
+		}
+	}
 	start := time.Now()
-	tr, err := id.Doer.Do(ctx, &transport.Request{Method: method, URL: endpoint.String(), Header: hdr, Body: body})
+	tr, err := id.Doer.Do(ctx, &transport.Request{Method: method, URL: target, Header: hdr, Body: body})
 	elapsed := time.Since(start)
 	tier := id.Endpoint.Tier
 	metrics.FBRequestSecs.WithLabelValues(q.Name, tier).Observe(elapsed.Seconds())

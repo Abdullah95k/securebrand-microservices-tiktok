@@ -311,6 +311,7 @@ func launchPage(ctx context.Context, binary string, opts Options) (r *renderer, 
 			"patterns": []map[string]any{{"urlPattern": "*"}}}, nil); err != nil {
 			return nil, nil, err
 		}
+		r.intercepting = true
 	}
 	if opts.UserAgent != "" && opts.Hints != nil {
 		meta := map[string]any{"brands": opts.Hints.Brands, "platform": opts.Hints.Platform,
@@ -360,6 +361,13 @@ type renderer struct {
 	lastNet    time.Time
 	authFailed bool
 	seq        int // captured requests so far
+	// intercepting: requests pause in the Fetch domain (media blocking or
+	// proxy credentials), so Session.Sign can hold one.
+	intercepting bool
+	// hold is the call Session.Sign waits for: the paused request that is
+	// the same call is failed instead of sent, and its URL kept in held.
+	hold *url.URL
+	held string
 }
 
 type document struct {
@@ -447,8 +455,22 @@ func (r *renderer) handle(ctx context.Context, ev event) error {
 		var p struct {
 			RequestID    string `json:"requestId"`
 			ResourceType string `json:"resourceType"`
+			Request      struct {
+				URL string `json:"url"`
+			} `json:"request"`
 		}
 		_ = json.Unmarshal(ev.Params, &p)
+		if r.hold != nil && r.held == "" {
+			if u, err := url.Parse(p.Request.URL); err == nil && SameCall(r.hold, u) {
+				// Signed by the page's script and never sent: the caller
+				// sends it (Session.Sign).
+				r.held = p.Request.URL
+				go func() {
+					_ = r.c.call(ctx, r.s, "Fetch.failRequest", map[string]any{"requestId": p.RequestID, "errorReason": "Aborted"}, nil)
+				}()
+				return nil
+			}
+		}
 		if r.opts.BlockMedia && (p.ResourceType == "Image" || p.ResourceType == "Media" || p.ResourceType == "Font") {
 			go func() {
 				_ = r.c.call(ctx, r.s, "Fetch.failRequest", map[string]any{"requestId": p.RequestID, "errorReason": "BlockedByClient"}, nil)

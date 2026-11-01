@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -98,11 +99,19 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 		body = b
 	}
 	err := c.send(ctx, method, path, body, out)
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) ||
-		(err != nil && strings.Contains(err.Error(), "server closed idle connection")) {
+	if dropped(err) {
 		err = c.send(ctx, method, path, body, out)
 	}
 	return err
+}
+
+// dropped reports an error of a request sent on a connection the registry
+// closed: read as EOF or a reset, or, when the transport had already
+// noticed and closed it as the request was written, net.ErrClosed ("use of
+// closed network connection").
+func dropped(err error) bool {
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, net.ErrClosed) || (err != nil && strings.Contains(err.Error(), "server closed idle connection"))
 }
 
 func (c *Client) send(ctx context.Context, method, path string, body []byte, out any) error {

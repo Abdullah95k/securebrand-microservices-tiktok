@@ -73,7 +73,14 @@ var (
 	// Coverage.
 	CommentCompleteness = histVec("comment_completeness_ratio", "Collected / reported comments per post at job completion.", []float64{0.1, 0.25, 0.5, 0.7, 0.8, 0.9, 0.95, 0.99, 1.0, 1.01}, "lane")
 	ListStops           = counterVec("list_stops_total", "tks account list walks by mode (full, incremental, refresh) and why they stopped (first_post, age, watermark, max_posts, stuck).", "mode", "reason")
-	TimelineTruncated   = counterVec("timeline_truncated_total", "Timelines that hit a login wall before the end of the window.", "reason")
+	// tks's browser signer (internal/tt/sign; build brief D11).
+	SignerSigns     = counterVec("signer_signs_total", "Calls the browser signer signed, by query and result (ok, error, busy).", "query", "result")
+	SignerSeconds   = histVec("signer_sign_seconds", "Time to sign one call in a signer page.", prometheus.ExponentialBuckets(0.01, 2, 12), "query")
+	SignerPageOpens = counterVec("signer_page_opens_total", "Signer pages opened, by result (ok, error).", "result")
+	SignerPages     = gauge("signer_pages", "Signer pages open in this pod.")
+	// tks's comment reads (internal/tt/stage; ADR 0007 §5).
+	CommentReads      = counterVec("comment_reads_total", "tks comment reads by kind (post, thread) and how they ended (complete, partial, truncated).", "kind", "state")
+	TimelineTruncated = counterVec("timeline_truncated_total", "Timelines that hit a login wall before the end of the window.", "reason")
 
 	// Media.
 	MediaDiscoveryToStored = histVec("media_discovery_to_stored_seconds", "Time from media discovery to object stored.", prometheus.ExponentialBuckets(1, 2, 14), "kind")

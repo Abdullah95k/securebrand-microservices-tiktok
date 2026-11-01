@@ -2,6 +2,7 @@ package graphql
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -146,5 +147,48 @@ func TestEmptyAnswerDefaultsToSoftError(t *testing.T) {
 	}
 	if resp.Class != detect.SoftError {
 		t.Fatalf("got %v (%s)", resp.Class, resp.Reason)
+	}
+}
+
+// urlSigner adds signed=1 to the URL (the doer then answers), or fails.
+type urlSigner struct {
+	fail  bool
+	calls int
+}
+
+func (s *urlSigner) Sign(_ context.Context, _ *session.Identity, q registry.Query, raw string, hdr [][2]string) (string, [][2]string, error) {
+	s.calls++
+	if s.fail {
+		return "", nil, errors.New("no page")
+	}
+	return raw + "&signed=1", append(hdr, [2]string{"x-signed-by", q.Name}), nil
+}
+
+// The signer gets the built request after pacing and its URL and headers go
+// out; a signer's failure sends nothing and is ErrSign, not a transport
+// error, so the identity is not blamed.
+func TestSignerSignsBeforeSending(t *testing.T) {
+	var reqs []*transport.Request
+	id := webIdentity(t, &reqs)
+	sg := &urlSigner{}
+	c := &Client{Rules: detect.Rules{EmptyIsStale: true}, Builder: getBuilder{}, Decode: statusDecoder, Signer: sg,
+		Registry: registry.NewStatic(registry.Seed{Queries: []registry.Query{
+			{Name: "posts", DocID: "unsigned", Method: "GET", Variables: []byte(`{"secUid":"abc"}`), Status: registry.StatusActive},
+		}})}
+	resp, err := c.Do(context.Background(), id, Request{Query: "posts"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Class != detect.OK || len(reqs) != 1 || sg.calls != 1 {
+		t.Fatalf("got %v (%s), %d requests, %d signs", resp.Class, resp.Reason, len(reqs), sg.calls)
+	}
+	u, _ := url.Parse(reqs[0].URL)
+	if u.Query().Get("signed") != "1" || u.Query().Get("secUid") != "abc" || reqs[0].Header[len(reqs[0].Header)-1][1] != "posts" {
+		t.Fatalf("sent %s %v", reqs[0].URL, reqs[0].Header)
+	}
+	sg.fail = true
+	_, err = c.Do(context.Background(), id, Request{Query: "posts"})
+	if !errors.Is(err, ErrSign) || errors.Is(err, ErrTransport) || len(reqs) != 1 {
+		t.Fatalf("failed sign: err %v, %d requests", err, len(reqs))
 	}
 }

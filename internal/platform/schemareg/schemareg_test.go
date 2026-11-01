@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -223,6 +224,36 @@ func TestRetriesDroppedConnection(t *testing.T) {
 	subjects, err := c.Subjects(context.Background())
 	if err != nil || len(subjects) != 1 || calls.Load() != 2 {
 		t.Fatalf("%v %v after %d calls", subjects, err, calls.Load())
+	}
+}
+
+// closedOnce fails its first request as a write on a connection the
+// transport had already closed (net.ErrClosed), as CI saw from Redpanda.
+type closedOnce struct {
+	calls atomic.Int32
+	next  http.RoundTripper
+}
+
+func (c *closedOnce) RoundTrip(r *http.Request) (*http.Response, error) {
+	if c.calls.Add(1) == 1 {
+		return nil, &net.OpError{Op: "write", Net: "tcp", Err: net.ErrClosed}
+	}
+	return c.next.RoundTrip(r)
+}
+
+// A request written to a connection already closed is sent once more.
+func TestRetriesClosedConnection(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"is_compatible":true}`))
+	}))
+	defer srv.Close()
+	rt := &closedOnce{next: http.DefaultTransport}
+	c := &Client{URL: srv.URL, HTTP: &http.Client{Transport: rt}}
+	if err := c.do(context.Background(), http.MethodPost, "/compatibility/subjects/x/versions/latest", map[string]string{"schema": "s"}, nil); err != nil {
+		t.Fatalf("%v after %d calls", err, rt.calls.Load())
+	}
+	if rt.calls.Load() != 2 {
+		t.Fatalf("%d calls, want 2", rt.calls.Load())
 	}
 }
 

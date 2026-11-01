@@ -32,6 +32,7 @@ type Session struct {
 
 	mu   sync.Mutex // guards r's maps and counters, which the pump writes
 	eval sync.Mutex // one evaluation at a time on the page
+	sign sync.Mutex // one held call at a time (Sign)
 
 	// ctx lives as long as the Session (not OpenSession's context): the
 	// pump answers the page's events with it until Close cancels it.
@@ -213,6 +214,52 @@ func (s *Session) Fetch(ctx context.Context, rawURL string) (*Fetched, error) {
 		}
 	}
 	return f, nil
+}
+
+// ErrNoIntercept is Sign's error on a Session whose requests do not pause
+// (opened without BlockMedia and without proxy credentials).
+var ErrNoIntercept = errors.New("browser: signing needs request interception (open the session with BlockMedia)")
+
+// Sign makes a GET with the page's fetch(), as Fetch does, but holds the
+// request once the page's own scripts have changed it (TikTok's adds its
+// signatures and msToken) and fails it instead of sending it: the page
+// never makes the call, and Sign returns the URL it would have sent, for
+// the caller to send by plain HTTP (docs/tiktok ADR 0006 §4; a signed URL
+// works from another identity: T27). Calls are signed one at a time.
+func (s *Session) Sign(ctx context.Context, rawURL string) (string, error) {
+	if !s.r.intercepting {
+		return "", ErrNoIntercept
+	}
+	target, err := url.Parse(s.URL)
+	if err != nil {
+		return "", err
+	}
+	if target, err = target.Parse(rawURL); err != nil {
+		return "", err
+	}
+	s.sign.Lock()
+	defer s.sign.Unlock()
+	s.mu.Lock()
+	s.r.hold, s.r.held = target, ""
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.r.hold, s.r.held = nil, ""
+		s.mu.Unlock()
+	}()
+	lit, _ := json.Marshal(target.String())
+	// The fetch fails (the request is aborted); its rejection is the
+	// expected end, any other error is the page's.
+	if _, err := s.Evaluate(ctx, `(async () => { try { await fetch(`+string(lit)+`, {credentials: "include"}); } catch (e) {} return 0; })()`); err != nil {
+		return "", err
+	}
+	s.mu.Lock()
+	held := s.r.held
+	s.mu.Unlock()
+	if held == "" {
+		return "", errors.New("browser: the page made no request for " + target.Path)
+	}
+	return held, nil
 }
 
 // Mark returns the position of the newest captured request, for Captured.

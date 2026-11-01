@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -201,5 +202,51 @@ func TestSameCall(t *testing.T) {
 		if got := SameCall(asked, sent); got != want {
 			t.Errorf("%s: %v, want %v", raw, got, want)
 		}
+	}
+}
+
+// Sign returns the URL the page's script made of the call without the
+// page sending it: the server never sees it, and the URL carries the
+// page's signature. A session without request interception refuses.
+func TestSessionSignsWithoutSending(t *testing.T) {
+	bin := chromium(t)
+	var apiCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			apiCalls.Add(1)
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(signingPage))
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	s, err := OpenSession(ctx, bin, Options{URL: srv.URL + "/@someone", NoSandbox: true, BlockMedia: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, q := range []string{"one", "two", "three"} {
+		raw, err := s.Sign(ctx, "/api/comment/list/?aweme_id=1&q="+q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u, err := url.Parse(raw)
+		if err != nil || u.Query().Get("X-Sig") != "page-"+q || u.Query().Get("aweme_id") != "1" || u.Path != "/api/comment/list/" {
+			t.Fatalf("%s: signed URL %q", q, raw)
+		}
+	}
+	if n := apiCalls.Load(); n != 0 {
+		t.Fatalf("the page sent %d signed calls; it must send none", n)
+	}
+	plain, err := OpenSession(ctx, bin, Options{URL: srv.URL + "/@someone", NoSandbox: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plain.Close()
+	if _, err := plain.Sign(ctx, "/api/x?q=1"); !errors.Is(err, ErrNoIntercept) {
+		t.Fatalf("sign without interception: %v", err)
 	}
 }

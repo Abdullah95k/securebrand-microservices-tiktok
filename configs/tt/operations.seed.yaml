@@ -74,8 +74,10 @@ queries:
     priority: 10
     variables:
       itemId: "{{item_id}}"
+  # Comments and replies need TikTok's signature (C2, C3): the label's
+  # "-signed" sends them through the browser signer (tt.signer.mode).
   - name: comments
-    doc_id: web
+    doc_id: web-signed
     method: GET
     endpoint: /api/comment/list/
     parser: comments
@@ -86,7 +88,7 @@ queries:
       cursor: "{{cursor}}"
       from_page: video
   - name: replies
-    doc_id: web
+    doc_id: web-signed
     method: GET
     endpoint: /api/comment/list/reply/
     parser: comments

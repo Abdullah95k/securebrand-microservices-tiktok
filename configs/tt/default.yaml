@@ -83,9 +83,10 @@ tt:
   # The browser signer (build brief D11, G1): a few TikTok pages in Chrome
   # without its automation flag sign each comment and reply request, which
   # plain-HTTP workers send from any identity (a signature covers its
-  # query, so one per request; T27). mode none sends every call unsigned
-  # (the post list and the account need no signature); a registry entry's
-  # own signing need overrides it per operation.
+  # query, so one per request; T27). A page signs a call without sending it
+  # (T32). mode browser signs the operation variants whose registry label
+  # ends in "-signed" (comments and replies) and sends the rest as built;
+  # mode none signs nothing, so comments and replies are refused.
   signer:
     mode: browser          # none | browser
     pages: 2               # per crawler process
