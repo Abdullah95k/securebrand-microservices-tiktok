@@ -128,13 +128,35 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // signer is the page script RequireSignature adds: it signs the page's
-// own fetch calls, as TikTok's script is reported to.
+// own fetch calls, as TikTok's script is reported to. Its signature covers
+// the page's own device id (X-Gnarly "fake-gnarly-<device>-<n>"), and the
+// server refuses a signed call whose device_id is another: TikTok refused
+// comment URLs a page signed with another identity's values (Phase 0,
+// 2026-11-02), and answered those built with the page's (C2 run 3).
 const signer = `<script>(function(){const f=window.fetch;window.fetch=function(i,o){const u=new URL(i,location.href);` +
-	`if(u.pathname.startsWith("/api/")){u.searchParams.set("X-Bogus","1");u.searchParams.set("X-Gnarly","fake-gnarly-"+u.searchParams.toString().length);}` +
+	`if(u.pathname.startsWith("/api/")){const c=JSON.parse(document.getElementById("__UNIVERSAL_DATA_FOR_REHYDRATION__").textContent)` +
+	`.__DEFAULT_SCOPE__["webapp.app-context"];u.searchParams.set("X-Bogus","1");` +
+	`u.searchParams.set("X-Gnarly","fake-gnarly-"+c.wid+"-"+u.searchParams.toString().length);}` +
 	`return f(u.toString(),o);};})();</script>`
 
+// gnarlyPrefix starts fakett's own signatures.
+const gnarlyPrefix = "fake-gnarly-"
+
+// signedFor reports whether a signature made by fakett's page script
+// covers deviceID. Other signatures (tests' own fakes) are accepted as
+// they are.
+func signedFor(gnarly, deviceID string) bool {
+	rest, ok := strings.CutPrefix(gnarly, gnarlyPrefix)
+	if !ok {
+		return true
+	}
+	dev, _, ok := strings.Cut(rest, "-")
+	return ok && dev == deviceID
+}
+
 // Sign signs a URL as the page script RequireSignature adds does, for
-// tests and dry runs without a browser: the parameters set, nothing sent.
+// tests and dry runs without a browser: the parameters set, nothing sent,
+// as by a page whose device id is the URL's own.
 func Sign(raw string) (string, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -143,7 +165,7 @@ func Sign(raw string) (string, error) {
 	q := u.Query()
 	n := len(q.Encode())
 	q.Set("X-Bogus", "1")
-	q.Set("X-Gnarly", "fake-gnarly-"+strconv.Itoa(n))
+	q.Set("X-Gnarly", gnarlyPrefix+q.Get("device_id")+"-"+strconv.Itoa(n))
 	u.RawQuery = q.Encode()
 	return u.String(), nil
 }
@@ -256,7 +278,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	if f.RequireSignature && s.signed(r.URL.Path) && q.Get("X-Gnarly") == "" {
+	if f.RequireSignature && s.signed(r.URL.Path) && (q.Get("X-Gnarly") == "" || !signedFor(q.Get("X-Gnarly"), q.Get("device_id"))) {
 		if r.URL.Path == "/api/user/detail/" {
 			// The account call is refused with an empty account, not an
 			// empty body (the C2 run).
