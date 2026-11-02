@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	commonv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/common/v1"
 	ttv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 )
@@ -18,7 +19,7 @@ var postCols = []string{"created_at", "post_id", "user_id", "kind", "caption", "
 	"duration_ms", "width", "height", "cover_media_id", "photo_count", "music_id", "is_pinned", "is_ad", "labels",
 	"category", "playlist_id", "comments_disabled", "region", "text_language", "discovered_via",
 	"play_count", "like_count", "comment_count", "share_count", "save_count", "repost_count",
-	"content_hash", "status", "first_seen_at", "last_seen_at"}
+	"content_hash", "status", "first_seen_at", "last_seen_at", "stored_at", "first_mode"}
 
 // mention is one person a post or comment mentions.
 type mention struct {
@@ -47,7 +48,27 @@ func mentions(rs []*ttv1.TextRange) []*mention {
 	return out
 }
 
-func postRow(p *ttv1.Post) []any {
+// modeName is a crawl mode as first_mode stores it (full, incremental, ...).
+func modeName(o *commonv1.Observation) *string {
+	if o.GetMode() == commonv1.CrawlMode_CRAWL_MODE_UNSPECIFIED {
+		return nil
+	}
+	n := enumName(o.GetMode(), "CRAWL_MODE_")
+	return &n
+}
+
+// countsDelay reports whether a new post's delay counts for build brief §8
+// A2: found by a scheduled check or a metrics walk standing in for one, not
+// by a backfill (whose posts are not new).
+func countsDelay(o *commonv1.Observation) bool {
+	switch o.GetMode() {
+	case commonv1.CrawlMode_CRAWL_MODE_INCREMENTAL, commonv1.CrawlMode_CRAWL_MODE_REFRESH:
+		return true
+	}
+	return false
+}
+
+func postRow(p *ttv1.Post, storedAt time.Time) []any {
 	seen := observed(p.Obs)
 	var tags []string
 	var tagIDs []int64
@@ -76,7 +97,7 @@ func postRow(p *ttv1.Post) []any {
 		rangesJSON(p.TextRanges), tags, tagIDs, nilIfZero(p.DurationMs), nilIfZero32(p.Width), nilIfZero32(p.Height),
 		mediaUUID(p.CoverMediaId), photos, p.MusicId, p.Pinned, p.Ad, labels, p.Category, nilIfEmpty(p.PlaylistId),
 		p.CommentsDisabled, nilIfEmpty(p.Region), nilIfEmpty(p.TextLanguage), via,
-		c.Plays, c.Likes, c.Comments, c.Shares, c.Saves, c.Reposts, hashOf(p.Obs), status, seen, seen}
+		c.Plays, c.Likes, c.Comments, c.Shares, c.Saves, c.Reposts, hashOf(p.Obs), status, seen, seen, storedAt, modeName(p.Obs)}
 }
 
 // Posts upserts posts, their index rows and the people their captions
@@ -101,13 +122,15 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 		times[i] = p.CreatedAt.AsTime()
 	}
 	var n int64
+	var now time.Time
+	var fresh []int64 // posts written for the first time
 	err := w.withPartitions(ctx, "posts", times, func() error {
-		n = 0
+		n, now, fresh = 0, w.now(), nil
 		return pgx.BeginFunc(ctx, w.DB, func(tx pgx.Tx) error {
 			rows := make([][]any, 0, len(ps))
 			var mrows [][]any
 			for _, p := range ps {
-				rows = append(rows, postRow(p))
+				rows = append(rows, postRow(p, now))
 				for _, m := range mentions(p.TextRanges) {
 					mrows = append(mrows, []any{p.PostId, m.key, m.userID, m.offsets, observed(p.Obs)})
 				}
@@ -118,7 +141,7 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 			tag, err := tx.Exec(ctx, `INSERT INTO posts AS t (`+strings.Join(postCols, ",")+`)
 				SELECT `+strings.Join(postCols, ",")+` FROM tmp_posts
 				ON CONFLICT (created_at, post_id) DO UPDATE SET `+set(postCols, map[string]string{
-				"created_at": "", "post_id": "", "first_seen_at": "", "discovered_via": "",
+				"created_at": "", "post_id": "", "first_seen_at": "", "discovered_via": "", "stored_at": "", "first_mode": "",
 				"is_pinned": "COALESCE(EXCLUDED.is_pinned, t.is_pinned)", "is_ad": "COALESCE(EXCLUDED.is_ad, t.is_ad)"})+`
 				WHERE t.last_seen_at <= EXCLUDED.last_seen_at
 				  AND (t.content_hash IS DISTINCT FROM EXCLUDED.content_hash
@@ -127,8 +150,13 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 				return err
 			}
 			n = tag.RowsAffected()
-			if _, err := tx.Exec(ctx, `INSERT INTO post_index (post_id, user_id, created_at, kind)
-				SELECT post_id, user_id, created_at, kind FROM tmp_posts ON CONFLICT (post_id) DO NOTHING`); err != nil {
+			// post_index is written with the post, so a post new to it is new.
+			idx, err := tx.Query(ctx, `INSERT INTO post_index (post_id, user_id, created_at, kind)
+				SELECT post_id, user_id, created_at, kind FROM tmp_posts ON CONFLICT (post_id) DO NOTHING RETURNING post_id`)
+			if err != nil {
+				return err
+			}
+			if fresh, err = pgx.CollectRows(idx, pgx.RowTo[int64]); err != nil {
 				return err
 			}
 			if len(mrows) == 0 {
@@ -150,7 +178,28 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 	}
 	written("post", n, start)
 	metrics.PersistRows.WithLabelValues("post", "unchanged").Add(float64(int64(len(ps)) - n))
+	observeDelay(ps, fresh, now)
 	return nil
+}
+
+// observeDelay records, once committed, how long each new post took from its
+// createTime to its row (build brief §8 A2), for the posts a scheduled check
+// or a metrics walk found.
+func observeDelay(ps []*ttv1.Post, fresh []int64, storedAt time.Time) {
+	if len(fresh) == 0 {
+		return
+	}
+	isNew := make(map[int64]bool, len(fresh))
+	for _, id := range fresh {
+		isNew[id] = true
+	}
+	for _, p := range ps {
+		if !isNew[p.PostId] || !countsDelay(p.Obs) {
+			continue
+		}
+		d := max(storedAt.Sub(p.CreatedAt.AsTime()), 0)
+		metrics.PostStoreDelay.WithLabelValues(*modeName(p.Obs)).Observe(d.Seconds())
+	}
 }
 
 // PostMetrics appends a post's counts to post_metrics only when they

@@ -363,3 +363,89 @@ groups:
           summary: Media is deleted at its TTL before the analysis service acknowledged it
           description: The analysis service is not keeping up with fb.media.ready.v1, or its acks do not arrive.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#media-backlog--ttl-expiries
+
+  # tks's service objectives (docs/tiktok build brief §8): A1, the scheduled
+  # checks that succeed; A2, the delay before a new post is stored. Measured
+  # over a day, as the brief defines them; each needs some traffic first, so
+  # a quiet stack does not page.
+  - name: tks.objectives
+    rules:
+      - record: tks:leader:account_check_oldest_seconds
+        expr: max(tks_account_check_oldest_seconds * on (instance) (tks_scheduler_leader == 1))
+      - record: tks:leader:account_refresh_overdue
+        expr: max(tks_account_refresh_overdue * on (instance) (tks_scheduler_leader == 1))
+      - record: tks:leader:scheduled_accounts_active
+        expr: max(tks_scheduled_accounts{status="active"} * on (instance) group_left () (tks_scheduler_leader == 1))
+      - alert: TksChecksMissingWindow
+        expr: |
+          sum(increase(tks_checks_total{kind=~"check|walk", result=~"completed|partial", window="in"}[1d]))
+            / clamp_min(sum(increase(tks_checks_total{kind=~"check|walk"}[1d])), 1e-9) < 0.99
+          and sum(increase(tks_checks_total{kind=~"check|walk"}[1d])) > 100
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "Only {{ $value | humanizePercentage }} of the day's scheduled checks succeeded within their interval (A1: 99 %)"
+          description: >-
+            Scheduled list checks fail, are reaped, or end after the next one
+            was due. Look at tks_checks_total by result and window, the
+            crawler's lag and TikTok's answers.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-objectives.md#a1-scheduled-checks
+      - alert: TksAccountUncheckedLong
+        expr: tks:leader:account_check_oldest_seconds > 6 * 3600
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "An active account has had no successful check for {{ $value | humanizeDuration }} (A1: 6 h)"
+          description: >-
+            At least one active account's checks keep failing or are not
+            started. Find it by the oldest last_success_at in account_schedule.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-objectives.md#a1-scheduled-checks
+      - alert: TksAccountRefreshOverdue
+        expr: |
+          tks:leader:account_refresh_overdue / clamp_min(tks:leader:scheduled_accounts_active, 1) > 0.005
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of active accounts' daily refresh is more than a day overdue (A1: 0.5 %)"
+          description: >-
+            The profile page reads that give exact counts and the bio link do
+            not succeed. Look at the account stage's page loads.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-objectives.md#a1-daily-account-refresh
+      - alert: TksNewPostsLate
+        expr: |
+          sum(increase(tks_post_store_delay_seconds_bucket{le="10800"}[1d]))
+            / clamp_min(sum(increase(tks_post_store_delay_seconds_count[1d])), 1e-9) < 0.99
+          and sum(increase(tks_post_store_delay_seconds_count[1d])) > 100
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "Only {{ $value | humanizePercentage }} of the day's new posts were stored within 3 h (A2: 99 %)"
+          description: >-
+            New posts reach Postgres late: checks run late or fail, the
+            persister lags, or the budget stretches the checks.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-objectives.md#a2-new-posts-stored-within-3-h
+      - alert: TksNewPostsMedianLate
+        expr: |
+          histogram_quantile(0.5, sum by (le) (rate(tks_post_store_delay_seconds_bucket[1d]))) > 5400
+          and sum(increase(tks_post_store_delay_seconds_count[1d])) > 100
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "The median new post is stored {{ $value | humanizeDuration }} after it was posted (A2: 1.5 h)"
+          description: Checks run later than every 2 h 45 min, or the persister lags.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-objectives.md#a2-new-posts-stored-within-3-h
+      - alert: TksMediaRefused
+        expr: |
+          sum(increase(tks_media_download_total{outcome="refused"}[1h]))
+            / clamp_min(sum(increase(tks_media_download_total{outcome=~"ready|refused|failed|expired"}[1h])), 1e-9) > 0.1
+          and sum(increase(tks_media_download_total{outcome="refused"}[1h])) > 10
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of TikTok media downloads are refused before their links expire"
+          description: >-
+            TikTok's media hosts refuse files tks has valid links for: most
+            likely the video hosts no longer accept the reading identity's
+            tt_chain_token (T18, T33). The files are read again at the post's
+            next read.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-media.md#refused-downloads

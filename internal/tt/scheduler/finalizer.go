@@ -245,12 +245,36 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 	}
 	metrics.Jobs.WithLabelValues(final, laneName).Inc()
 	if kind != dispatch.KindOnDemand {
-		metrics.Checks.WithLabelValues(checkKind(kind, mode), final).Inc()
+		metrics.Checks.WithLabelValues(checkKind(kind, mode), final, f.window(ctx, jid, kind, mode, created, now)).Inc()
 	}
 	_ = f.Jobs.Expire(ctx, id, 24*time.Hour)
 	slog.Info("job finished", "job", id, "status", final, "mode", mode, "posts", st.Counters["posts"],
 		"comments", st.Counters["comments"], "replies", st.Counters["replies"], "median_completeness", comp.MedianRatio)
 	return nil
+}
+
+// BackfillWindow is how long a backfill may take and still count as in its
+// window: build brief §8 A3's 48 h from registration.
+const BackfillWindow = 48 * time.Hour
+
+// window says whether a scheduled job ended within its window (build brief
+// §8 A1): a check or a walk standing in for one within its account's
+// interval of being started (the next check would be due), a backfill
+// within BackfillWindow.
+func (f *Finalizer) window(ctx context.Context, jid uuid.UUID, kind, mode string, created, ended time.Time) string {
+	limit := BackfillWindow
+	if checkKind(kind, mode) != "backfill" {
+		limit = f.Cfg.TT.Freshness.ListInterval
+		var secs int
+		if err := f.DB.QueryRow(ctx, `SELECT interval_seconds FROM account_schedule WHERE last_job_id = $1`, jid).
+			Scan(&secs); err == nil && secs > 0 {
+			limit = time.Duration(secs) * time.Second
+		}
+	}
+	if ended.Sub(created) <= limit {
+		return "in"
+	}
+	return "late"
 }
 
 func checkKind(kind, mode string) string {

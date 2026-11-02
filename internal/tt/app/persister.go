@@ -12,12 +12,13 @@ import (
 )
 
 // NewPersister builds the persister: tt.*.v1 into schema tt (db: a pool
-// from ttstore.Open), in batches of up to 2,000 records.
-func NewPersister(cfg *config.Config, db *pgxpool.Pool, linger time.Duration) (*sharedpersist.Consumer, error) {
+// from ttstore.Open), in batches of up to 2,000 records. now is the clock
+// of a new post's stored_at and delay (nil: time.Now).
+func NewPersister(cfg *config.Config, db *pgxpool.Pool, linger time.Duration, now func() time.Time) (*sharedpersist.Consumer, error) {
 	kcfg, err := connect.Kafka(cfg, "-persister")
 	if err != nil {
 		return nil, err
 	}
-	w := &ttpersist.Writer{DB: db, CommentsRetention: time.Duration(cfg.TT.Retention.CommentsDays) * 24 * time.Hour}
+	w := &ttpersist.Writer{DB: db, CommentsRetention: time.Duration(cfg.TT.Retention.CommentsDays) * 24 * time.Hour, Now: now}
 	return ttpersist.NewConsumer(kcfg, w, 2000, linger)
 }

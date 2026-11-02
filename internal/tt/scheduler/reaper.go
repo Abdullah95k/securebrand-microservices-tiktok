@@ -20,6 +20,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/jobs"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/topics"
 )
 
@@ -65,7 +66,7 @@ func stalled(st jobs.Status, queued, overdue bool, after time.Duration, now time
 func (r *Reaper) Tick(ctx context.Context) error {
 	maxAge := max(r.MaxAge, r.After)
 	page := cmp.Or(r.PageSize, 500)
-	rows, err := r.DB.Query(ctx, `SELECT job_id, kind, account_ref, coalesce(user_id, 0), created_at, lane,
+	rows, err := r.DB.Query(ctx, `SELECT job_id, kind, mode, account_ref, coalesce(user_id, 0), created_at, lane,
 			created_at < now() - $2::interval FROM jobs
 		WHERE status IN ('running','cancelling') AND created_at < now() - $1::interval AND (created_at, job_id) > ($3, $4)
 		ORDER BY created_at, job_id LIMIT $5`, r.After.String(), maxAge.String(), r.afterCreated, r.afterID, page)
@@ -75,6 +76,7 @@ func (r *Reaper) Tick(ctx context.Context) error {
 	type row struct {
 		id      uuid.UUID
 		kind    string
+		mode    string
 		ref     string
 		userID  int64
 		created time.Time
@@ -83,7 +85,7 @@ func (r *Reaper) Tick(ctx context.Context) error {
 	}
 	list, err := pgx.CollectRows(rows, func(c pgx.CollectableRow) (row, error) {
 		var x row
-		return x, c.Scan(&x.id, &x.kind, &x.ref, &x.userID, &x.created, &x.lane, &x.overdue)
+		return x, c.Scan(&x.id, &x.kind, &x.mode, &x.ref, &x.userID, &x.created, &x.lane, &x.overdue)
 	})
 	if err != nil {
 		return err
@@ -149,6 +151,11 @@ func (r *Reaper) Tick(ctx context.Context) error {
 			slog.Warn("reaper: schedule not updated", "job", j.id, "err", err)
 		}
 		metrics.Jobs.WithLabelValues(final, topics.LaneName(tkstaskv1.Lane(j.lane))).Inc()
+		if j.kind != dispatch.KindOnDemand {
+			// A check closed for want of progress did not succeed in its
+			// window (build brief §8 A1).
+			metrics.Checks.WithLabelValues(checkKind(j.kind, j.mode), final, "late").Inc()
+		}
 		slog.Warn("reaper: job closed", "job", j.id, "status", final, "reason", reason)
 	}
 	return nil

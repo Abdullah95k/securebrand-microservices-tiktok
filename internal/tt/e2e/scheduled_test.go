@@ -29,10 +29,13 @@ type sched struct {
 	s   *Stack
 	pl  *scheduler.Planner
 	fin *scheduler.Finalizer
+	// beforeFinal, when set, runs once a tick's jobs have finished and
+	// before they are finalised (a test moving the clock past a window).
+	beforeFinal func()
 }
 
 func newSched(s *Stack) *sched {
-	disp := &dispatch.Dispatcher{DB: s.DB, Jobs: s.Tracker, Producer: s.Producer}
+	disp := &dispatch.Dispatcher{DB: s.DB, Jobs: s.Tracker, Producer: s.Producer, Now: s.World.Clock}
 	return &sched{s: s,
 		pl:  &scheduler.Planner{DB: s.DB, Dispatch: disp, Cfg: s.Cfg, Now: s.World.Clock},
 		fin: &scheduler.Finalizer{DB: s.DB, Jobs: s.Tracker, Producer: s.Producer, Cfg: s.Cfg, Timeout: time.Minute, Now: s.World.Clock}}
@@ -100,6 +103,9 @@ func (sc *sched) tick(t *testing.T) map[string]job {
 		ids = append(ids, id.String())
 	}
 	sc.s.Wait(t, 3*time.Minute, ids...)
+	if sc.beforeFinal != nil {
+		sc.beforeFinal()
+	}
 	out := map[string]job{}
 	deadline := time.Now().Add(time.Minute)
 	for ref, id := range started {

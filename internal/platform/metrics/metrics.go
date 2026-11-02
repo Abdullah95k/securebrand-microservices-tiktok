@@ -97,8 +97,13 @@ var (
 	ScheduleLag        = gaugeVec("schedule_lag_seconds", "Age of the oldest due page in the schedule.", "tier")
 	PageTier           = gaugeVec("scheduled_pages", "Scheduled pages per adaptive tier.", "tier")
 	// tks's scheduler (internal/tt/scheduler; build brief §8 A1).
-	Checks               = counterVec("checks_total", "tks scheduled account checks that ended, by kind (check, walk, backfill) and job status.", "kind", "result")
-	CheckOldest          = gauge("account_check_oldest_seconds", "Time since the active scheduled account with the oldest successful check was last checked well (leader scheduler).")
+	Checks         = counterVec("checks_total", "tks scheduled account checks that ended, by kind (check, walk, backfill), job status and whether they ended within their interval of being started (window: in, late; build brief §8 A1).", "kind", "result", "window")
+	CheckOldest    = gauge("account_check_oldest_seconds", "Time since the active scheduled account with the oldest successful check was last checked well (leader scheduler).")
+	RefreshOverdue = gauge("account_refresh_overdue", "Active scheduled tks accounts whose daily profile read is more than a day overdue (build brief §8 A1; leader scheduler).")
+	// tks's delay before a new post is stored (build brief §8 A2): the
+	// buckets hold the targets (median 1.5 h, 99 % in 3 h, 99.9 % in 6 h).
+	PostStoreDelay = histVec("post_store_delay_seconds", "Time from a new tks post's createTime to its row in Postgres, for posts first read by a scheduled check (mode incremental) or a metrics walk in its place (refresh); backfills are not counted.",
+		[]float64{300, 900, 1800, 3600, 5400, 7200, 9000, 10800, 14400, 21600, 43200, 86400}, "mode")
 	ScheduledAccounts    = gaugeVec("scheduled_accounts", "tks accounts on the schedule, by account status (active, private, unavailable, banned, unknown).", "status")
 	PostRefreshes        = counterVec("post_refreshes_total", "Post comment refreshes dispatched, by kind (refresh, recrawl).", "kind")
 	BreakerState         = gaugeVec("breaker_state", "Circuit breaker state (0 closed, 1 half-open, 2 open).", "name")

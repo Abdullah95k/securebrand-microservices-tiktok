@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -351,11 +352,24 @@ func TestMediaTasksOnlyWhenSwitchedOn(t *testing.T) {
 	videos, covers := map[int64]int{}, map[int64]int{}
 	for _, m := range media {
 		mm := m.GetMedia().GetMedia()
+		// A video's task carries the reading identity's tt_chain_token (the
+		// video hosts want it: T18); no other task does. Every task carries
+		// the identity's user agent.
+		token, ua := m.GetMedia().GetChainToken(), m.GetMedia().GetUserAgent()
+		if ua == "" {
+			t.Errorf("media task %s without a user agent", mm.MediaId)
+		}
 		switch mm.Kind {
 		case ttv1.MediaKind_MEDIA_KIND_VIDEO:
 			videos[mm.GetPostId()]++
+			if !strings.HasPrefix(token, "chain-") {
+				t.Errorf("video task of post %d carries token %q, want the identity's tt_chain_token", mm.GetPostId(), token)
+			}
 		case ttv1.MediaKind_MEDIA_KIND_COVER:
 			covers[mm.GetPostId()]++
+		}
+		if mm.Kind != ttv1.MediaKind_MEDIA_KIND_VIDEO && token != "" {
+			t.Errorf("%s task carries the cookie", mm.Kind)
 		}
 	}
 	for _, p := range acc.Posts {

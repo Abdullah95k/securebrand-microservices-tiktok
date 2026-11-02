@@ -19,8 +19,8 @@ const chartFiles = "../../../deploy/helm/fbs/files"
 
 var (
 	fqName    = regexp.MustCompile(`fqName: "([^"]+)"`)
-	igsMetric = regexp.MustCompile(`\bigs_[a-z0-9_]+`)
-	igsRecord = regexp.MustCompile(`\bigs:[a-z0-9_:]+`)
+	tksMetric = regexp.MustCompile(`\btks_[a-z0-9_]+`)
+	tksRecord = regexp.MustCompile(`\btks:[a-z0-9_:]+`)
 )
 
 // known returns every series name the registry can expose: histograms add
@@ -120,12 +120,12 @@ func checkExpr(t *testing.T, where, expr string, metrics, recs map[string]bool) 
 	if !balanced(expr) {
 		t.Errorf("%s: unbalanced brackets or quotes: %s", where, expr)
 	}
-	for _, m := range igsMetric.FindAllString(expr, -1) {
+	for _, m := range tksMetric.FindAllString(expr, -1) {
 		if !metrics[m] {
 			t.Errorf("%s: unknown metric %s", where, m)
 		}
 	}
-	for _, r := range igsRecord.FindAllString(expr, -1) {
+	for _, r := range tksRecord.FindAllString(expr, -1) {
 		if !recs[r] {
 			t.Errorf("%s: unknown recording rule %s", where, r)
 		}
@@ -177,24 +177,38 @@ func TestAlertRules(t *testing.T) {
 	}
 }
 
-// Runbook anchors the alerts link to must exist (GitHub heading slugs).
+// Runbook anchors the alerts link to must exist (GitHub heading slugs) in
+// the runbook each links to.
 func TestAlertRunbookAnchors(t *testing.T) {
-	b, err := os.ReadFile("../../../docs/runbooks/operations.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	slugs := map[string]bool{}
 	drop := regexp.MustCompile(`[^a-z0-9 _-]`)
-	for _, line := range strings.Split(string(b), "\n") {
-		if h, ok := strings.CutPrefix(line, "## "); ok {
-			slugs[strings.ReplaceAll(drop.ReplaceAllString(strings.ToLower(h), ""), " ", "-")] = true
+	slugs := map[string]map[string]bool{}
+	anchors := func(file string) map[string]bool {
+		if s, ok := slugs[file]; ok {
+			return s
 		}
+		b, err := os.ReadFile("../../../docs/runbooks/" + file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := map[string]bool{}
+		for _, line := range strings.Split(string(b), "\n") {
+			if h, ok := strings.CutPrefix(line, "## "); ok {
+				s[strings.ReplaceAll(drop.ReplaceAllString(strings.ToLower(h), ""), " ", "-")] = true
+			}
+		}
+		slugs[file] = s
+		return s
 	}
 	for _, g := range loadRules(t).Groups {
 		for _, r := range g.Rules {
 			u := r.Annotations["runbook_url"]
-			if i := strings.IndexByte(u, '#'); i >= 0 && !slugs[u[i+1:]] {
-				t.Errorf("%s: no runbook heading for #%s", r.Alert, u[i+1:])
+			_, rest, ok := strings.Cut(u, "docs/runbooks/")
+			if !ok {
+				continue
+			}
+			file, anchor, ok := strings.Cut(rest, "#")
+			if ok && !anchors(file)[anchor] {
+				t.Errorf("%s: no heading for #%s in docs/runbooks/%s", r.Alert, anchor, file)
 			}
 		}
 	}

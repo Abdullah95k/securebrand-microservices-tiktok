@@ -112,6 +112,13 @@ message ThreadScope {
 
 message MediaScope {
   securebrand.tt.v1.Media media = 1;
+  // The tt_chain_token cookie of the identity that read the link, for a
+  // video file: TikTok's video hosts refuse a video without it (T18). A
+  // guest's token, never logged; the downloader sends it only to the hosts
+  // of tt.media.cookie_domains, as a browser does.
+  string chain_token = 2;
+  // That identity's user agent, sent with the download.
+  string user_agent = 3;
 }
 
 // SessionSnapshot carries a serialised identity when a cursor turns out to

@@ -6,11 +6,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/common/v1"
 	ttv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/store"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/testenv"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/emit"
@@ -325,3 +328,67 @@ func TestMediaAndMusicOnce(t *testing.T) {
 }
 
 var storeWindow = store.PartitionWindow{MonthsBack: 3, MonthsAhead: 1, DaysBack: 1, DaysAhead: 1}
+
+// A new post keeps when its row was first written and the mode of the read
+// that found it; its delay from createTime counts for build brief §8 A2 only
+// when a scheduled check or a metrics walk found it, and only once.
+func TestNewPostDelay(t *testing.T) {
+	w := newWriter(t)
+	ctx := context.Background()
+	p1 := post(1, time.Now(), 10, nil)
+	if _, err := ttstore.EnsurePartitions(ctx, w.DB, p1.CreatedAt.AsTime(), storeWindow); err != nil {
+		t.Fatal(err)
+	}
+	stored := p1.CreatedAt.AsTime().Add(90 * time.Minute)
+	w.Now = func() time.Time { return stored }
+	count := func(mode string) uint64 {
+		t.Helper()
+		var m dto.Metric
+		if err := metrics.PostStoreDelay.WithLabelValues(mode).(prometheus.Histogram).Write(&m); err != nil {
+			t.Fatal(err)
+		}
+		return m.GetHistogram().GetSampleCount()
+	}
+	sum := func(mode string) float64 {
+		t.Helper()
+		var m dto.Metric
+		_ = metrics.PostStoreDelay.WithLabelValues(mode).(prometheus.Histogram).Write(&m)
+		return m.GetHistogram().GetSampleSum()
+	}
+	inc0, incSum0, ref0, full0 := count("incremental"), sum("incremental"), count("refresh"), count("full")
+
+	with := func(p *ttv1.Post, mode commonv1.CrawlMode) *ttv1.Post {
+		p.Obs.Mode = mode
+		return p
+	}
+	backfilled := with(post(2, time.Now(), 10, nil), commonv1.CrawlMode_CRAWL_MODE_FULL)
+	walked := with(post(3, time.Now(), 10, nil), commonv1.CrawlMode_CRAWL_MODE_REFRESH)
+	if err := w.Posts(ctx, []*ttv1.Post{with(p1, commonv1.CrawlMode_CRAWL_MODE_INCREMENTAL), backfilled, walked}); err != nil {
+		t.Fatal(err)
+	}
+	// Read again by later checks: not new.
+	w.Now = func() time.Time { return stored.Add(3 * time.Hour) }
+	if err := w.Posts(ctx, []*ttv1.Post{with(post(1, time.Now().Add(time.Minute), 11, nil), commonv1.CrawlMode_CRAWL_MODE_INCREMENTAL),
+		with(post(2, time.Now().Add(time.Minute), 11, nil), commonv1.CrawlMode_CRAWL_MODE_INCREMENTAL)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := count("incremental") - inc0; got != 1 {
+		t.Errorf("%d incremental delays observed, want 1", got)
+	}
+	if got := sum("incremental") - incSum0; got != 5400 {
+		t.Errorf("delay %v s, want 5400 (1.5 h)", got)
+	}
+	if count("refresh")-ref0 != 1 || count("full") != full0 {
+		t.Errorf("refresh %d, full %d delays observed; want 1 and 0", count("refresh")-ref0, count("full")-full0)
+	}
+	for id, want := range map[int64]string{1: "incremental", 2: "full", 3: "refresh"} {
+		var mode string
+		var at time.Time
+		if err := w.DB.QueryRow(ctx, `SELECT first_mode, stored_at FROM posts WHERE post_id = $1`, id).Scan(&mode, &at); err != nil {
+			t.Fatal(err)
+		}
+		if mode != want || !at.Equal(stored) {
+			t.Errorf("post %d: first_mode %q, stored_at %v; want %q, %v", id, mode, at, want, stored)
+		}
+	}
+}

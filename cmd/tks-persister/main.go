@@ -37,7 +37,7 @@ func runPersister(ctx context.Context, cfg *config.Config) error {
 	if err := ttstore.CheckSchema(ctx, db); err != nil {
 		return err
 	}
-	c, err := app.NewPersister(cfg, db, 250*time.Millisecond)
+	c, err := app.NewPersister(cfg, db, 250*time.Millisecond, nil)
 	if err != nil {
 		return err
 	}
