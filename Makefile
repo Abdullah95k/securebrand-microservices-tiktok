@@ -5,7 +5,7 @@ PG_DSN ?= postgres://fbs:fbs@localhost:5432/fbs?sslmode=disable
 TEST_ENV = TKS_TEST_PG_DSN="$(PG_DSN)" TKS_TEST_REDIS_ADDR=localhost:6379 TKS_TEST_KAFKA_BROKERS=localhost:19092 TKS_TEST_SCHEMA_REGISTRY=http://localhost:18081
 COMPOSE = docker compose -f deploy/compose/docker-compose.yml
 
-.PHONY: all build test lint vet generate golden fixtures infra-up infra-down test-integration e2e loadtest soak docker docker-prebuilt compose-up compose-down spike-report phase0 phase0-dryrun phase0-trim phase0-rate pilot-up pilot-register pilot-registry pilot-report pilot-down pilot-clean spike-bin tks-probe tks-probe-all tks-probe-dryrun tks-browser-check tks-spike-bin chart-check chart-smoke clean
+.PHONY: all build test lint vet generate golden fixtures infra-up infra-down test-integration e2e loadtest soak docker docker-prebuilt compose-up compose-down spike-report phase0 phase0-dryrun phase0-trim phase0-rate pilot-up pilot-register pilot-registry pilot-report pilot-down pilot-clean spike-bin tks-probe tks-probe-all tks-probe-dryrun tks-browser-check tks-phase0 tks-phase0-dryrun tks-spike-bin chart-check chart-smoke clean
 
 all: generate build test
 
@@ -223,6 +223,27 @@ tks-probe-all:
 ## Rehearse the probe against a built-in fake TikTok: no traffic, no proxies.
 tks-probe-dryrun:
 	$(GO) run ./cmd/tks-spike probe --dry-run --out-dir $(TKS_PROBE_OUT)-dryrun
+
+TKS_PHASE0_ACCOUNTS ?= phase0/tt-accounts-all.txt
+TKS_PHASE0_TIERS ?= isp
+TKS_PHASE0_OUT ?= phase0/out-tt-phase0
+TKS_PHASE0_ARGS ?=
+
+## tks Phase 0 against real TikTok (checkpoint C4, docs/runbooks/tks-phase0.md):
+## 150 accounts spread over TKS_PHASE0_ACCOUNTS, the crawler's work at its pace
+## through TKS_PHASE0_TIERS, then a per-IP rate ladder; report.txt says GO or
+## NO-GO with the cost per account per day. Resume with TKS_PHASE0_ARGS="--from run";
+## price it with TKS_PHASE0_ARGS="--from report --ip-month-usd 3".
+tks-phase0:
+	@test -f $(TKS_PHASE0_ACCOUNTS) || { echo "missing $(TKS_PHASE0_ACCOUNTS): copy your accounts file there (docs/runbooks/tks-phase0.md)"; exit 2; }
+	@test -f $(PHASE0_CONFIG) || { echo "missing $(PHASE0_CONFIG) (docs/runbooks/tks-phase0.md)"; exit 2; }
+	$(GO) run ./cmd/tks-spike phase0 --accounts $(TKS_PHASE0_ACCOUNTS) --config $(PHASE0_CONFIG) --tiers $(TKS_PHASE0_TIERS) \
+	  --out-dir $(TKS_PHASE0_OUT) $(TKS_PHASE0_ARGS)
+
+## Rehearse Phase 0 against a built-in fake TikTok whose variants are rotated
+## (the creator list needs a signature): no traffic, no proxies, under a minute.
+tks-phase0-dryrun:
+	$(GO) run ./cmd/tks-spike phase0 --dry-run $(TKS_PHASE0_ARGS)
 
 ## Is a Chromium installed for the probe's browser signer? Prints how to install one if not.
 tks-browser-check:

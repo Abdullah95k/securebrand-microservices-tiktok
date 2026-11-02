@@ -79,6 +79,8 @@ M6b added tks's own copies of the API and the eraser, on schema tt (the copied `
 
 Shared code: none left (`gdpr.LockExclusive`, added for the eraser, went with it). tks's own retention is `tt.retention` (all 0: kept for good); `privacy.retention` stays the copied pipeline's.
 
+M7 added tks's Phase 0 kit (`internal/tt/phase0`, `tks-spike phase0`). igs's M8 `Measurer` has not landed (igs main `bbc5987`, 2026-11-02), so tks wrote its own, in the shape of fbs's kit (`internal/spike`: steps run in order and resumed with `--from`, `StepError` with `NeedsAction`, a bundle refused when it holds a proxy credential), on tks's own client, parsers, registry and signer; it counts signed calls and browser time as costs, climbs a per-IP rate ladder, and projects a cost per account per day. igs may want its shape (a ladder, a cost model on the crawler's schedule, results without names). No shared code changed; `fakett` gained the `MaxRPS` fault and `Sign`.
+
 ## tks fixes igs or fbs may want
 
 Fixes made in tks's copy of shared code that igs or fbs still lack. Their own sessions decide whether to port them.

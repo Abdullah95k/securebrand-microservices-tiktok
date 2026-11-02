@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
@@ -57,5 +59,37 @@ func TestTierIPs(t *testing.T) {
 		if n, capped := tierIPs(cfg, c.tier); n != c.n || capped != c.capped {
 			t.Errorf("%s: %d %v, want %d %v", c.tier, n, capped, c.n, c.capped)
 		}
+	}
+}
+
+// The Phase 0 dry run reaches GO against fakett with rotated variants and
+// writes its bundle: what make tks-phase0-dryrun runs.
+func TestPhase0DryRun(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "out")
+	if code := runPhase0([]string{"--dry-run", "--out-dir", dir}); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	for _, f := range []string{"report.txt", "report.json", "registry.yaml", "run-direct.jsonl", "ladder-direct.jsonl", "tks-phase0-bundle.tar.gz"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "registry.yaml"))
+	if !strings.Contains(string(b), "creator-signed") {
+		t.Fatalf("the rotated creator list's signed variant is not in the registry:\n%s", b)
+	}
+}
+
+// Accounts are sampled evenly over the file, not from its top.
+func TestSpread(t *testing.T) {
+	var all []string
+	for i := range 10 {
+		all = append(all, strconv.Itoa(i))
+	}
+	if got := strings.Join(spread(all, 4), ","); got != "0,2,5,7" {
+		t.Fatal(got)
+	}
+	if len(spread(all, 0)) != 10 || len(spread(all, 20)) != 10 {
+		t.Fatal("all")
 	}
 }
