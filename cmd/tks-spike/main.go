@@ -1,12 +1,14 @@
 // Command tks-spike holds the tools the owner runs against real TikTok
-// from the Phase 0 droplet (docs/runbooks/tks-probe.md). Today: probe
-// (checkpoints C2 and C3), which answers the open questions of
+// from the Phase 0 droplet: probe (checkpoints C2 and C3,
+// docs/runbooks/tks-probe.md), which answers the open questions of
 // docs/tiktok/open-questions.md for a list of public accounts and writes
-// what it read: the accounts, their posts, comments and replies, avatars,
-// covers and sampled videos, as JSON, CSV and a .tar.gz to download.
+// what it read, and phase0 (checkpoint C4, docs/runbooks/tks-phase0.md),
+// which measures what the crawler's work costs and says GO or NO-GO.
 //
 //	tks-spike probe --dry-run                                     # rehearse against fakett
 //	tks-spike probe --accounts phase0/tt-accounts.txt --config phase0/proxies.yaml --tier isp
+//	tks-spike phase0 --dry-run                                    # rehearse against fakett
+//	tks-spike phase0 --accounts phase0/tt-accounts-all.txt --config phase0/proxies.yaml --tiers isp
 package main
 
 import (
@@ -45,6 +47,8 @@ func main() {
 	switch os.Args[1] {
 	case "probe":
 		os.Exit(runProbe(os.Args[2:]))
+	case "phase0":
+		os.Exit(runPhase0(os.Args[2:]))
 	case "browser-check":
 		os.Exit(browserCheck())
 	case "version", "--version":
@@ -57,6 +61,8 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `usage: tks-spike probe --accounts FILE [--config FILE] [--tier NAME] [--out-dir DIR] [flags]
        tks-spike probe --dry-run
+       tks-spike phase0 --accounts FILE --config FILE --tiers isp [flags]
+       tks-spike phase0 --dry-run
        tks-spike browser-check
 
 probe loads each account's page and reads it with the logged-out web API,
@@ -64,6 +70,10 @@ pacing like a person (one request every few seconds). It writes report.json,
 accounts.csv, posts.csv, comments.csv, images/ and videos/ to --out-dir, and
 the same as a .tar.gz beside it. The files hold personal data: keep them off
 git. --dry-run rehearses against a built-in fake TikTok, with no traffic.
+phase0 does the crawler's work for a sample of accounts at its pace and
+measures it (pages, lists, signed comments, videos, a per-IP rate ladder),
+then writes report.txt with GO or NO-GO and the cost per account per day,
+and a bundle that holds no username, id, link or text.
 browser-check reports whether a Chromium for --signer browser is installed.
 `)
 	os.Exit(2)

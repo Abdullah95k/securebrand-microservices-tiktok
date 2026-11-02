@@ -53,6 +53,10 @@ type Faults struct {
 	// ListErrorEvery answers every Nth creator-list call with statusCode
 	// 10102, the occasional error of the C3 full pass.
 	ListErrorEvery int
+	// MaxRPS answers API calls beyond this many in the last second with a
+	// captcha, as an IP's tolerance is expected to end (T20): every client
+	// of a test server is one IP, so the limit is the server's.
+	MaxRPS float64
 }
 
 // Options configure a server.
@@ -67,6 +71,7 @@ type Server struct {
 
 	mu        sync.Mutex
 	devices   map[string]*device
+	recent    []time.Time // API calls in the last second (MaxRPS)
 	minted    uint64
 	apiCalls  atomic.Int64
 	listCalls atomic.Int64
@@ -127,6 +132,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 const signer = `<script>(function(){const f=window.fetch;window.fetch=function(i,o){const u=new URL(i,location.href);` +
 	`if(u.pathname.startsWith("/api/")){u.searchParams.set("X-Bogus","1");u.searchParams.set("X-Gnarly","fake-gnarly-"+u.searchParams.toString().length);}` +
 	`return f(u.toString(),o);};})();</script>`
+
+// Sign signs a URL as the page script RequireSignature adds does, for
+// tests and dry runs without a browser: the parameters set, nothing sent.
+func Sign(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	q := u.Query()
+	n := len(q.Encode())
+	q.Set("X-Bogus", "1")
+	q.Set("X-Gnarly", "fake-gnarly-"+strconv.Itoa(n))
+	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
 
 // page serves a profile, video or photo page: the rehydration document
 // with the app context (a fresh device) and the account or the post.
@@ -224,7 +244,12 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	if dev != nil {
 		dev.calls++
 	}
+	over := s.overRate(f.MaxRPS)
 	s.mu.Unlock()
+	if over {
+		writeJSON(w, map[string]any{"statusCode": 10000, "statusMsg": "", "verify_event": map[string]any{"type": "slide", "subtype": "3d"}})
+		return
+	}
 	if q.Get("device_id") == "" || dev == nil {
 		// No device id (or an unknown one): an empty 200 (T2).
 		w.Header().Set("tt_orcas_res", "1")
@@ -288,6 +313,23 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// overRate counts an API call and reports whether it is past the MaxRPS
+// fault's limit. The caller holds s.mu.
+func (s *Server) overRate(limit float64) bool {
+	if limit <= 0 {
+		return false
+	}
+	now := time.Now()
+	keep := s.recent[:0]
+	for _, t := range s.recent {
+		if now.Sub(t) < time.Second {
+			keep = append(keep, t)
+		}
+	}
+	s.recent = append(keep, now)
+	return float64(len(s.recent)) > limit
 }
 
 func (s *Server) signed(path string) bool {

@@ -88,7 +88,7 @@ TikTok-specific points:
 
 | Asset | Class | Note |
 |---|---|---|
-| `internal/spike` (Phase 0 kit) | change | Port igs's M8 `Measurer` when it lands; otherwise tks adds it. tks's measurer counts signer calls and browser time as costs |
+| `internal/spike` (Phase 0 kit) | change | Port igs's M8 `Measurer` when it lands; otherwise tks adds it. tks's measurer counts signer calls and browser time as costs. **Done in M7** (2026-11-02): igs's had not landed, so tks has its own, `internal/tt/phase0` ([`tks-phase0.md`](../runbooks/tks-phase0.md)) |
 | `internal/e2e`, `internal/testenv` | new / change | The stack copies igs's (topics `tt.*`, groups `tks-*`); `testenv` with key prefixes |
 | `registrysync` | doesn't fit, then new | Its doc_id discovery has no TikTok equivalent. `tks-canary` copies its skeleton (lock, run records, metrics) to check each operation variant on canary accounts and promote or demote variants |
 | `api/proto/securebrand/common/v1` | as is | Copy igs's file byte for byte when igs's M3 lands, so one consumer reads all three platforms' media handoff and job events with one schema |
