@@ -79,6 +79,22 @@ func identity(ua string) *session.Identity {
 	return id
 }
 
+// PageQuery puts the page's values in place of the identity's and leaves
+// out msToken and earlier signatures, which the page's script adds.
+func TestPageQuery(t *testing.T) {
+	raw := "https://www.tiktok.com/api/comment/list/?aid=1988&aweme_id=7&cursor=20&device_id=111&msToken=abc&odinId=1&tz_name=Asia%2FBaghdad&X-Gnarly=old"
+	got, _ := url.Parse(sign.PageQuery(raw, map[string]string{"device_id": "222", "odinId": "9", "tz_name": "UTC", "screen_width": "800"}))
+	q := got.Query()
+	for k, want := range map[string]string{"device_id": "222", "odinId": "9", "tz_name": "UTC", "screen_width": "800", "aweme_id": "7", "cursor": "20", "aid": "1988", "msToken": "", "X-Gnarly": ""} {
+		if q.Get(k) != want {
+			t.Errorf("%s = %q, want %q (%s)", k, q.Get(k), want, got)
+		}
+	}
+	if got.Path != "/api/comment/list/" || got.Host != "www.tiktok.com" {
+		t.Fatal(got)
+	}
+}
+
 func cfg() config.Signer {
 	return config.Signer{Mode: config.SignerBrowser, Pages: 2, PageMaxSigns: 3, PageMaxAge: time.Hour,
 		SignTimeout: 2 * time.Second, PageTimeout: 2 * time.Second, MaxShare: 0.5}
@@ -218,7 +234,9 @@ func TestBrowserSignerAgainstFakett(t *testing.T) {
 	if resp.Class == detect.OK {
 		t.Fatal("unsigned comments answered: fakett must refuse them")
 	}
-	pool := sign.New(cfg(), sign.BrowserOpener(bin, true, tttest.AcceptLanguage, 30*time.Second))
+	bc := cfg()
+	bc.PageTimeout = 30 * time.Second // a real page and its values, on a busy runner
+	pool := sign.New(bc, sign.BrowserOpener(bin, true, tttest.AcceptLanguage, 30*time.Second))
 	defer pool.Close()
 	env.Client.Signer = ttclient.SignerFor(config.SignerBrowser, pool)
 	before := len(env.Requests("/api/comment/list/"))
@@ -236,10 +254,17 @@ func TestBrowserSignerAgainstFakett(t *testing.T) {
 	if len(sent) != 2 {
 		t.Fatalf("%d plain-HTTP comment requests, want 2", len(sent))
 	}
+	// The page signs with its own device id and environment, not the
+	// identity's: fakett, like TikTok (Phase 0, 2026-11-02), refuses a
+	// signature over another device's values.
 	for _, r := range sent {
 		u, _ := url.Parse(r.URL)
-		if u.Query().Get("X-Gnarly") == "" || u.Query().Get("device_id") == "" || !strings.HasPrefix(r.URL, env.HTTP.URL) {
+		q := u.Query()
+		if q.Get("X-Gnarly") == "" || q.Get("device_id") == "" || !strings.HasPrefix(r.URL, env.HTTP.URL) {
 			t.Fatalf("sent %s", r.URL)
+		}
+		if q.Get("device_id") == id.Tokens()["device_id"] || q.Get("tz_name") == "Asia/Baghdad" || q.Get("msToken") == id.Doer.Cookie(id.Base, "msToken") {
+			t.Fatalf("signed with the identity's values, not the page's: %s", r.URL)
 		}
 	}
 	if pool.Pages() != 1 {

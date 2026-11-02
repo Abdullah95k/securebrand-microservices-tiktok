@@ -12,8 +12,9 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 )
 
-// pageTokens are the identity's page values sent with every call.
-var pageTokens = []string{"device_id", "odinId", "WebIdLastTime", "region", "language"}
+// PageTokens are the identity's page values sent with every call (a signer
+// page puts its own in place of the identity's: internal/tt/sign).
+var PageTokens = []string{"device_id", "odinId", "WebIdLastTime", "region", "language"}
 
 // Builder writes logged-out TikTok's GET calls: every value in the query
 // string, sorted by name as the recorded browser sends them (capitals
@@ -42,7 +43,7 @@ func (b Builder) Build(id *session.Identity, q registry.Query, vars []byte, para
 	v["browser_version"] = strings.TrimPrefix(ua, "Mozilla/")
 	v["browser_platform"], v["os"] = platform(id.FP.SecChUaPlatform)
 	tok := id.Tokens()
-	for _, k := range pageTokens {
+	for _, k := range PageTokens {
 		if tok[k] != "" {
 			v[k] = tok[k]
 		}

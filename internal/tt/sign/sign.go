@@ -13,9 +13,11 @@ package sign
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -23,6 +25,8 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/browser"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
+	ttclient "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/client"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/htmlx"
 )
 
 // Page is one open TikTok page that signs calls.
@@ -269,7 +273,9 @@ func pageURL(id *session.Identity, referer string) string {
 // BrowserOpener opens signer pages in headless Chromium: on the identity's
 // exit, with its user agent and client hints, without the automation flag
 // (comments were refused with it on: C2 run 1), media blocked (which also
-// makes the page's requests pause, so Sign can hold them).
+// makes the page's requests pause, so Sign can hold them). Each page reads
+// its own page values and environment once, and signs every call with them
+// in place of the identity's (PageQuery).
 func BrowserOpener(binary string, noSandbox bool, acceptLanguage string, callTimeout time.Duration) Opener {
 	return func(ctx context.Context, id *session.Identity, pageURL string) (Page, error) {
 		var proxyURL *url.URL
@@ -286,6 +292,90 @@ func BrowserOpener(binary string, noSandbox bool, acceptLanguage string, callTim
 		if err != nil {
 			return nil, err
 		}
-		return s, nil
+		values, err := pageValues(ctx, s)
+		if err != nil {
+			s.Close()
+			return nil, err
+		}
+		return &browserPage{Session: s, values: values}, nil
 	}
+}
+
+// browserPage signs with the page's own values.
+type browserPage struct {
+	*browser.Session
+	values map[string]string
+}
+
+func (p *browserPage) Sign(ctx context.Context, rawURL string) (string, error) {
+	return p.Session.Sign(ctx, PageQuery(rawURL, p.values))
+}
+
+// pageValues reads what the page's own calls carry and tks's builder would
+// otherwise fill from the plain-HTTP identity: the page's device id and
+// the other values of its app context (ttclient.PageTokens), and the
+// browser's time zone, screen and history length.
+func pageValues(ctx context.Context, s *browser.Session) (map[string]string, error) {
+	html, err := s.HTML(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sign: page: %w", err)
+	}
+	tok, ok := htmlx.Extract(html)
+	if !ok {
+		return nil, errors.New("sign: the signer page carried no page values (no device id)")
+	}
+	out := map[string]string{}
+	for _, k := range ttclient.PageTokens {
+		if tok[k] != "" {
+			out[k] = tok[k]
+		}
+	}
+	var env struct {
+		TZ      string  `json:"tz"`
+		Width   float64 `json:"w"`
+		Height  float64 `json:"h"`
+		History float64 `json:"history"`
+	}
+	v, err := s.Evaluate(ctx, `({tz: Intl.DateTimeFormat().resolvedOptions().timeZone, w: screen.width, h: screen.height, history: history.length})`)
+	if err == nil && json.Unmarshal(v, &env) == nil {
+		if env.TZ != "" {
+			out["tz_name"] = env.TZ
+		}
+		if env.Width > 0 && env.Height > 0 {
+			out["screen_width"], out["screen_height"] = strconv.Itoa(int(env.Width)), strconv.Itoa(int(env.Height))
+		}
+		if env.History > 0 {
+			out["history_len"] = strconv.Itoa(int(env.History))
+		}
+	}
+	return out, nil
+}
+
+// PageQuery is the URL a signer page signs: the call's own query with the
+// page's values (device id, app context, time zone, screen, history) in
+// place of the identity's, and without msToken or any earlier signature,
+// which the page's script adds itself. TikTok refused comment URLs signed
+// with the plain-HTTP identity's values (Phase 0, 2026-11-02) and answered
+// those built with the page's (the probe, C2 run 3); the signed URL is then
+// sent by the identity from any exit (T27).
+func PageQuery(rawURL string, values map[string]string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	q := u.Query()
+	flat := make(map[string]string, len(q)+len(values))
+	for k, vs := range q {
+		if len(vs) > 0 {
+			flat[k] = vs[0]
+		}
+	}
+	for _, k := range []string{"msToken", "X-Bogus", "X-Gnarly", "X-Dynosaur"} {
+		delete(flat, k)
+	}
+	for k, v := range values {
+		flat[k] = v
+	}
+	u.RawQuery = ttclient.Encode(flat)
+	return u.String()
 }
