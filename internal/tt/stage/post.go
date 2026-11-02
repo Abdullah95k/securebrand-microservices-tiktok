@@ -301,7 +301,7 @@ func emitComments(ctx context.Context, d *Deps, b *kafka.Batch, t *tkstaskv1.Tas
 		} else {
 			c["comments"]++
 		}
-		n, err := d.media(ctx, b, t, src, cb.Media, true)
+		n, err := d.media(ctx, b, t, src, cb.Media, true, fetcher{})
 		if err != nil {
 			return err
 		}

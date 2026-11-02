@@ -59,6 +59,15 @@ M6a added tks's own copies of the job and scheduler code, on schema tt and tks's
 | `internal/tt/scheduler` (`finalizer.go`, `reaper.go`, `maintenance.go`) | `internal/scheduler` (`finalizer.go`, `loops.go`) | `common.v1` job events on `tt.job.v1` with `platform`; deletions as `tt.v1` comments with a slack on TikTok's count (`tt.comments.deletion_slack`); coverage on `tt.posts`, a comment read stopped at the cap counted apart and not a partial job; the schedule moved on by the finalizer (failures, last success, walks, a daily interval for accounts that are not active); the reaper counts a stalled job as a failed check; retention of schema tt's tables (`people`, `account_snapshots`, `canary_runs`); the task backlog read from tks's groups and topics |
 | `internal/tt/scheduler` (`planner.go`) | `internal/scheduler` (`loops.go` `Planner`) | Backfills, metrics walks and incremental checks (ADR 0007 §12) instead of adaptive tiers and post refreshes |
 
+M6c added tks's own media downloader (igs has not generalised the media pipeline: igs main `807de68`; docs/tiktok ADR 0007 §15):
+
+| tks package | Copied from | What changed |
+|---|---|---|
+| `internal/tt/media` (`downloader.go`), `cmd/tks-media-downloader` | `internal/media` (`downloader.go`), `cmd/fbs-media-downloader` | `tks.task.v1` tasks, `tt.v1.Media`, schema tt's `media`, `common.v1.MediaReady` with `platform: TIKTOK` on `tt.media.ready.v1`; **no TTL and no bucket lifecycle rule** (another service deletes the files: owner, 2026-11-02), a warning for a bucket rule that would expire objects; no suppression; a video's `tt_chain_token` sent only to `tt.media.cookie_domains`, on redirects too, with Chrome's media headers; a 403 before the link's expiry counted as `refused` |
+| `internal/tt/media` (`ledger.go`) | `internal/media` (`janitor.go` `Handle`, `retry`) | Acknowledgements recorded and retryable failures announced again, as the janitor does, but **nothing deleted**: past the retry limit the file is left to the deleting service; its `MediaDeleted` on `tt.media.deleted.v1` marks the row deleted. No sweep, no orphan removal |
+
+M6c's changes to shared code, each off or unchanged for the copied pipeline: the metrics `tks_post_store_delay_seconds` and `tks_account_refresh_overdue`, and `tks_checks_total`'s `window` label (tks's own series); the monitoring guard test now matches `tks_` and `tks:` names (M1b's substitution had left igs's `\bigs_` pattern, so no expression was checked) and reads anchors from the runbook each alert links to. igs's guard is right for igs's names; nothing to port.
+
 Additions to shared code (no change for the copied pipeline): the metrics `tks_checks_total`, `tks_account_check_oldest_seconds`, `tks_scheduled_accounts`.
 
 M6b added tks's own copies of the API and the eraser, on schema tt (the copied `internal/api`, `cmd/fbs-api` and `gdpr.Eraser` are unchanged). **The next PR removed the eraser and tks's suppression checks** by the owner's decision (2026-11-01, docs/tiktok ADR 0007 §14: nothing deleted, everything collected); the copied `internal/gdpr` stays for the copied pipeline, and `gdpr.LockExclusive` was removed again:

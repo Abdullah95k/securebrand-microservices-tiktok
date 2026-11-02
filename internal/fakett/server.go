@@ -72,6 +72,21 @@ type Server struct {
 	listCalls atomic.Int64
 	// Requests counts API calls by path.
 	Requests sync.Map
+	// VideoDownloads counts video files served; MediaRefused, the ones
+	// refused for want of a tt_chain_token (Faults.MediaNeedsCookie).
+	VideoDownloads, MediaRefused atomic.Int64
+}
+
+// issuedChain reports whether a page load issued this tt_chain_token.
+func (s *Server) issuedChain(v string) bool {
+	wid, ok := strings.CutPrefix(v, "chain-")
+	if !ok {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d := s.devices[wid]
+	return d != nil && d.chain == v
 }
 
 type device struct {
@@ -540,10 +555,17 @@ func (s *Server) item(p *Post, host string) map[string]any {
 
 func (s *Server) media(w http.ResponseWriter, r *http.Request) {
 	if s.opts.Faults.MediaNeedsCookie && strings.HasPrefix(r.URL.Path, "/fake-cdn/video/") {
-		if _, err := r.Cookie("tt_chain_token"); err != nil {
-			http.Error(w, "forbidden", http.StatusForbidden)
+		// Akamai's "Access Denied" without a tt_chain_token a page issued
+		// (T18).
+		ck, err := r.Cookie("tt_chain_token")
+		if err != nil || !s.issuedChain(ck.Value) {
+			s.MediaRefused.Add(1)
+			http.Error(w, "Access Denied", http.StatusForbidden)
 			return
 		}
+	}
+	if strings.HasPrefix(r.URL.Path, "/fake-cdn/video/") {
+		s.VideoDownloads.Add(1)
 	}
 	switch {
 	case strings.HasPrefix(r.URL.Path, "/fake-cdn/video/"):

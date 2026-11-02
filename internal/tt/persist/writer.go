@@ -43,6 +43,16 @@ type Writer struct {
 	// older than this are not written, since retention would drop their
 	// partition again. Zero keeps everything.
 	CommentsRetention time.Duration
+	// Now is the clock of stored_at and the delay of new posts (build brief
+	// §8 A2); nil is time.Now.
+	Now func() time.Time
+}
+
+func (w *Writer) now() time.Time {
+	if w.Now != nil {
+		return w.Now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 func observed(o *commonv1.Observation) time.Time {

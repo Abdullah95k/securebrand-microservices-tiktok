@@ -188,11 +188,11 @@ func (s *AccountStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 			// The list's author: name, bio, avatar and flags on every check
 			// (renames show within one check); its counts are rounded, so
 			// the persister keeps the page's exact ones (T31).
-			if out, stop := s.listAccount(ctx, b, t, sc, res, c); stop {
+			if out, stop := s.listAccount(ctx, b, t, sc, res, fetcherOf(id), c); stop {
 				return out
 			}
 		}
-		children, out, stop := s.posts(ctx, b, t, sc, &st, &w, src, res, edgeIDs, c)
+		children, out, stop := s.posts(ctx, b, t, sc, &st, &w, src, res, edgeIDs, fetcherOf(id), c)
 		if stop {
 			return out
 		}
@@ -371,7 +371,7 @@ func (s *AccountStage) profile(ctx context.Context, t *tkstaskv1.Task, sc *tksta
 	if err := d.Emit.Account(ctx, b, src, a); err != nil {
 		return retry(t, "", "30s", err.Error(), c), true
 	}
-	if _, err := d.media(ctx, b, t, src, res.Media, false); err != nil {
+	if _, err := d.media(ctx, b, t, src, res.Media, false, fetcherOf(id)); err != nil {
 		return retry(t, "", "30s", err.Error(), c), true
 	}
 	if err := b.Wait(ctx); err != nil {
@@ -417,7 +417,7 @@ func (s *AccountStage) bootstrap(ctx context.Context, t *tkstaskv1.Task, sc *tks
 
 // listAccount emits the list's author as the account, and resolves the
 // scope's keys from it (a secUid reference names no user id or username).
-func (s *AccountStage) listAccount(ctx context.Context, b *kafka.Batch, t *tkstaskv1.Task, sc *tkstaskv1.AccountScope, res parse.PostListResult, c map[string]int64) (Outcome, bool) {
+func (s *AccountStage) listAccount(ctx context.Context, b *kafka.Batch, t *tkstaskv1.Task, sc *tkstaskv1.AccountScope, res parse.PostListResult, f fetcher, c map[string]int64) (Outcome, bool) {
 	d := s.D
 	a := res.Account
 	if a.SecUid != "" && a.SecUid != sc.SecUid {
@@ -435,7 +435,7 @@ func (s *AccountStage) listAccount(ctx context.Context, b *kafka.Batch, t *tksta
 	if err := d.Emit.Account(ctx, b, src, a); err != nil {
 		return retry(t, "", "30s", err.Error(), c), true
 	}
-	if _, err := d.media(ctx, b, t, src, res.AccountMedia, false); err != nil {
+	if _, err := d.media(ctx, b, t, src, res.AccountMedia, false, f); err != nil {
 		return retry(t, "", "30s", err.Error(), c), true
 	}
 	c["accounts"]++
@@ -482,7 +482,7 @@ func (w walk) boundReason() string {
 // posts emits a list page's posts within the age window and returns the
 // post tasks of those whose comments are due.
 func (s *AccountStage) posts(ctx context.Context, b *kafka.Batch, t *tkstaskv1.Task, sc *tkstaskv1.AccountScope, st *checkpoint.State, w *walk,
-	src emit.Source, res parse.PostListResult, edgeIDs []int64, c map[string]int64) ([]*tkstaskv1.Task, Outcome, bool) {
+	src emit.Source, res parse.PostListResult, edgeIDs []int64, f fetcher, c map[string]int64) ([]*tkstaskv1.Task, Outcome, bool) {
 	d := s.D
 	var children []*tkstaskv1.Task
 	repeated := map[int64]bool{}
@@ -524,7 +524,7 @@ func (s *AccountStage) posts(ctx context.Context, b *kafka.Batch, t *tkstaskv1.T
 		if err := d.Emit.Music(ctx, b, src, pb.Music); err != nil {
 			return nil, retry(t, st.Cursor, "30s", err.Error(), c), true
 		}
-		n, err := d.media(ctx, b, t, src, pb.Media, false)
+		n, err := d.media(ctx, b, t, src, pb.Media, false, f)
 		if err != nil {
 			return nil, retry(t, st.Cursor, "30s", err.Error(), c), true
 		}

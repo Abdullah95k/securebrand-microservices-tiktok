@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/configs"
@@ -223,10 +224,19 @@ type TT struct {
 // TTMedia is tks's media download switch (build brief D5). tks's tasks
 // read it instead of the shared limits.include_media, which the copied
 // Facebook pipeline's tests still run with on (docs/tiktok ADR 0007 §8).
+// tks-media-downloader takes its concurrency, size cap and presigning from
+// the shared media section; it sets no TTL and deletes nothing, so media.ttl,
+// required_consumers and the sweep intervals are not read (deleting the
+// files is another service's job: owner, 2026-11-02; ADR 0007 §15).
 type TTMedia struct {
 	// Include queues downloads of covers, photos and videos; media
 	// metadata is published either way.
 	Include bool `koanf:"include"`
+	// CookieDomains are the hosts, with their subdomains, a video download
+	// sends its tt_chain_token cookie to: a browser holds the cookie for
+	// .tiktok.com, which reaches the video hosts (T18). Redirects to other
+	// hosts go without it.
+	CookieDomains []string `koanf:"cookie_domains"`
 }
 
 // Signer modes.
@@ -716,6 +726,14 @@ func (t TT) validate() []error {
 	}
 	if t.Comments.MaxPerPost < 0 {
 		errs = append(errs, errors.New("tt.comments.max_per_post must be >= 0 (0: no cap)"))
+	}
+	for _, d := range t.Media.CookieDomains {
+		if d == "" || strings.HasPrefix(d, ".") || strings.ContainsAny(d, "/:* ") || strings.ToLower(d) != d {
+			errs = append(errs, fmt.Errorf("tt.media.cookie_domains: %q must be a lower-case host name without a leading dot", d))
+		}
+	}
+	if t.Media.Include && len(t.Media.CookieDomains) == 0 {
+		errs = append(errs, errors.New("tt.media.cookie_domains must name the video hosts' domain when tt.media.include is on"))
 	}
 	r := t.Retention
 	if r.CommentsDays < 0 || r.MetricsDays < 0 || r.AuthorsInactiveDays < 0 || r.JobsDays < 0 || r.MediaRowsDays < 0 || r.RawPayloadDays < 0 {

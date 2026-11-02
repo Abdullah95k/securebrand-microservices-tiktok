@@ -220,9 +220,10 @@ func WalksDone(walks []config.MetricsWalk, mode, walk string, at time.Time) map[
 	return out
 }
 
-// TierGauges publishes the scheduled accounts by status, the schedule lag
-// and the oldest successful check among active accounts (build brief §8
-// A1: no account more than 6 h without one).
+// TierGauges publishes the scheduled accounts by status, the schedule lag,
+// the oldest successful check among active accounts (build brief §8 A1: no
+// account more than 6 h without one) and the active accounts whose daily
+// refresh is overdue.
 func (p *Planner) TierGauges(ctx context.Context) error {
 	rows, err := p.DB.Query(ctx, `SELECT coalesce(a.status, 'unknown'), count(*) FROM account_schedule s
 		LEFT JOIN accounts a ON a.user_id = s.user_id WHERE s.enabled GROUP BY 1`)
@@ -253,6 +254,17 @@ func (p *Planner) TierGauges(ctx context.Context) error {
 		return err
 	}
 	metrics.CheckOldest.Set(math.Max(oldest, 0))
+	// The daily account refresh (build brief §8 A1: 99.5 % within 24 h): an
+	// active account's full read is due tt.freshness.account_refresh after
+	// the last, at its next check; past a further day it is overdue.
+	var overdue int64
+	if err := p.DB.QueryRow(ctx, `SELECT count(*) FROM account_schedule s JOIN accounts a ON a.user_id = s.user_id
+		WHERE s.enabled AND a.status = 'active'
+		  AND coalesce(a.profile_refreshed_at, a.first_seen_at) < $1::timestamptz - make_interval(secs => $2)`,
+		p.now(), (p.Cfg.TT.Freshness.AccountRefresh + 24*time.Hour).Seconds()).Scan(&overdue); err != nil {
+		return err
+	}
+	metrics.RefreshOverdue.Set(float64(overdue))
 	return nil
 }
 

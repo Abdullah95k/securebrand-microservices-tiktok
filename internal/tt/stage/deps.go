@@ -222,9 +222,28 @@ func (d *Deps) saveCkpt(ctx context.Context, t *tkstaskv1.Task, st checkpoint.St
 	return d.Ckpt.Save(ctx, t.LineageId, t.Seq, st)
 }
 
+// fetcher is what a download needs from the identity that read its link:
+// TikTok's video hosts refuse a video file without the identity's
+// tt_chain_token cookie (T18: C2 run 3), which the page set for the site
+// only, so the downloader sends it itself. Images need nothing (T18).
+type fetcher struct{ chainToken, userAgent string }
+
+// fetcherOf returns id's cookie and user agent; nil gives none.
+func fetcherOf(id *session.Identity) fetcher {
+	if id == nil {
+		return fetcher{}
+	}
+	f := fetcher{userAgent: id.FP.UserAgent}
+	if id.Doer != nil && id.Base != nil {
+		f.chainToken = id.Doer.Cookies(id.Base)["tt_chain_token"]
+	}
+	return f
+}
+
 // media publishes media metadata, and download tasks when the job's limits
-// ask for media (tt.media.include, off by default: build brief D5).
-func (d *Deps) media(ctx context.Context, b *kafka.Batch, t *tkstaskv1.Task, src emit.Source, ms []*ttv1.Media, comment bool) (int64, error) {
+// ask for media (tt.media.include, off by default: build brief D5). A video
+// file's task carries f's cookie; every task carries its user agent.
+func (d *Deps) media(ctx context.Context, b *kafka.Batch, t *tkstaskv1.Task, src emit.Source, ms []*ttv1.Media, comment bool, f fetcher) (int64, error) {
 	lim := t.Limits
 	include := lim.GetIncludeMedia()
 	if comment {
@@ -244,7 +263,12 @@ func (d *Deps) media(ctx context.Context, b *kafka.Batch, t *tkstaskv1.Task, src
 		if !include || !wanted(m, lim.GetVideoPolicy(), hasHD[m.GetPostId()]) {
 			continue
 		}
-		rec, err := d.Producer.Record(topics.TaskMedia, m.MediaId, task.NewMedia(t.JobId, m))
+		mt := task.NewMedia(t.JobId, m)
+		mt.GetMedia().UserAgent = f.userAgent
+		if m.Kind == ttv1.MediaKind_MEDIA_KIND_VIDEO {
+			mt.GetMedia().ChainToken = f.chainToken
+		}
+		rec, err := d.Producer.Record(topics.TaskMedia, m.MediaId, mt)
 		if err != nil {
 			return queued, err
 		}

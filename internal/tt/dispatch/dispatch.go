@@ -81,6 +81,17 @@ type Dispatcher struct {
 	DB       *pgxpool.Pool
 	Jobs     *jobs.Tracker
 	Producer *kafka.Producer
+	// Now is the clock of a job's created_at (nil: time.Now), which the
+	// finalizer compares with its own to tell whether a check ended within
+	// its interval (build brief §8 A1).
+	Now func() time.Time
+}
+
+func (d *Dispatcher) now() time.Time {
+	if d.Now != nil {
+		return d.Now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 // Errors.
@@ -223,7 +234,7 @@ func (d *Dispatcher) Create(ctx context.Context, r Request, maxRunning int) (*Jo
 		idem = &r.IdempotencyKey
 	}
 	j := &Job{ID: id, Kind: r.Kind, Lane: topics.LaneName(r.Lane), Mode: mode, AccountRef: r.AccountRef, UserID: uid,
-		Status: "running", Params: pb, CreatedAt: time.Now().UTC()}
+		Status: "running", Params: pb, CreatedAt: d.now()}
 	insert := func(db execer) error {
 		_, err := db.Exec(ctx, `INSERT INTO jobs (job_id, api_client_id, kind, lane, mode, account_ref, user_id, params, status,
 			idempotency_key, created_at, dispatched_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'running',$9,$10,$10)`,

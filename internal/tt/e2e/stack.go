@@ -19,6 +19,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/johannesboyne/gofakes3"
+	"github.com/johannesboyne/gofakes3/backend/s3mem"
+	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -32,6 +35,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakett"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/run"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/s3x"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/transport"
@@ -245,11 +249,36 @@ func (s *Stack) RestartCrawler(t *testing.T) {
 func (s *Stack) RestartPersister(t *testing.T) {
 	t.Helper()
 	s.stop("persister")
-	pc, err := app.NewPersister(s.Cfg, s.DB, 100*time.Millisecond)
+	pc, err := app.NewPersister(s.Cfg, s.DB, 100*time.Millisecond, s.World.Clock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s.start("persister", pc.Run)
+}
+
+// StartMedia starts tks-media-downloader as app.NewMedia wires it, on an
+// in-memory S3 (whose client it returns) and with the world's clock, so a
+// link's expiry follows fakett's. It stops at test cleanup.
+func (s *Stack) StartMedia(t *testing.T) *minio.Client {
+	t.Helper()
+	ctx := context.Background()
+	srv := httptest.NewServer(gofakes3.New(s3mem.New()).Server())
+	t.Cleanup(srv.Close)
+	u, _ := url.Parse(srv.URL)
+	s3, err := s3x.Open(ctx, u.Host, "k", "secretsecret", "us-east-1", false, s.Cfg.S3.MediaBucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := app.NewMedia(ctx, s.Cfg, app.MediaOptions{DB: s.DB, S3: s3, Now: s.World.Clock, DrainTimeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		s.stop("media")
+		m.Producer.Close()
+	})
+	s.start("media", m.Components...)
+	return s3
 }
 
 // Stop shuts the stack down.

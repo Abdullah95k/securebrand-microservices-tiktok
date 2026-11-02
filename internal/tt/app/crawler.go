@@ -62,6 +62,10 @@ type Crawler struct {
 	// Lanes are the backfill (p2) lanes of every stage, which the traffic
 	// budget pauses.
 	Lanes []laneRef
+	// Budget is the traffic budget's gate (nil without scheduler.budget):
+	// it closes Lanes while the budget holds backfill back. Its Run
+	// refreshes it every 15 seconds; Refresh does it now.
+	Budget *ratelimit.BudgetGate
 }
 
 type laneRef struct {
@@ -231,6 +235,7 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 			}
 			slog.Warn("budget: backfill lane", "paused", st.PauseP2, "why", st.Explanation)
 		}
+		c.Budget = gate
 		c.Components = append(c.Components, gate.Run)
 	}
 	return c, nil
