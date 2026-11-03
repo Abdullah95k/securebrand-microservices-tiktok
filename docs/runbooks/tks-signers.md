@@ -66,3 +66,7 @@ It runs all three browsers, under the same cap, against a built-in fake TikTok i
 - The droplet has run Phase 0: `phase0/out-tt-phase0/registry.yaml` (which call variants TikTok answers today), `phase0/proxies.yaml` and `phase0/tt-accounts-all.txt` are there.
 - Chrome is installed (`make tks-browser-check`).
 - systemd runs the machine (any Ubuntu droplet).
+
+## Result of 2026-11-03
+
+On the pilot droplet (`isp`, 5 accounts per browser, the C4 registry's variants), TikTok refused every comment call from all three browsers: a 200 with an empty answer, whether tks sent the call with the browser's signature or the browser sent it itself (Lightpanda 0 of 7, chrome-headless-shell 0 of 3, Chrome 0 of 3). The Chrome that hid its automation had them answered the night before (C4), as in the probe (C2 runs 1 and 2). Lightpanda used 105 MB at most; both Chromes passed 1.2 GB within about 30 seconds of opening a post page and the guard stopped them, with the machine keeping 4.7 GB or more available. Details in [`build-status.md`](../tiktok/build-status.md) (S1).
