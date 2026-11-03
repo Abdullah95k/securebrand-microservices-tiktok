@@ -75,7 +75,7 @@ The owner can use no provider and needs comments (2026-11-03), so the crawler ke
 - `idle_close: 2m`: a page unused for 2 minutes is closed; the next call opens a fresh one.
 - `max_page_mb: 800`: a page whose Chrome uses more than 800 MB is closed after its call, or by the sweep every 10 seconds while idle.
 
-**Three cures, off until measured:**
+**Three cures, on by default since S2's result below:**
 - `freeze: true`: the page is frozen between its signatures (no script, no timer, no growth) and thawed for each call.
 - `lite: true`: Chrome starts without autoplay and without images, so the video player never starts.
 - `open_on: profile`: a page opens on the account's profile page instead of the post's video page.
@@ -91,6 +91,20 @@ The owner can use no provider and needs comments (2026-11-03), so the crawler ke
 | `crawler-fixed` | all three cures, and both safety nets |
 
 About **35 minutes** (less when the guard stops a version early). The table's rows are the same; in "says it is", these show "the identity's Chrome". The browsers that present themselves as themselves can still be compared: `TKS_SIGNERS_ARGS="--engines lightpanda,headless-shell,chrome"`.
+
+### S2 result (2026-11-03 15:20 UTC)
+
+Every signed comment call was answered by every version (39 of 39), sent by tks with the page's signature:
+
+| | crawler | crawler-freeze | crawler-lite | crawler-profile | crawler-fixed |
+|---|---|---|---|---|---|
+| signed calls answered | 3/3 | 11/11 | 3/3 | 11/11 | 11/11 |
+| memory, peak | 1,255 MB (stopped) | 961 MB | 1,251 MB (stopped) | 812 MB | 681 MB |
+| memory, mean while working | 593 MB | 756 MB | 572 MB | 626 MB | 554 MB |
+| CPU, mean (one core) | 93 % | 9 % | 88 % | 12 % | 6 % |
+| while idle (3 min) | stopped | 878 to 842 MB | stopped | 667 to 653 MB | closed after 2 min |
+
+So the runaway is TikTok's video page, a frozen page does no work, and autoplay and images are not the cause (lite only saves a third of the page's proxy data). `freeze`, `lite` and `open_on: profile` are now on by default, with the safety nets.
 
 ## Result of 2026-11-03
 
