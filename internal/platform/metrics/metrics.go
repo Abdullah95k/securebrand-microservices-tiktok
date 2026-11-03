@@ -78,6 +78,9 @@ var (
 	SignerSeconds   = histVec("signer_sign_seconds", "Time to sign one call in a signer page.", prometheus.ExponentialBuckets(0.01, 2, 12), "query")
 	SignerPageOpens = counterVec("signer_page_opens_total", "Signer pages opened, by result (ok, error).", "result")
 	SignerPages     = gauge("signer_pages", "Signer pages open in this pod.")
+	// SignerPagesRefused counts pages replaced because TikTok refused their
+	// signed calls tt.signer.max_refusals times in a row.
+	SignerPagesRefused = counterVec("signer_pages_refused_total", "Signer pages replaced after TikTok refused their signed calls in a row.").WithLabelValues()
 	// tks's comment reads (internal/tt/stage; ADR 0007 §5).
 	CommentReads      = counterVec("comment_reads_total", "tks comment reads by kind (post, thread) and how they ended (complete, partial, truncated).", "kind", "state")
 	TimelineTruncated = counterVec("timeline_truncated_total", "Timelines that hit a login wall before the end of the window.", "reason")

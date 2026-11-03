@@ -57,6 +57,11 @@ type Faults struct {
 	// captcha, as an IP's tolerance is expected to end (T20): every client
 	// of a test server is one IP, so the limit is the server's.
 	MaxRPS float64
+	// SignerStaleAfter refuses (an empty 200) a device's signed calls after
+	// its first N, as signer pages went bad within minutes in C4
+	// (2026-11-03): every call they signed was refused until a fresh page,
+	// a new device, took over.
+	SignerStaleAfter int
 }
 
 // Options configure a server.
@@ -96,6 +101,7 @@ func (s *Server) issuedChain(v string) bool {
 
 type device struct {
 	calls  int
+	signed int // signed calls (SignerStaleAfter)
 	chain  string
 	cursor map[string]bool // cursors issued to this device (CursorBound)
 }
@@ -287,6 +293,16 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusOK)
 		return
+	}
+	if f.SignerStaleAfter > 0 && f.RequireSignature && s.signed(r.URL.Path) {
+		s.mu.Lock()
+		dev.signed++
+		stale := dev.signed > f.SignerStaleAfter
+		s.mu.Unlock()
+		if stale {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 	}
 	if f.CaptchaAfter > 0 && dev.calls > f.CaptchaAfter {
 		writeJSON(w, map[string]any{"statusCode": 10000, "statusMsg": "", "verify_event": map[string]any{"type": "slide", "subtype": "3d"}})

@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/sign"
 )
@@ -305,4 +306,10 @@ func (s measuredSigner) SignURL(ctx context.Context, id *session.Identity, query
 		}
 	}
 	return out, err
+}
+
+// SignOutcome passes how a signed call was answered to the pool, which
+// replaces a page whose signatures keep being refused.
+func (s measuredSigner) SignOutcome(ctx context.Context, sentURL string, cls detect.Class) {
+	s.pool.SignOutcome(ctx, sentURL, cls)
 }
