@@ -250,3 +250,65 @@ func TestSessionSignsWithoutSending(t *testing.T) {
 		t.Fatalf("sign without interception: %v", err)
 	}
 }
+
+// A frozen page runs no script or timer until it is thawed, and signs as
+// before once thawed; MemoryMB measures its browser. Lite starts Chromium
+// without autoplay and images and signs the same.
+func TestSessionFreezesAndMeasures(t *testing.T) {
+	bin := chromium(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(strings.Replace(signingPage, "</script>", "window.ticks = 0; setInterval(() => window.ticks++, 10);</script>", 1)))
+	}))
+	defer srv.Close()
+	for _, lite := range []bool{false, true} {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		s, err := OpenSession(ctx, bin, Options{URL: srv.URL + "/@someone", NoSandbox: true, BlockMedia: true, Lite: lite})
+		if err != nil {
+			cancel()
+			t.Fatal(err)
+		}
+		ticks := func() int {
+			v, err := s.Evaluate(ctx, "window.ticks")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var n int
+			_ = json.Unmarshal(v, &n)
+			return n
+		}
+		if mb := s.MemoryMB(); mb < 10 {
+			t.Fatalf("lite %v: browser memory %.1f MB", lite, mb)
+		}
+		// Several cycles: frozen, the page does nothing; thawed, it runs
+		// at full speed (about 30 ticks in 300 ms) and signs.
+		for cycle := range 3 {
+			if err := s.Freeze(ctx); err != nil {
+				t.Fatal(err)
+			}
+			before := ticks()
+			time.Sleep(400 * time.Millisecond)
+			if d := ticks() - before; d > 2 {
+				t.Fatalf("lite %v, cycle %d: the page ticked %d times while frozen", lite, cycle, d)
+			}
+			if err := s.Thaw(ctx); err != nil {
+				t.Fatal(err)
+			}
+			raw, err := s.Sign(ctx, "/api/comment/list/?aweme_id=1&q=after")
+			if err != nil || !strings.Contains(raw, "X-Sig=page-after") {
+				t.Fatalf("lite %v, cycle %d: sign after thaw: %q %v", lite, cycle, raw, err)
+			}
+			after := ticks()
+			time.Sleep(300 * time.Millisecond)
+			if d := ticks() - after; d < 15 {
+				t.Fatalf("lite %v, cycle %d: the thawed page ticked only %d times in 300 ms", lite, cycle, d)
+			}
+		}
+		s.Close()
+		cancel()
+	}
+}

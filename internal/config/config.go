@@ -258,7 +258,25 @@ type Signer struct {
 	PageTimeout  time.Duration `koanf:"page_timeout"`
 	// MaxShare is the share of calls signed above which the signer alerts.
 	MaxShare float64 `koanf:"max_share"`
+	// IdleClose closes a page unused this long, and MaxPageMB a page whose
+	// browser uses more memory (0: never). The pilot server froze when an
+	// idle signer page's Chrome grew to 7 GB (2026-11-03).
+	IdleClose time.Duration `koanf:"idle_close"`
+	MaxPageMB float64       `koanf:"max_page_mb"`
+	// Freeze keeps each page frozen between its signatures; Lite starts
+	// Chrome without autoplay and images; OpenOn is the page a new signer
+	// page opens on: the call's own (call, a post page for comments) or the
+	// account's profile page (profile).
+	Freeze bool   `koanf:"freeze"`
+	Lite   bool   `koanf:"lite"`
+	OpenOn string `koanf:"open_on"`
 }
+
+// Where a signer page opens (tt.signer.open_on).
+const (
+	SignerOpenOnCall    = "call"
+	SignerOpenOnProfile = "profile"
+)
 
 // Freshness says how often each kind of data is re-read (build brief D2).
 type Freshness struct {
@@ -696,6 +714,14 @@ func (t TT) validate() []error {
 	}
 	if s := t.Signer.MaxShare; s <= 0 || s > 1 {
 		errs = append(errs, errors.New("tt.signer.max_share must be in (0, 1]"))
+	}
+	if t.Signer.IdleClose < 0 || t.Signer.MaxPageMB < 0 {
+		errs = append(errs, errors.New("tt.signer.idle_close and max_page_mb must be >= 0"))
+	}
+	switch t.Signer.OpenOn {
+	case "", SignerOpenOnCall, SignerOpenOnProfile:
+	default:
+		errs = append(errs, fmt.Errorf("tt.signer.open_on %q must be call or profile", t.Signer.OpenOn))
 	}
 	f := t.Freshness
 	if f.ListInterval <= 0 || f.AccountRefresh <= 0 || f.PageRefresh <= 0 {
