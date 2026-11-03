@@ -76,6 +76,10 @@ type Options struct {
 	// a load event that never comes, fails instead of hanging. 30 s when
 	// zero.
 	CallTimeout time.Duration
+	// Engine is the browser binary's kind: Chromium (the default) or
+	// Lightpanda. Lightpanda takes no user agent, client hints or proxy
+	// credentials (a Forwarder adds those), and no automation flag.
+	Engine Engine
 }
 
 // ClientHints is the user-agent metadata of a fingerprint.
@@ -244,6 +248,9 @@ func Render(ctx context.Context, binary string, opts Options) (*Result, error) {
 // hints, language, cookies) and attaches to a blank page. stop ends the
 // process; Render and OpenSession share it.
 func launchPage(ctx context.Context, binary string, opts Options) (r *renderer, stop func(), err error) {
+	if opts.Engine == EngineLightpanda {
+		return launchLightpandaPage(ctx, binary, opts)
+	}
 	var args []string
 	if opts.UserAgent != "" {
 		args = append(args, "--user-agent="+opts.UserAgent)
@@ -277,6 +284,34 @@ func launchPage(ctx context.Context, binary string, opts Options) (r *renderer, 
 	if err != nil {
 		return nil, nil, err
 	}
+	return attachPage(ctx, proc, opts, proxyUser, proxyPass)
+}
+
+// launchLightpandaPage starts Lightpanda for opts and attaches to a blank
+// page.
+func launchLightpandaPage(ctx context.Context, binary string, opts Options) (*renderer, func(), error) {
+	switch {
+	case opts.UserAgent != "" || opts.Hints != nil:
+		return nil, nil, errors.New("browser: Lightpanda presents itself as Lightpanda (no user agent or client hints)")
+	case opts.HideAutomation:
+		return nil, nil, errors.New("browser: Lightpanda has no automation flag to leave out")
+	case opts.Proxy != nil && opts.Proxy.User != nil:
+		return nil, nil, errors.New("browser: Lightpanda takes proxy credentials only on its command line; put a Forwarder in front of the exit")
+	}
+	proxy := ""
+	if opts.Proxy != nil {
+		proxy = opts.Proxy.Scheme + "://" + opts.Proxy.Host
+	}
+	proc, err := launchLightpanda(ctx, binary, proxy)
+	if err != nil {
+		return nil, nil, err
+	}
+	return attachPage(ctx, proc, opts, "", "")
+}
+
+// attachPage connects to a started browser and attaches to a new blank
+// page with opts' identity.
+func attachPage(ctx context.Context, proc *process, opts Options, proxyUser, proxyPass string) (r *renderer, stop func(), err error) {
 	c, err := dial(ctx, proc.wsURL)
 	if err != nil {
 		proc.stop()

@@ -9,6 +9,8 @@
 //	tks-spike probe --accounts phase0/tt-accounts.txt --config phase0/proxies.yaml --tier isp
 //	tks-spike phase0 --dry-run                                    # rehearse against fakett
 //	tks-spike phase0 --accounts phase0/tt-accounts-all.txt --config phase0/proxies.yaml --tiers isp
+//	tks-spike signers --dry-run                                   # rehearse against fakett
+//	tks-spike signers --accounts phase0/tt-accounts-all.txt --config phase0/proxies.yaml --tier isp
 package main
 
 import (
@@ -49,6 +51,8 @@ func main() {
 		os.Exit(runProbe(os.Args[2:]))
 	case "phase0":
 		os.Exit(runPhase0(os.Args[2:]))
+	case "signers":
+		os.Exit(runSigners(os.Args[2:]))
 	case "browser-check":
 		os.Exit(browserCheck())
 	case "version", "--version":
@@ -63,6 +67,8 @@ func usage() {
        tks-spike probe --dry-run
        tks-spike phase0 --accounts FILE --config FILE --tiers isp [flags]
        tks-spike phase0 --dry-run
+       tks-spike signers --accounts FILE --config FILE --tier isp [flags]
+       tks-spike signers --dry-run
        tks-spike browser-check
 
 probe loads each account's page and reads it with the logged-out web API,
@@ -74,6 +80,10 @@ phase0 does the crawler's work for a sample of accounts at its pace and
 measures it (pages, lists, signed comments, videos, a per-IP rate ladder),
 then writes report.txt with GO or NO-GO and the cost per account per day,
 and a bundle that holds no username, id, link or text.
+signers compares signer browsers (Lightpanda, chrome-headless-shell,
+Chrome), each presenting itself as itself: whether TikTok answers the
+comment calls each signs, and each one's memory, CPU and proxy data, under
+a memory guard (run it with make tks-signers, which also caps its memory).
 browser-check reports whether a Chromium for --signer browser is installed.
 `)
 	os.Exit(2)
