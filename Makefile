@@ -5,7 +5,7 @@ PG_DSN ?= postgres://fbs:fbs@localhost:5432/fbs?sslmode=disable
 TEST_ENV = TKS_TEST_PG_DSN="$(PG_DSN)" TKS_TEST_REDIS_ADDR=localhost:6379 TKS_TEST_KAFKA_BROKERS=localhost:19092 TKS_TEST_SCHEMA_REGISTRY=http://localhost:18081
 COMPOSE = docker compose -f deploy/compose/docker-compose.yml
 
-.PHONY: all build test lint vet generate golden fixtures infra-up infra-down test-integration e2e loadtest soak docker docker-prebuilt compose-up compose-down spike-report phase0 phase0-dryrun phase0-trim phase0-rate pilot-up pilot-register pilot-registry pilot-report pilot-down pilot-clean spike-bin tks-probe tks-probe-all tks-probe-dryrun tks-browser-check tks-phase0 tks-phase0-dryrun tks-spike-bin chart-check chart-smoke clean
+.PHONY: all build test lint vet generate golden fixtures infra-up infra-down test-integration e2e loadtest soak docker docker-prebuilt compose-up compose-down spike-report phase0 phase0-dryrun phase0-trim phase0-rate pilot-up pilot-register pilot-registry pilot-report pilot-down pilot-clean spike-bin tks-probe tks-probe-all tks-probe-dryrun tks-browser-check tks-phase0 tks-phase0-dryrun tks-signers tks-signers-dryrun tks-signers-browsers tks-spike-bin chart-check chart-smoke clean
 
 all: generate build test
 
@@ -244,6 +244,39 @@ tks-phase0:
 ## (the creator list needs a signature): no traffic, no proxies, under a minute.
 tks-phase0-dryrun:
 	$(GO) run ./cmd/tks-spike phase0 --dry-run $(TKS_PHASE0_ARGS)
+
+TKS_SIGNERS_ACCOUNTS ?= phase0/tt-accounts-all.txt
+TKS_SIGNERS_TIER ?= isp
+TKS_SIGNERS_OUT ?= phase0/out-tt-signers
+TKS_SIGNERS_MEM ?= 2G
+TKS_SIGNERS_CPU ?= 150%
+TKS_SIGNERS_ARGS ?=
+# The cap: a systemd scope named tks-signers (systemctl stop tks-signers.scope
+# ends it and every browser in it).
+TKS_SIGNERS_CAP = systemd-run --scope --quiet --unit=tks-signers -p MemoryMax=$(TKS_SIGNERS_MEM) -p MemorySwapMax=0 -p CPUQuota=$(TKS_SIGNERS_CPU)
+
+## Compare signer browsers against real TikTok (docs/runbooks/tks-signers.md):
+## Lightpanda, chrome-headless-shell and Chrome, each as itself, a few accounts'
+## comments each. The run is capped by systemd at TKS_SIGNERS_MEM of memory and
+## TKS_SIGNERS_CPU of CPU (the kernel stops it there, not the machine), and its
+## own guard stops a browser at 1200 MB or when the machine has under 1500 MB.
+tks-signers:
+	@test -f $(TKS_SIGNERS_ACCOUNTS) || { echo "missing $(TKS_SIGNERS_ACCOUNTS) (docs/runbooks/tks-signers.md)"; exit 2; }
+	@test -f $(PHASE0_CONFIG) || { echo "missing $(PHASE0_CONFIG) (docs/runbooks/tks-signers.md)"; exit 2; }
+	@test -d /run/systemd/system || { echo "no systemd here: the run must be capped (docs/runbooks/tks-signers.md)"; exit 2; }
+	$(GO) build -o bin/tks-spike ./cmd/tks-spike
+	$(TKS_SIGNERS_CAP) ./bin/tks-spike signers --accounts $(TKS_SIGNERS_ACCOUNTS) --config $(PHASE0_CONFIG) \
+	  --tier $(TKS_SIGNERS_TIER) --out-dir $(TKS_SIGNERS_OUT) $(TKS_SIGNERS_ARGS)
+
+## Rehearse the comparison against a built-in fake TikTok: no traffic, no proxies,
+## under the same cap where systemd runs the machine.
+tks-signers-dryrun:
+	$(GO) build -o bin/tks-spike ./cmd/tks-spike
+	$(if $(wildcard /run/systemd/system),$(TKS_SIGNERS_CAP)) ./bin/tks-spike signers --dry-run $(TKS_SIGNERS_ARGS)
+
+## Download Lightpanda and chrome-headless-shell into ~/tks-browsers (nothing system-wide).
+tks-signers-browsers:
+	bash scripts/tks-signers-browsers.sh
 
 ## Is a Chromium installed for the probe's browser signer? Prints how to install one if not.
 tks-browser-check:

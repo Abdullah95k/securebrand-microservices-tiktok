@@ -124,7 +124,11 @@ type Config struct {
 	Accounts []string
 	// Seed is the operation registry the variants step starts from.
 	Seed registry.Seed
-	From string
+	// Registry is the variants step's registry when it is already known
+	// (the signers comparison reads a run's); nil reads the output
+	// directory's.
+	Registry *registry.Seed
+	From     string
 
 	Run, Smoke Limits
 	// SmokeAccounts and VariantAccounts are how many accounts those steps
@@ -166,8 +170,11 @@ type Kit struct {
 	Cfg   Config
 	Log   io.Writer
 
-	exits        Exits
-	signer       *sign.Pool
+	exits  Exits
+	signer *sign.Pool
+	// agents, when set, sends the calls the signer signs as the signing
+	// browser (the signers comparison).
+	agents       *sign.Agents
 	registrySeed *registry.Seed
 	started      time.Time
 	logMu        sync.Mutex
@@ -224,6 +231,9 @@ func (k *Kit) client(reg registry.Registry) *graphql.Client {
 	c := &graphql.Client{Registry: reg, Rules: k.Stack.Rules, Builder: ttclient.Builder{AcceptLanguage: k.Cfg.AcceptLanguage}, Decode: ttclient.Decode}
 	if k.signer != nil {
 		c.Signer = ttclient.SignerFor(config.SignerBrowser, measuredSigner{k.signer})
+		if k.agents != nil {
+			c.Signer = sign.AsAgent{Signer: c.Signer, Agents: k.agents}
+		}
 	}
 	return c
 }
@@ -607,14 +617,18 @@ func bundleFile(rel string) bool {
 			return true
 		}
 	}
-	return false
+	return signersBundleFile(rel)
 }
 
 // ErrUnsafeBundle stops the bundle when a file holds a proxy credential or
 // an account's username.
 var ErrUnsafeBundle = errors.New("phase0: bundle would contain a credential or a username")
 
-func (k *Kit) bundle() error {
+func (k *Kit) bundle() error { return k.writeBundle(FileBundle) }
+
+// writeBundle writes the output directory's results to name, refusing any
+// file that holds a credential or a username.
+func (k *Kit) writeBundle(name string) error {
 	meta := map[string]any{
 		"version": k.Cfg.Version, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH,
 		"started_at": k.started, "written_at": k.now().UTC(), "tiers": k.Cfg.Tiers, "accounts": len(k.Cfg.Accounts),
@@ -675,10 +689,10 @@ func (k *Kit) bundle() error {
 	if err := gz.Close(); err != nil {
 		return err
 	}
-	if err := os.WriteFile(k.path(FileBundle), buf.Bytes(), 0o600); err != nil {
+	if err := os.WriteFile(k.path(name), buf.Bytes(), 0o600); err != nil {
 		return err
 	}
-	k.logf("wrote %s (%d files, %s): no username, id, link, text or proxy credential in it", k.path(FileBundle), len(files), human(float64(buf.Len())))
+	k.logf("wrote %s (%d files, %s): no username, id, link, text or proxy credential in it", k.path(name), len(files), human(float64(buf.Len())))
 	return nil
 }
 
