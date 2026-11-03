@@ -228,8 +228,16 @@ TKS_PHASE0_ACCOUNTS ?= phase0/tt-accounts-all.txt
 TKS_PHASE0_TIERS ?= isp
 TKS_PHASE0_OUT ?= phase0/out-tt-phase0
 TKS_PHASE0_ARGS ?=
+TKS_PHASE0_MEM ?= 3G
+TKS_PHASE0_CPU ?= 200%
+# Phase 0 runs in a systemd scope named tks-phase0 where systemd runs the
+# machine: past TKS_PHASE0_MEM the kernel stops the run, not the machine (the
+# pilot server froze in C4's second attempt). systemctl stop tks-phase0.scope
+# ends it and every browser in it.
+TKS_PHASE0_CAP = systemd-run --scope --quiet --unit=tks-phase0 -p MemoryMax=$(TKS_PHASE0_MEM) -p MemorySwapMax=0 -p CPUQuota=$(TKS_PHASE0_CPU)
 
-## tks Phase 0 against real TikTok (checkpoint C4, docs/runbooks/tks-phase0.md):
+## tks Phase 0 against real TikTok (checkpoint C4, docs/runbooks/tks-phase0.md),
+## capped at TKS_PHASE0_MEM of memory and TKS_PHASE0_CPU of CPU where systemd runs the machine:
 ## 150 accounts spread over TKS_PHASE0_ACCOUNTS, the crawler's work at its pace
 ## through TKS_PHASE0_TIERS, then a per-IP rate ladder; report.txt says GO or
 ## NO-GO with the cost per account per day. Resume with TKS_PHASE0_ARGS="--from run";
@@ -237,8 +245,9 @@ TKS_PHASE0_ARGS ?=
 tks-phase0:
 	@test -f $(TKS_PHASE0_ACCOUNTS) || { echo "missing $(TKS_PHASE0_ACCOUNTS): copy your accounts file there (docs/runbooks/tks-phase0.md)"; exit 2; }
 	@test -f $(PHASE0_CONFIG) || { echo "missing $(PHASE0_CONFIG) (docs/runbooks/tks-phase0.md)"; exit 2; }
-	$(GO) run ./cmd/tks-spike phase0 --accounts $(TKS_PHASE0_ACCOUNTS) --config $(PHASE0_CONFIG) --tiers $(TKS_PHASE0_TIERS) \
-	  --out-dir $(TKS_PHASE0_OUT) $(TKS_PHASE0_ARGS)
+	$(GO) build -o bin/tks-spike ./cmd/tks-spike
+	$(if $(wildcard /run/systemd/system),$(TKS_PHASE0_CAP)) ./bin/tks-spike phase0 --accounts $(TKS_PHASE0_ACCOUNTS) --config $(PHASE0_CONFIG) \
+	  --tiers $(TKS_PHASE0_TIERS) --out-dir $(TKS_PHASE0_OUT) $(TKS_PHASE0_ARGS)
 
 ## Rehearse Phase 0 against a built-in fake TikTok whose variants are rotated
 ## (the creator list needs a signature): no traffic, no proxies, under a minute.

@@ -71,6 +71,16 @@ INFO  budget (D9)                          $0.0012 per account per day at 300000
 
 Exit codes: 0 GO, 4 NO-GO, 3 a step needs action (the bundle is written: send it), 1 an error.
 
+## The memory cap and the third attempt
+
+`make tks-phase0` runs inside a systemd scope named `tks-phase0` (3 GB of memory, no swap, 2 CPU cores) where systemd runs the machine: past the cap the kernel stops the run, not the machine, and the run resumes with `TKS_PHASE0_ARGS="--from run"`. Stop it at any time with `systemctl stop tks-phase0.scope`. The second attempt (2026-11-02) froze the pilot server: its signer's Chrome grew to 7 GB; the signer is fixed since ([`tks-signers.md`](tks-signers.md), S2 and S3).
+
+The third attempt writes to its own folder, keeps the second's, and climbs only the ladder steps the second did not reach:
+
+```bash
+make tks-phase0 TKS_PHASE0_OUT=phase0/out-tt-phase0-3 TKS_PHASE0_ARGS="--ladder-rates 1,2,4 --replay-ages 2m,10m --replay-wait 15m"
+```
+
 ## Rehearse first (no traffic, under a minute)
 
 ```bash
