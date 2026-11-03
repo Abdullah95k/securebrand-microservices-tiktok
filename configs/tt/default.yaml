@@ -102,13 +102,15 @@ tt:
     # idle signer page grew to 7 GB, 2026-11-03; 0 turns either off).
     idle_close: 2m
     max_page_mb: 800
-    # The runaway's cures, being measured (tks-spike signers, crawler-*
-    # engines): freeze a page between its signatures, start Chrome without
-    # autoplay and images, open pages on the account's profile page instead
-    # of the post's (call | profile).
-    freeze: false
-    lite: false
-    open_on: call
+    # The runaway's cures, measured on TikTok (S2, 2026-11-03: every signed
+    # call answered with each): a page frozen between its signatures (CPU
+    # 9 % instead of 93 %, no growth while idle), and pages opened on the
+    # account's profile page instead of the post's video page (the runaway
+    # is the video page's); without autoplay and images, which alone does
+    # not stop it but saves a third of the page's proxy data.
+    freeze: true
+    lite: true
+    open_on: profile   # call | profile
   # How fresh the data is kept (build brief D2, ADR 0007 §4).
   freshness:
     # Each account's post list: 99 % of new posts stored within 3 h needs a
