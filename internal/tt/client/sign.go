@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
@@ -21,7 +22,8 @@ func Signed(q registry.Query) bool { return strings.HasSuffix(q.DocID, signedSuf
 
 // URLSigner signs one call's URL in a TikTok page (internal/tt/sign): it
 // returns the URL the page's own script made of it, for the identity to
-// send by plain HTTP. referer is the page the call is made from.
+// send by plain HTTP. referer is the page the call is made from. One that
+// also implements graphql.SignReporter hears how each call was answered.
 type URLSigner interface {
 	SignURL(ctx context.Context, id *session.Identity, query, rawURL, referer string) (string, error)
 }
@@ -61,4 +63,11 @@ func (v variantSigner) Sign(ctx context.Context, id *session.Identity, q registr
 		}
 	}
 	return signed, hdr, nil
+}
+
+// SignOutcome passes how a signed call was answered to the URL signer.
+func (v variantSigner) SignOutcome(ctx context.Context, sentURL string, cls detect.Class) {
+	if r, ok := v.s.(graphql.SignReporter); ok {
+		r.SignOutcome(ctx, sentURL, cls)
+	}
 }

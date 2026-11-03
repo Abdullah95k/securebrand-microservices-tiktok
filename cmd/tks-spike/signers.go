@@ -39,7 +39,7 @@ const (
 	engCrawlerFreeze  = "crawler-freeze"  // frozen between signatures
 	engCrawlerLite    = "crawler-lite"    // no autoplay, no images
 	engCrawlerProfile = "crawler-profile" // pages open on the profile page
-	engCrawlerFixed   = "crawler-fixed"   // all three, and the safety nets
+	engCrawlerFixed   = "crawler-fixed"   // all three, and the safety nets (as the crawler runs now)
 )
 
 // runSigners compares signer browsers (docs/runbooks/tks-signers.md): each
@@ -149,7 +149,7 @@ func runSigners(args []string) int {
 			case engCrawlerFixed:
 				bc.Freeze, bc.Lite = true, true
 				tune = func(c *config.Signer) {
-					c.OpenOn, c.IdleClose, c.MaxPageMB = config.SignerOpenOnProfile, 2*time.Minute, 800
+					c.OpenOn, c.IdleClose, c.MaxPageMB, c.MaxRefusals = config.SignerOpenOnProfile, 2*time.Minute, 800, 2
 				}
 			default:
 				fmt.Fprintf(os.Stderr, "signers: unknown engine %q\n", name)

@@ -402,3 +402,98 @@ func TestBrowserSignerCuredAgainstFakett(t *testing.T) {
 		t.Fatalf("pages opened on %v, %d open", opened, pool.Pages())
 	}
 }
+
+// A page whose signed calls are refused max_refusals times in a row is
+// replaced; an answered call resets the count; a report for a call the pool
+// did not sign is ignored.
+func TestPoolReplacesRefusedPages(t *testing.T) {
+	ctx := context.Background()
+	o := &opener{}
+	c := cfg()
+	c.PageMaxSigns, c.MaxRefusals, c.Pages = 1000, 2, 1
+	p := sign.New(c, o.open)
+	defer p.Close()
+	a := identity("UA")
+	sign1 := func(q string) string {
+		t.Helper()
+		got, err := p.SignURL(ctx, a, "comments", "https://page.example/api/comment/list/?q="+q, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The identity sends it to its own host.
+		return strings.Replace(got, "https://page.example", "https://www.example.com", 1)
+	}
+	p.SignOutcome(ctx, "https://www.example.com/api/comment/list/?q=unknown", detect.RegistryStale)
+	p.SignOutcome(ctx, sign1("1"), detect.RegistryStale)
+	p.SignOutcome(ctx, sign1("2"), detect.OK) // resets
+	p.SignOutcome(ctx, sign1("3"), detect.RegistryStale)
+	if len(o.pages) != 1 || o.pages[0].closed.Load() {
+		t.Fatalf("a page refused once in a row was replaced: %d pages", len(o.pages))
+	}
+	p.SignOutcome(ctx, sign1("4"), detect.RegistryStale) // twice in a row
+	p.SignOutcome(ctx, sign1("5"), detect.OK)
+	if len(o.pages) != 2 || !o.pages[0].closed.Load() || o.pages[1].closed.Load() {
+		t.Fatalf("after two refusals in a row: %d pages, first closed %v", len(o.pages), o.pages[0].closed.Load())
+	}
+	// Other classes (the identity's trouble, not the page's) do not count.
+	p.SignOutcome(ctx, sign1("6"), detect.RateLimited)
+	p.SignOutcome(ctx, sign1("7"), detect.Checkpoint)
+	if _, err := p.SignURL(ctx, a, "comments", "https://page.example/api/comment/list/?q=8", ""); err != nil || len(o.pages) != 2 {
+		t.Fatalf("rate limits replaced the page: %d pages", len(o.pages))
+	}
+}
+
+// End to end with Chromium against a fakett whose signer pages go bad
+// after 3 signed calls, as in C4: with max_refusals 2 the client's reports
+// replace each bad page, and most calls are answered; without, every call
+// after the third is refused.
+func TestBrowserSignerReplacesPagesGoneBad(t *testing.T) {
+	bin, err := browser.FindBinary("")
+	if err != nil {
+		t.Skip(err)
+	}
+	for _, maxRefusals := range []int{0, 2} {
+		env := tttest.New(t, tttest.Options{Faults: fakett.Faults{RequireSignature: true, SignerStaleAfter: 3,
+			SignedPaths: []string{"/api/comment/list/", "/api/comment/list/reply/"}}})
+		acc := env.World.Accounts()[0]
+		var post *fakett.Post
+		for _, p := range acc.Posts {
+			if len(p.Comments) > 0 {
+				post = p
+				break
+			}
+		}
+		id := env.Identity(t, acc.Username)
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		bc := cfg()
+		bc.Pages, bc.PageTimeout, bc.PageMaxSigns, bc.MaxRefusals = 1, 30*time.Second, 1000, maxRefusals
+		var opened atomic.Int32
+		open := sign.BrowserOpener(sign.BrowserConfig{Binary: bin, NoSandbox: true, AcceptLanguage: tttest.AcceptLanguage,
+			CallTimeout: 30 * time.Second, Freeze: true, Lite: true})
+		pool := sign.New(bc, func(ctx context.Context, id *session.Identity, pageURL string) (sign.Page, error) {
+			opened.Add(1)
+			return open(ctx, id, pageURL)
+		})
+		env.Client.Signer = ttclient.SignerFor(config.SignerBrowser, pool)
+		ref := env.HTTP.URL + "/@" + acc.Username
+		answered := 0
+		for i := range 12 {
+			resp, err := env.Client.Do(ctx, id, graphql.Request{Query: "comments", Vars: map[string]any{"item_id": post.ID, "count": 20, "cursor": i}, Referer: ref})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.Class == detect.OK {
+				answered++
+			}
+		}
+		pool.Close()
+		cancel()
+		switch {
+		case maxRefusals == 0 && (answered != 3 || opened.Load() != 1):
+			t.Fatalf("without replacement: %d of 12 answered, %d pages", answered, opened.Load())
+		case maxRefusals == 2 && (answered < 7 || opened.Load() < 3):
+			t.Fatalf("with max_refusals 2: %d of 12 answered, %d pages", answered, opened.Load())
+		}
+		t.Logf("max_refusals %d: %d of 12 answered, %d pages opened", maxRefusals, answered, opened.Load())
+	}
+}

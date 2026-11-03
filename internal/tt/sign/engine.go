@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/browser"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
@@ -234,4 +235,11 @@ func (s AsAgent) Sign(ctx context.Context, id *session.Identity, q registry.Quer
 		h = a.Headers(h)
 	}
 	return u, h, nil
+}
+
+// SignOutcome passes how a signed call was answered to the wrapped signer.
+func (s AsAgent) SignOutcome(ctx context.Context, sentURL string, cls detect.Class) {
+	if r, ok := s.Signer.(graphql.SignReporter); ok {
+		r.SignOutcome(ctx, sentURL, cls)
+	}
 }

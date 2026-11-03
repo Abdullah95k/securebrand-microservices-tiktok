@@ -102,6 +102,10 @@ type EngineResult struct {
 	SignErrors    int            `json:"sign_errors"`
 	SignedClasses map[string]int `json:"signed_classes"`
 	SignMs        Dist           `json:"sign_ms"`
+	// ByBlock is the signed calls answered and sent in each 5 minutes from
+	// the first ("answered/sent"): whether a page stays good (C4's went bad
+	// within minutes).
+	ByBlock []string `json:"by_block"`
 	// PageFetches are the calls the page sent itself.
 	PageFetches      int            `json:"page_fetches"`
 	PageFetchOK      int            `json:"page_fetch_ok"`
@@ -365,6 +369,8 @@ func engineFigures(res *EngineResult, recs []Record, samples []MemSample) {
 	var sign, open []float64
 	var plain int64
 	res.AfterIdle = "not run"
+	var first time.Time
+	var blocks [][2]int
 	for _, r := range recs {
 		switch {
 		case r.Op == OpAccount && r.Step == StepSigners:
@@ -392,14 +398,26 @@ func engineFigures(res *EngineResult, recs []Record, samples []MemSample) {
 			}
 			res.Signed++
 			res.SignedClasses[r.Class]++
+			if first.IsZero() {
+				first = r.T
+			}
+			b := int(r.T.Sub(first) / (5 * time.Minute))
+			for len(blocks) <= b {
+				blocks = append(blocks, [2]int{})
+			}
+			blocks[b][1]++
 			if r.Class == detect.OK.String() {
 				res.SignedOK++
+				blocks[b][0]++
 			}
 			sign = append(sign, float64(r.SignMs))
 			plain += r.Wire
 		}
 	}
 	res.SignMs, res.PageOpenMs = dist(sign), dist(open)
+	for _, b := range blocks {
+		res.ByBlock = append(res.ByBlock, fmt.Sprintf("%d/%d", b[0], b[1]))
+	}
 	if res.Signed > 0 {
 		res.PlainBytesPerSigned = float64(plain) / float64(res.Signed)
 	}
@@ -489,6 +507,7 @@ func FormatSigners(rep SignersReport) string {
 	row("page open, median", func(e EngineResult) string { return secs(e.PageOpenMs.P50) })
 	row("signed calls answered", func(e EngineResult) string { return pct(e.SignedOK, e.Signed) })
 	row("  refused as", func(e EngineResult) string { return classes(e.SignedClasses) })
+	row("  answered, each 5 minutes", func(e EngineResult) string { return first0(strings.Join(e.ByBlock, " "), "-") })
 	row("sign errors", func(e EngineResult) string { return fmt.Sprint(e.SignErrors) })
 	row("page sends answered", func(e EngineResult) string { return pct(e.PageFetchOK, e.PageFetches) })
 	row("sign time, median / p95", func(e EngineResult) string { return secs(e.SignMs.P50) + " / " + secs(e.SignMs.P95) })

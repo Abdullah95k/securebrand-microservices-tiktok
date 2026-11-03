@@ -25,6 +25,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/browser"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 	ttclient "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/client"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/htmlx"
@@ -59,6 +60,9 @@ type Pool struct {
 	idle   []*page
 	total  int // idle and in use
 	closed bool
+	// signedBy remembers which page signed each recent call (by path and
+	// query), until TikTok's answer is reported (SignOutcome).
+	signedBy map[string]*page
 
 	quit chan struct{} // stops the sweeper
 	done chan struct{}
@@ -70,6 +74,10 @@ type page struct {
 	opened   time.Time
 	lastUsed time.Time
 	signs    int
+	// refusals are the page's signed calls refused in a row; bad marks a
+	// page past tt.signer.max_refusals, closed instead of reused.
+	refusals int
+	bad      bool
 }
 
 // SweepEvery is how often a pool with tt.signer.idle_close or max_page_mb
@@ -81,7 +89,8 @@ var SweepEvery = 10 * time.Second
 // SweepEvery until Close.
 func New(cfg config.Signer, open Opener) *Pool {
 	n := max(cfg.Pages, 1)
-	p := &Pool{cfg: cfg, open: open, slots: make(chan struct{}, n), quit: make(chan struct{}), done: make(chan struct{})}
+	p := &Pool{cfg: cfg, open: open, slots: make(chan struct{}, n), quit: make(chan struct{}), done: make(chan struct{}),
+		signedBy: map[string]*page{}}
 	if cfg.IdleClose > 0 || cfg.MaxPageMB > 0 {
 		go p.sweeper(SweepEvery)
 	} else {
@@ -113,7 +122,7 @@ func (p *Pool) Sweep() {
 	var stale []*page
 	keep := p.idle[:0]
 	for _, pg := range p.idle {
-		if p.idleTooLong(pg) || p.tooBig(pg) {
+		if pg.bad || p.idleTooLong(pg) || p.tooBig(pg) {
 			stale = append(stale, pg)
 		} else {
 			keep = append(keep, pg)
@@ -182,6 +191,12 @@ func (p *Pool) SignURL(ctx context.Context, id *session.Identity, query, rawURL,
 	}
 	pg.signs++
 	pg.lastUsed = p.now()
+	p.mu.Lock()
+	if len(p.signedBy) >= maxSignedBy {
+		clear(p.signedBy) // answers never reported (the caller gave up): forget them
+	}
+	p.signedBy[callKey(signed)] = pg
+	p.mu.Unlock()
 	p.give(pg)
 	metrics.SignerSigns.WithLabelValues(query, "ok").Inc()
 	return signed, nil
@@ -201,7 +216,7 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 	keep := p.idle[:0]
 	for _, pg := range p.idle {
 		switch {
-		case p.spent(pg) || p.idleTooLong(pg):
+		case pg.bad || p.spent(pg) || p.idleTooLong(pg):
 			stale = append(stale, pg)
 		case got == nil && pg.ua == ua:
 			got = pg
@@ -286,7 +301,7 @@ func (p *Pool) spent(pg *page) bool {
 func (p *Pool) give(pg *page) {
 	big := p.tooBig(pg)
 	p.mu.Lock()
-	if p.closed || p.spent(pg) || big {
+	if p.closed || pg.bad || p.spent(pg) || big {
 		p.total--
 		p.mu.Unlock()
 		pg.Close()
@@ -303,6 +318,46 @@ func (p *Pool) discard(pg *page) {
 	p.mu.Unlock()
 	pg.Close()
 	metrics.SignerPages.Dec()
+}
+
+// maxSignedBy bounds the calls whose answer the pool waits to hear.
+const maxSignedBy = 4096
+
+// callKey identifies a signed call by its path and query: the page signs
+// on its own host, and the call goes to the identity's.
+func callKey(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return u.Path + "?" + u.RawQuery
+}
+
+// SignOutcome implements graphql.SignReporter: TikTok's answer to a call a
+// page signed. A page whose signed calls are refused (an empty answer)
+// tt.signer.max_refusals times in a row is closed and the next call opens
+// a fresh one: in C4 (2026-11-03) pages went bad within minutes, every call
+// they signed was refused until they were replaced, and a fresh page was
+// answered again. An answered call resets the count.
+func (p *Pool) SignOutcome(_ context.Context, sentURL string, cls detect.Class) {
+	key := callKey(sentURL)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	pg := p.signedBy[key]
+	if pg == nil {
+		return
+	}
+	delete(p.signedBy, key)
+	switch cls {
+	case detect.OK:
+		pg.refusals = 0
+	case detect.RegistryStale:
+		pg.refusals++
+		if p.cfg.MaxRefusals > 0 && pg.refusals >= p.cfg.MaxRefusals && !pg.bad {
+			pg.bad = true
+			metrics.SignerPagesRefused.Inc()
+		}
+	}
 }
 
 // Pages returns how many pages are open (idle or signing).

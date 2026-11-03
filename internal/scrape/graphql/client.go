@@ -98,6 +98,13 @@ type Signer interface {
 	Sign(ctx context.Context, id *session.Identity, q registry.Query, rawURL string, hdr [][2]string) (string, [][2]string, error)
 }
 
+// SignReporter is a Signer that hears how each request it signed was
+// answered: TikTok's signer replaces a page whose signatures keep being
+// refused (C4, 2026-11-03: a page went bad within minutes and stayed bad).
+type SignReporter interface {
+	SignOutcome(ctx context.Context, sentURL string, cls detect.Class)
+}
+
 // ErrSign wraps a signer's failure: no request was sent, and the identity
 // and its exit are not to blame.
 var ErrSign = errors.New("graphql: sign")
@@ -246,6 +253,9 @@ func (c *Client) do(ctx context.Context, id *session.Identity, q registry.Query,
 		}
 	}
 	session.Outcome(id, cls)
+	if r, ok := c.Signer.(SignReporter); ok {
+		r.SignOutcome(ctx, target, cls)
+	}
 	if c.Outcomes != nil {
 		c.Outcomes.Observe(cls, req.Lane, tr.BytesIn+tr.BytesOut)
 	}

@@ -106,6 +106,16 @@ Every signed comment call was answered by every version (39 of 39), sent by tks 
 
 So the runaway is TikTok's video page, a frozen page does no work, and autoplay and images are not the cause (lite only saves a third of the page's proxy data). `freeze`, `lite` and `open_on: profile` are now on by default, with the safety nets.
 
+## S3: does the fixed page stay good? (volume run)
+
+C4's comment refusals came in waves: fresh signer pages were answered, then refused within minutes until replaced. The pool now also replaces a page whose signed calls are refused twice in a row (`tt.signer.max_refusals: 2`), and the table shows the calls answered each 5 minutes. A volume run, one page signing for 40 accounts in a row (C4's pace per page):
+
+```bash
+make tks-signers TKS_SIGNERS_ARGS="--engines crawler-fixed --max-accounts 40 --comment-pages 10"
+```
+
+About 30 minutes. Read "signed calls answered", "answered, each 5 minutes" and "pages opened": a page that stays good shows steady blocks and few pages opened; one that goes bad shows refusals and more pages (each replacement costs a page load, 5 to 12 MB of proxy data).
+
 ## Result of 2026-11-03
 
 On the pilot droplet (`isp`, 5 accounts per browser, the C4 registry's variants), TikTok refused every comment call from all three browsers: a 200 with an empty answer, whether tks sent the call with the browser's signature or the browser sent it itself (Lightpanda 0 of 7, chrome-headless-shell 0 of 3, Chrome 0 of 3). The Chrome that hid its automation had them answered the night before (C4), as in the probe (C2 runs 1 and 2). Lightpanda used 105 MB at most; both Chromes passed 1.2 GB within about 30 seconds of opening a post page and the guard stopped them, with the machine keeping 4.7 GB or more available. Details in [`build-status.md`](../tiktok/build-status.md) (S1).

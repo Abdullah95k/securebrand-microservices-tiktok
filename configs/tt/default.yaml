@@ -102,6 +102,10 @@ tt:
     # idle signer page grew to 7 GB, 2026-11-03; 0 turns either off).
     idle_close: 2m
     max_page_mb: 800
+    # A page whose signed calls TikTok refuses this many times in a row is
+    # replaced (C4: pages went bad within minutes and every call they signed
+    # was refused until a fresh page took over; 0 turns it off).
+    max_refusals: 2
     # The runaway's cures, measured on TikTok (S2, 2026-11-03: every signed
     # call answered with each): a page frozen between its signatures (CPU
     # 9 % instead of 93 %, no growth while idle), and pages opened on the
