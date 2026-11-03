@@ -1,19 +1,16 @@
 package phase0
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/procfs"
 )
 
 // MemSample is one reading of the signer browser's processes (this
@@ -128,25 +125,25 @@ func (s *sampler) sample() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
-	procs := readProcs()
-	kids := descendants(procs, s.root)
-	smp := MemSample{T: now.UTC(), Engine: s.engine, Phase: s.phase, Procs: len(kids), HostAvailMB: hostAvailMB()}
+	procs := procfs.Procs()
+	kids := procfs.Descendants(procs, s.root)
+	smp := MemSample{T: now.UTC(), Engine: s.engine, Phase: s.phase, Procs: len(kids), HostAvailMB: procfs.AvailMB()}
 	var used int64
 	seen := map[int]int64{}
 	for _, pid := range kids {
-		smp.BrowserMB += pssMB(pid)
-		t := procs[pid].ticks
+		smp.BrowserMB += procfs.PSSMB(pid)
+		t := procs[pid].Ticks
 		seen[pid] = t
 		used += t - s.ticks[pid] // a new process: all its time is since the last sample
 	}
 	s.ticks = seen
 	if !s.last.IsZero() {
 		if secs := now.Sub(s.last).Seconds(); secs > 0 {
-			smp.CPUPct = 100 * float64(used) / clockTicks / secs
+			smp.CPUPct = 100 * float64(used) / procfs.ClockTicks / secs
 		}
 	}
 	s.last = now
-	smp.CgroupMB, smp.CgroupMaxMB = cgroupMB()
+	smp.CgroupMB, smp.CgroupMaxMB = procfs.CgroupMB()
 	s.samples = append(s.samples, smp)
 	if s.err == nil {
 		s.err = s.enc.Encode(smp)
@@ -170,136 +167,9 @@ func (s *sampler) result() ([]MemSample, string, error) {
 	return s.samples, s.reason, s.err
 }
 
-// clockTicks is the kernel's USER_HZ (100 on Linux x86-64 and arm64).
-const clockTicks = 100
-
-type procStat struct {
-	ppid  int
-	ticks int64 // utime + stime
-}
-
-// readProcs reads every process's parent and CPU time from /proc.
-func readProcs() map[int]procStat {
-	out := map[int]procStat{}
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		return out
-	}
-	for _, e := range entries {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue
-		}
-		b, err := os.ReadFile(filepath.Join("/proc", e.Name(), "stat"))
-		if err != nil {
-			continue
-		}
-		// The command name may hold spaces and parentheses: the fields
-		// start after the last ')'.
-		i := bytes.LastIndexByte(b, ')')
-		if i < 0 {
-			continue
-		}
-		f := strings.Fields(string(b[i+1:]))
-		if len(f) < 13 {
-			continue
-		}
-		ppid, _ := strconv.Atoi(f[1])
-		ut, _ := strconv.ParseInt(f[11], 10, 64)
-		st, _ := strconv.ParseInt(f[12], 10, 64)
-		out[pid] = procStat{ppid: ppid, ticks: ut + st}
-	}
-	return out
-}
-
-// descendants are root's children, their children, and so on.
-func descendants(procs map[int]procStat, root int) []int {
-	kids := map[int][]int{}
-	for pid, p := range procs {
-		kids[p.ppid] = append(kids[p.ppid], pid)
-	}
-	var out []int
-	queue := []int{root}
-	for len(queue) > 0 {
-		p := queue[0]
-		queue = queue[1:]
-		for _, k := range kids[p] {
-			out = append(out, k)
-			queue = append(queue, k)
-		}
-	}
-	return out
-}
-
-// pssMB is a process's proportional set size, or its resident size where
-// the kernel has no smaps_rollup.
-func pssMB(pid int) float64 {
-	if kb := field(filepath.Join("/proc", strconv.Itoa(pid), "smaps_rollup"), "Pss:"); kb >= 0 {
-		return kb / 1024
-	}
-	if kb := field(filepath.Join("/proc", strconv.Itoa(pid), "status"), "VmRSS:"); kb >= 0 {
-		return kb / 1024
-	}
-	return 0
-}
-
 // HostAvailMB is the machine's available memory (MemAvailable), in MB.
-func HostAvailMB() float64 { return hostAvailMB() }
+func HostAvailMB() float64 { return procfs.AvailMB() }
 
 // CgroupMemory is this process's memory cgroup's anonymous memory and
 // limit, in MB; the limit is 0 when there is none (no cap).
-func CgroupMemory() (cur, limit float64) { return cgroupMB() }
-
-func hostAvailMB() float64 {
-	if kb := field("/proc/meminfo", "MemAvailable:"); kb >= 0 {
-		return kb / 1024
-	}
-	return 0
-}
-
-// field reads a "Name:   123 kB" line's number; -1 when there is none.
-func field(path, name string) float64 {
-	f, err := os.Open(path) //nolint:gosec // /proc
-	if err != nil {
-		return -1
-	}
-	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := sc.Text()
-		if strings.HasPrefix(line, name) {
-			fs := strings.Fields(line[len(name):])
-			if len(fs) > 0 {
-				if v, err := strconv.ParseFloat(fs[0], 64); err == nil {
-					return v
-				}
-			}
-		}
-	}
-	return -1
-}
-
-// cgroupMB is this process's memory cgroup's anonymous memory and limit
-// (cgroup v2), in MB; 0 when unknown or unlimited.
-func cgroupMB() (cur, limit float64) {
-	b, err := os.ReadFile("/proc/self/cgroup")
-	if err != nil {
-		return 0, 0
-	}
-	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-		if p, ok := strings.CutPrefix(line, "0::"); ok {
-			dir := filepath.Join("/sys/fs/cgroup", p)
-			// Anonymous memory only: the page cache (the browser's own
-			// binary, written files) is given back before the cap bites.
-			if kb := field(filepath.Join(dir, "memory.stat"), "anon "); kb >= 0 {
-				cur = kb / (1 << 20) // memory.stat counts bytes
-			}
-			if v, err := os.ReadFile(filepath.Join(dir, "memory.max")); err == nil { //nolint:gosec // /sys
-				if n, err := strconv.ParseFloat(strings.TrimSpace(string(v)), 64); err == nil {
-					limit = n / (1 << 20)
-				}
-			}
-		}
-	}
-	return cur, limit
-}
+func CgroupMemory() (cur, limit float64) { return procfs.CgroupMB() }

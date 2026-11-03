@@ -108,12 +108,6 @@ func (p *EnginePage) Agent() Agent { return p.agent }
 // ProxyBytes is what the page moved through the identity's exit so far.
 func (p *EnginePage) ProxyBytes() int64 { return p.fwd.Bytes() }
 
-// PageFetch has the page send the call itself, signed by its script as
-// Sign would sign it, and returns TikTok's answer.
-func (p *EnginePage) PageFetch(ctx context.Context, rawURL string) (*browser.Fetched, error) {
-	return p.Fetch(ctx, PageQuery(rawURL, p.values))
-}
-
 // Close ends the browser and its forwarder.
 func (p *EnginePage) Close() {
 	p.Session.Close()

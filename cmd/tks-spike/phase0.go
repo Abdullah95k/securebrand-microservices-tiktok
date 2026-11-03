@@ -152,7 +152,8 @@ func runPhase0(args []string) int {
 		bin, err := browser.FindBinary("")
 		switch {
 		case err == nil:
-			opener = sign.BrowserOpener(bin, os.Getenv("TKS_BROWSER_NO_SANDBOX") != "" || os.Geteuid() == 0, cfg.TT.AcceptLanguage, 30*time.Second)
+			opener = sign.BrowserOpener(sign.BrowserConfig{Binary: bin, NoSandbox: os.Getenv("TKS_BROWSER_NO_SANDBOX") != "" || os.Geteuid() == 0,
+				AcceptLanguage: cfg.TT.AcceptLanguage, CallTimeout: 30 * time.Second, Freeze: cfg.TT.Signer.Freeze, Lite: cfg.TT.Signer.Lite})
 		case *dryRun:
 			fmt.Fprintln(os.Stderr, "phase0: no Chromium: the dry run signs as fakett's page script does")
 			opener = func(context.Context, *session.Identity, string) (sign.Page, error) { return simulatedPage{}, nil }

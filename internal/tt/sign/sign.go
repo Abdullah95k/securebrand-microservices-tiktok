@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -58,19 +59,83 @@ type Pool struct {
 	idle   []*page
 	total  int // idle and in use
 	closed bool
+
+	quit chan struct{} // stops the sweeper
+	done chan struct{}
 }
 
 type page struct {
 	Page
-	ua     string
-	opened time.Time
-	signs  int
+	ua       string
+	opened   time.Time
+	lastUsed time.Time
+	signs    int
 }
 
-// New returns a pool of cfg.Pages pages opened by open.
+// SweepEvery is how often a pool with tt.signer.idle_close or max_page_mb
+// looks at its idle pages.
+var SweepEvery = 10 * time.Second
+
+// New returns a pool of cfg.Pages pages opened by open. With
+// cfg.IdleClose or cfg.MaxPageMB it sweeps its idle pages every
+// SweepEvery until Close.
 func New(cfg config.Signer, open Opener) *Pool {
 	n := max(cfg.Pages, 1)
-	return &Pool{cfg: cfg, open: open, slots: make(chan struct{}, n)}
+	p := &Pool{cfg: cfg, open: open, slots: make(chan struct{}, n), quit: make(chan struct{}), done: make(chan struct{})}
+	if cfg.IdleClose > 0 || cfg.MaxPageMB > 0 {
+		go p.sweeper(SweepEvery)
+	} else {
+		close(p.done)
+	}
+	return p
+}
+
+func (p *Pool) sweeper(every time.Duration) {
+	defer close(p.done)
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-p.quit:
+			return
+		case <-t.C:
+			p.Sweep()
+		}
+	}
+}
+
+// Sweep closes the idle pages unused for tt.signer.idle_close or whose
+// browser uses more than tt.signer.max_page_mb: an idle page costs memory
+// and does nothing (the pilot server froze when an idle Chrome page grew
+// to 7 GB, 2026-11-03), and the next call opens a fresh one.
+func (p *Pool) Sweep() {
+	p.mu.Lock()
+	var stale []*page
+	keep := p.idle[:0]
+	for _, pg := range p.idle {
+		if p.idleTooLong(pg) || p.tooBig(pg) {
+			stale = append(stale, pg)
+		} else {
+			keep = append(keep, pg)
+		}
+	}
+	p.idle = keep
+	p.total -= len(stale)
+	p.mu.Unlock()
+	for _, pg := range stale {
+		pg.Close()
+		metrics.SignerPages.Dec()
+	}
+}
+
+func (p *Pool) idleTooLong(pg *page) bool {
+	return p.cfg.IdleClose > 0 && p.now().Sub(pg.lastUsed) >= p.cfg.IdleClose
+}
+
+// tooBig reports a page whose browser uses more than tt.signer.max_page_mb.
+func (p *Pool) tooBig(pg *page) bool {
+	m, ok := pg.Page.(interface{ MemoryMB() float64 })
+	return ok && p.cfg.MaxPageMB > 0 && m.MemoryMB() > p.cfg.MaxPageMB
 }
 
 func (p *Pool) now() time.Time {
@@ -116,6 +181,7 @@ func (p *Pool) SignURL(ctx context.Context, id *session.Identity, query, rawURL,
 		return "", fmt.Errorf("sign: %s: %w", query, err)
 	}
 	pg.signs++
+	pg.lastUsed = p.now()
 	p.give(pg)
 	metrics.SignerSigns.WithLabelValues(query, "ok").Inc()
 	return signed, nil
@@ -135,7 +201,7 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 	keep := p.idle[:0]
 	for _, pg := range p.idle {
 		switch {
-		case p.spent(pg):
+		case p.spent(pg) || p.idleTooLong(pg):
 			stale = append(stale, pg)
 		case got == nil && pg.ua == ua:
 			got = pg
@@ -162,7 +228,7 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 	if got != nil {
 		return got, nil
 	}
-	pg, err := p.openPage(ctx, id, pageURL(id, referer))
+	pg, err := p.openPage(ctx, id, p.pageURL(id, referer))
 	if err != nil {
 		p.mu.Lock()
 		p.total--
@@ -172,7 +238,8 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 	}
 	metrics.SignerPageOpens.WithLabelValues("ok").Inc()
 	metrics.SignerPages.Inc()
-	return &page{Page: pg, ua: ua, opened: p.now()}, nil
+	now := p.now()
+	return &page{Page: pg, ua: ua, opened: now, lastUsed: now}, nil
 }
 
 // openPage opens a page within tt.signer.page_timeout. The page outlives
@@ -217,8 +284,9 @@ func (p *Pool) spent(pg *page) bool {
 // give returns a page to the idle list, or closes it when it is spent or
 // the pool is closed.
 func (p *Pool) give(pg *page) {
+	big := p.tooBig(pg)
 	p.mu.Lock()
-	if p.closed || p.spent(pg) {
+	if p.closed || p.spent(pg) || big {
 		p.total--
 		p.mu.Unlock()
 		pg.Close()
@@ -247,6 +315,9 @@ func (p *Pool) Pages() int {
 // Close closes the idle pages; pages in use close when their call ends.
 func (p *Pool) Close() {
 	p.mu.Lock()
+	if !p.closed {
+		close(p.quit)
+	}
 	idle := p.idle
 	p.idle, p.closed = nil, true
 	p.total -= len(idle)
@@ -255,13 +326,23 @@ func (p *Pool) Close() {
 		pg.Close()
 		metrics.SignerPages.Dec()
 	}
+	<-p.done
 }
 
 // pageURL is where a new page opens: the call's referer when it is on the
 // identity's site (the profile or post page the call belongs to, as the
-// probe signed from: C2 run 2, run 3), else the site itself.
-func pageURL(id *session.Identity, referer string) string {
+// probe signed from: C2 run 2, run 3), or with tt.signer.open_on profile
+// the profile page of the account the call belongs to (no video player:
+// TikTok's video page grew a signer's Chrome past 1 GB in 30 s, S1), else
+// the site itself.
+func (p *Pool) pageURL(id *session.Identity, referer string) string {
 	if u, err := url.Parse(referer); err == nil && id.Base != nil && u.Host == id.Base.Host && u.Path != "" {
+		if p.cfg.OpenOn == config.SignerOpenOnProfile {
+			if name, _, _ := strings.Cut(strings.TrimPrefix(u.Path, "/"), "/"); strings.HasPrefix(name, "@") {
+				u.Path, u.RawQuery, u.Fragment = "/"+name, "", ""
+				return u.String()
+			}
+		}
 		return referer
 	}
 	if id.Base != nil {
@@ -270,13 +351,28 @@ func pageURL(id *session.Identity, referer string) string {
 	return referer
 }
 
+// BrowserConfig is the crawler's signer browser.
+type BrowserConfig struct {
+	Binary         string
+	NoSandbox      bool
+	AcceptLanguage string
+	CallTimeout    time.Duration
+	// Freeze keeps each page frozen between its signatures
+	// (tt.signer.freeze): no script or timer runs while it waits.
+	Freeze bool
+	// Lite starts Chrome without autoplay and images (tt.signer.lite).
+	Lite bool
+}
+
 // BrowserOpener opens signer pages in headless Chromium: on the identity's
 // exit, with its user agent and client hints, without the automation flag
-// (comments were refused with it on: C2 run 1), media blocked (which also
-// makes the page's requests pause, so Sign can hold them). Each page reads
-// its own page values and environment once, and signs every call with them
-// in place of the identity's (PageQuery).
-func BrowserOpener(binary string, noSandbox bool, acceptLanguage string, callTimeout time.Duration) Opener {
+// (comments were refused with it on: C2 run 1, and from every browser that
+// showed it, S1), media blocked (which also makes the page's requests
+// pause, so Sign can hold them). Each page reads its own page values and
+// environment once, and signs every call with them in place of the
+// identity's (PageQuery).
+func BrowserOpener(c BrowserConfig) Opener {
+	binary, noSandbox, acceptLanguage, callTimeout := c.Binary, c.NoSandbox, c.AcceptLanguage, c.CallTimeout
 	return func(ctx context.Context, id *session.Identity, pageURL string) (Page, error) {
 		var proxyURL *url.URL
 		if id.Endpoint.URL != "" {
@@ -288,7 +384,7 @@ func BrowserOpener(binary string, noSandbox bool, acceptLanguage string, callTim
 		}
 		s, err := browser.OpenSession(ctx, binary, browser.Options{URL: pageURL, Proxy: proxyURL, UserAgent: id.FP.UserAgent,
 			AcceptLanguage: acceptLanguage, Hints: browser.HintsFrom(id.FP.SecChUa, id.FP.SecChUaPlatform, id.FP.SecChUaMobile),
-			BlockMedia: true, HideAutomation: true, NoSandbox: noSandbox, MaxSettle: 15 * time.Second, CallTimeout: callTimeout})
+			BlockMedia: true, HideAutomation: true, NoSandbox: noSandbox, MaxSettle: 15 * time.Second, CallTimeout: callTimeout, Lite: c.Lite})
 		if err != nil {
 			return nil, err
 		}
@@ -297,18 +393,60 @@ func BrowserOpener(binary string, noSandbox bool, acceptLanguage string, callTim
 			s.Close()
 			return nil, err
 		}
-		return &browserPage{Session: s, values: values}, nil
+		pg := &browserPage{Session: s, values: values, freeze: c.Freeze}
+		if c.Freeze {
+			if err := s.Freeze(ctx); err != nil {
+				s.Close()
+				return nil, fmt.Errorf("sign: freeze: %w", err)
+			}
+		}
+		return pg, nil
 	}
 }
 
-// browserPage signs with the page's own values.
+// browserPage signs with the page's own values, thawing a frozen page for
+// the call.
 type browserPage struct {
 	*browser.Session
 	values map[string]string
+	freeze bool
 }
 
 func (p *browserPage) Sign(ctx context.Context, rawURL string) (string, error) {
+	if err := p.thaw(ctx); err != nil {
+		return "", err
+	}
+	defer p.refreeze(ctx)
 	return p.Session.Sign(ctx, PageQuery(rawURL, p.values))
+}
+
+// PageFetch has the page send the call itself, signed by its script as
+// Sign would sign it, and returns TikTok's answer.
+func (p *browserPage) PageFetch(ctx context.Context, rawURL string) (*browser.Fetched, error) {
+	if err := p.thaw(ctx); err != nil {
+		return nil, err
+	}
+	defer p.refreeze(ctx)
+	return p.Fetch(ctx, PageQuery(rawURL, p.values))
+}
+
+// ProxyBytes is what the page moved on the wire so far.
+func (p *browserPage) ProxyBytes() int64 { return p.Bytes() }
+
+func (p *browserPage) thaw(ctx context.Context) error {
+	if !p.freeze {
+		return nil
+	}
+	if err := p.Thaw(ctx); err != nil {
+		return fmt.Errorf("sign: thaw: %w", err)
+	}
+	return nil
+}
+
+func (p *browserPage) refreeze(ctx context.Context) {
+	if p.freeze {
+		_ = p.Freeze(context.WithoutCancel(ctx))
+	}
 }
 
 // pageValues reads what the page's own calls carry and tks's builder would

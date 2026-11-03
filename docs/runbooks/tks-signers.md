@@ -67,6 +67,31 @@ It runs all three browsers, under the same cap, against a built-in fake TikTok i
 - Chrome is installed (`make tks-browser-check`).
 - systemd runs the machine (any Ubuntu droplet).
 
+## The crawler's signer and its memory (S2)
+
+The owner can use no provider and needs comments (2026-11-03), so the crawler keeps the signer that got them answered: Chrome as the identity, its automation hidden (`sign.BrowserOpener`; for counsel, [`methods.md` §5.5](../tiktok/methods.md)). Its memory runaway is TikTok's video page in Chrome's engine. tks now has:
+
+**Safety nets, on by default** (`tt.signer`):
+- `idle_close: 2m`: a page unused for 2 minutes is closed; the next call opens a fresh one.
+- `max_page_mb: 800`: a page whose Chrome uses more than 800 MB is closed after its call, or by the sweep every 10 seconds while idle.
+
+**Three cures, off until measured:**
+- `freeze: true`: the page is frozen between its signatures (no script, no timer, no growth) and thawed for each call.
+- `lite: true`: Chrome starts without autoplay and without images, so the video player never starts.
+- `open_on: profile`: a page opens on the account's profile page instead of the post's video page.
+
+`make tks-signers` now compares, by default, five versions of the crawler's signer, one after the other, under the same cap and guard:
+
+| Engine | What it is |
+|---|---|
+| `crawler` | as C4 ran it (the control: it should be answered, and grow) |
+| `crawler-freeze` | frozen between signatures |
+| `crawler-lite` | no autoplay, no images |
+| `crawler-profile` | pages open on the profile page |
+| `crawler-fixed` | all three cures, and both safety nets |
+
+About **35 minutes** (less when the guard stops a version early). The table's rows are the same; in "says it is", these show "the identity's Chrome". The browsers that present themselves as themselves can still be compared: `TKS_SIGNERS_ARGS="--engines lightpanda,headless-shell,chrome"`.
+
 ## Result of 2026-11-03
 
 On the pilot droplet (`isp`, 5 accounts per browser, the C4 registry's variants), TikTok refused every comment call from all three browsers: a 200 with an empty answer, whether tks sent the call with the browser's signature or the browser sent it itself (Lightpanda 0 of 7, chrome-headless-shell 0 of 3, Chrome 0 of 3). The Chrome that hid its automation had them answered the night before (C4), as in the probe (C2 runs 1 and 2). Lightpanda used 105 MB at most; both Chromes passed 1.2 GB within about 30 seconds of opening a post page and the guard stopped them, with the machine keeping 4.7 GB or more available. Details in [`build-status.md`](../tiktok/build-status.md) (S1).

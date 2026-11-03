@@ -44,6 +44,9 @@ func SignersMemFile(engine string) string { return "signers-" + engine + "-mem.j
 type SignerEngine struct {
 	Name   string
 	Opener sign.Opener
+	// Tune changes the engine's pool configuration (open_on, idle_close,
+	// max_page_mb) from the comparison's.
+	Tune func(*config.Signer)
 }
 
 // SignersConfig configures the comparison.
@@ -283,7 +286,11 @@ func (k *Kit) signersEngine(ctx context.Context, e SignerEngine, tier string, ac
 		return pg, err
 	}
 	measured := measuredOpener(agents.Opener(open))
-	k.signer = sign.New(sc.Signer, func(ctx context.Context, id *session.Identity, pageURL string) (sign.Page, error) {
+	pc := sc.Signer
+	if e.Tune != nil {
+		e.Tune(&pc)
+	}
+	k.signer = sign.New(pc, func(ctx context.Context, id *session.Identity, pageURL string) (sign.Page, error) {
 		pg, err := measured(ctx, id, pageURL)
 		if err != nil {
 			return nil, err
@@ -467,13 +474,13 @@ func FormatSigners(rep SignersReport) string {
 	row("", func(e EngineResult) string { return e.Engine })
 	row("says it is", func(e EngineResult) string {
 		if e.Agent == nil {
-			return "-"
+			return "the identity's Chrome"
 		}
 		return product(e.Agent.UserAgent)
 	})
 	row("navigator.webdriver", func(e EngineResult) string {
 		if e.Agent == nil {
-			return "-"
+			return "false (hidden)"
 		}
 		return fmt.Sprint(e.Agent.Webdriver)
 	})

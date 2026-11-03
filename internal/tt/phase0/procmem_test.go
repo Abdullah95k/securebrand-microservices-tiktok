@@ -56,11 +56,3 @@ func TestSamplerMeasuresAndGuards(t *testing.T) {
 		t.Fatalf("samples written: %s", buf.String())
 	}
 }
-
-func TestDescendants(t *testing.T) {
-	procs := map[int]procStat{2: {ppid: 1}, 3: {ppid: 2}, 4: {ppid: 3}, 5: {ppid: 9}}
-	got := descendants(procs, 2)
-	if len(got) != 2 || got[0] != 3 || got[1] != 4 {
-		t.Fatalf("%v", got)
-	}
-}

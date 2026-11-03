@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,11 +26,20 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/sign"
 )
 
-// Engine names for --engines.
+// Engine names for --engines: browsers that present themselves as
+// themselves (S1: TikTok refused them all), and the crawler's own signer
+// (sign.BrowserOpener: Chrome as the identity, its automation hidden) as
+// it runs today and with each cure of its memory runaway.
 const (
 	engLightpanda    = "lightpanda"
 	engHeadlessShell = "headless-shell"
 	engChrome        = "chrome"
+
+	engCrawler        = "crawler"         // as C4 ran it
+	engCrawlerFreeze  = "crawler-freeze"  // frozen between signatures
+	engCrawlerLite    = "crawler-lite"    // no autoplay, no images
+	engCrawlerProfile = "crawler-profile" // pages open on the profile page
+	engCrawlerFixed   = "crawler-fixed"   // all three, and the safety nets
 )
 
 // runSigners compares signer browsers (docs/runbooks/tks-signers.md): each
@@ -44,7 +54,9 @@ func runSigners(args []string) int {
 	tier := fs.String("tier", "isp", "proxy tier")
 	regPath := fs.String("registry", "phase0/out-tt-phase0/registry.yaml", "the Phase 0 variants step's registry (the variants that answer today)")
 	outDir := fs.String("out-dir", "phase0/out-tt-signers", "output directory")
-	engines := fs.String("engines", engLightpanda+","+engHeadlessShell+","+engChrome, "browsers to compare, in order")
+	engines := fs.String("engines", strings.Join([]string{engCrawler, engCrawlerFreeze, engCrawlerLite, engCrawlerProfile, engCrawlerFixed}, ","),
+		"browsers to compare, in order: "+strings.Join([]string{engCrawler, engCrawlerFreeze, engCrawlerLite, engCrawlerProfile, engCrawlerFixed,
+			engLightpanda, engHeadlessShell, engChrome}, ", "))
 	lpBin := fs.String("lightpanda", filepath.Join(home, "tks-browsers", "lightpanda"), "Lightpanda binary")
 	hsBin := fs.String("headless-shell", filepath.Join(home, "tks-browsers", "chrome-headless-shell-linux64", "chrome-headless-shell"), "chrome-headless-shell binary")
 	chromeBin := fs.String("chrome", "", "Chrome or Chromium binary (default: the one tks-spike browser-check finds)")
@@ -118,6 +130,34 @@ func runSigners(args []string) int {
 	noSandbox := os.Getenv("TKS_BROWSER_NO_SANDBOX") != "" || os.Geteuid() == 0
 	var engs []phase0.SignerEngine
 	for _, name := range splitList(*engines) {
+		if strings.HasPrefix(name, engCrawler) {
+			bin, err := browser.FindBinary(*chromeBin)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "signers: chrome:", err)
+				return 1
+			}
+			bc := sign.BrowserConfig{Binary: bin, NoSandbox: noSandbox, AcceptLanguage: cfg.TT.AcceptLanguage, CallTimeout: 30 * time.Second}
+			var tune func(*config.Signer)
+			switch name {
+			case engCrawler:
+			case engCrawlerFreeze:
+				bc.Freeze = true
+			case engCrawlerLite:
+				bc.Lite = true
+			case engCrawlerProfile:
+				tune = func(c *config.Signer) { c.OpenOn = config.SignerOpenOnProfile }
+			case engCrawlerFixed:
+				bc.Freeze, bc.Lite = true, true
+				tune = func(c *config.Signer) {
+					c.OpenOn, c.IdleClose, c.MaxPageMB = config.SignerOpenOnProfile, 2*time.Minute, 800
+				}
+			default:
+				fmt.Fprintf(os.Stderr, "signers: unknown engine %q\n", name)
+				return 2
+			}
+			engs = append(engs, phase0.SignerEngine{Name: name, Opener: sign.BrowserOpener(bc), Tune: tune})
+			continue
+		}
 		ec := sign.EngineConfig{NoSandbox: noSandbox, AcceptLanguage: cfg.TT.AcceptLanguage, CallTimeout: 30 * time.Second}
 		switch name {
 		case engLightpanda:

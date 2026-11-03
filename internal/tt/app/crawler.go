@@ -154,7 +154,8 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 	// page (build brief D11); everything else goes out as built.
 	signer := o.Signer
 	if signer == nil && tc.Signer.Mode == config.SignerBrowser {
-		c.Signer = sign.New(tc.Signer, sign.BrowserOpener(tc.Browser.Binary, tc.Browser.NoSandbox, tc.AcceptLanguage, tc.Signer.PageTimeout))
+		c.Signer = sign.New(tc.Signer, sign.BrowserOpener(sign.BrowserConfig{Binary: tc.Browser.Binary, NoSandbox: tc.Browser.NoSandbox,
+			AcceptLanguage: tc.AcceptLanguage, CallTimeout: tc.Signer.PageTimeout, Freeze: tc.Signer.Freeze, Lite: tc.Signer.Lite}))
 		signer = c.Signer
 	}
 	if signer != nil {

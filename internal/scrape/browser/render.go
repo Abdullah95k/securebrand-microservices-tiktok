@@ -76,6 +76,11 @@ type Options struct {
 	// a load event that never comes, fails instead of hanging. 30 s when
 	// zero.
 	CallTimeout time.Duration
+	// Lite starts Chromium without autoplay and without images: a page
+	// whose video player never starts, and nothing it does not need. (A
+	// signer page on a TikTok video page grew past 1 GB within 30 s with
+	// media only blocked: S1, 2026-11-03.)
+	Lite bool
 	// Engine is the browser binary's kind: Chromium (the default) or
 	// Lightpanda. Lightpanda takes no user agent, client hints or proxy
 	// credentials (a Forwarder adds those), and no automation flag.
@@ -261,6 +266,9 @@ func launchPage(ctx context.Context, binary string, opts Options) (r *renderer, 
 	if opts.HideAutomation {
 		args = append(args, "--disable-blink-features=AutomationControlled")
 	}
+	if opts.Lite {
+		args = append(args, "--autoplay-policy=user-gesture-required", "--blink-settings=imagesEnabled=false")
+	}
 	var proxyUser, proxyPass string
 	if opts.Proxy != nil {
 		p := *opts.Proxy
@@ -337,7 +345,7 @@ func attachPage(ctx context.Context, proc *process, opts Options, proxyUser, pro
 		return nil, nil, err
 	}
 	s := attached.SessionID
-	r = &renderer{c: c, s: s, opts: opts, proxyUser: proxyUser, proxyPass: proxyPass,
+	r = &renderer{c: c, s: s, opts: opts, proxyUser: proxyUser, proxyPass: proxyPass, pid: proc.cmd.Process.Pid,
 		reqs: map[string]*Exchange{}, inflight: map[string]bool{}, docs: map[string]document{}, auth: map[string]int{}}
 	if proxyUser != "" || opts.BlockMedia {
 		// Requests pause here so media can be refused and proxy
@@ -381,6 +389,7 @@ func attachPage(ctx context.Context, proc *process, opts Options, proxyUser, pro
 // renderer follows the page session's events.
 type renderer struct {
 	c          *conn
+	pid        int // the browser's process
 	s          string
 	opts       Options
 	proxyUser  string

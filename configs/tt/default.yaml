@@ -97,6 +97,18 @@ tt:
     # Alert when signed calls exceed this share of all calls (comments and
     # replies only, so a rise means an operation lost its unsigned variant).
     max_share: 0.5
+    # Safety nets: a page unused this long is closed, and a page whose
+    # Chrome uses more memory is reopened (the pilot server froze when an
+    # idle signer page grew to 7 GB, 2026-11-03; 0 turns either off).
+    idle_close: 2m
+    max_page_mb: 800
+    # The runaway's cures, being measured (tks-spike signers, crawler-*
+    # engines): freeze a page between its signatures, start Chrome without
+    # autoplay and images, open pages on the account's profile page instead
+    # of the post's (call | profile).
+    freeze: false
+    lite: false
+    open_on: call
   # How fresh the data is kept (build brief D2, ADR 0007 §4).
   freshness:
     # Each account's post list: 99 % of new posts stored within 3 h needs a

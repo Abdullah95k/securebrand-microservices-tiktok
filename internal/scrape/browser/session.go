@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/procfs"
 )
 
 // Session is one headless Chromium page kept open on an identity's exit
@@ -464,6 +466,36 @@ func (s *Session) Bytes() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.r.wire
+}
+
+// MemoryMB is what the page's browser uses now: the proportional set size
+// of its processes, in MB (0 where /proc is not available).
+func (s *Session) MemoryMB() float64 { return procfs.TreeMB(s.r.pid) }
+
+// Freeze stops the page's scripts and timers (the page lifecycle's frozen
+// state) until Thaw: an idle page does no work and grows no memory. Calls
+// that run script in the page (Evaluate, Fetch, Sign) need it thawed.
+//
+// Chromium freezes only a hidden page, and a page left hidden after it
+// resumes keeps its timers asleep; so Freeze hides the page first (focus
+// emulation off) and Thaw shows it again (on), and the page runs as before.
+func (s *Session) Freeze(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, s.r.opts.CallTimeout)
+	defer cancel()
+	if err := s.r.c.call(ctx, s.r.s, "Emulation.setFocusEmulationEnabled", map[string]any{"enabled": false}, nil); err != nil {
+		return err
+	}
+	return s.r.c.call(ctx, s.r.s, "Page.setWebLifecycleState", map[string]any{"state": "frozen"}, nil)
+}
+
+// Thaw resumes a frozen page.
+func (s *Session) Thaw(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, s.r.opts.CallTimeout)
+	defer cancel()
+	if err := s.r.c.call(ctx, s.r.s, "Page.setWebLifecycleState", map[string]any{"state": "active"}, nil); err != nil {
+		return err
+	}
+	return s.r.c.call(ctx, s.r.s, "Emulation.setFocusEmulationEnabled", map[string]any{"enabled": true}, nil)
 }
 
 // ErrSessionClosed is returned by calls on a closed Session.

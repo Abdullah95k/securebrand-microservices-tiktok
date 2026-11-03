@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,6 +31,7 @@ type fakePage struct {
 	busy   *atomic.Int32
 	most   *atomic.Int32
 	hold   time.Duration
+	mb     atomic.Int64
 }
 
 func (p *fakePage) Sign(ctx context.Context, raw string) (string, error) {
@@ -52,6 +54,9 @@ func (p *fakePage) Sign(ctx context.Context, raw string) (string, error) {
 }
 
 func (p *fakePage) Close() { p.closed.Store(true) }
+
+// MemoryMB is the page's browser memory, as the opener sets it.
+func (p *fakePage) MemoryMB() float64 { return float64(p.mb.Load()) }
 
 type opener struct {
 	mu    sync.Mutex
@@ -236,7 +241,7 @@ func TestBrowserSignerAgainstFakett(t *testing.T) {
 	}
 	bc := cfg()
 	bc.PageTimeout = 30 * time.Second // a real page and its values, on a busy runner
-	pool := sign.New(bc, sign.BrowserOpener(bin, true, tttest.AcceptLanguage, 30*time.Second))
+	pool := sign.New(bc, sign.BrowserOpener(sign.BrowserConfig{Binary: bin, NoSandbox: true, AcceptLanguage: tttest.AcceptLanguage, CallTimeout: 30 * time.Second}))
 	defer pool.Close()
 	env.Client.Signer = ttclient.SignerFor(config.SignerBrowser, pool)
 	before := len(env.Requests("/api/comment/list/"))
@@ -278,5 +283,122 @@ func TestBrowserSignerAgainstFakett(t *testing.T) {
 	}
 	if u, _ := url.Parse(env.Requests("/api/creator/item_list/")[0].URL); u.Query().Get("X-Gnarly") != "" {
 		t.Fatal("the creator list went through the signer")
+	}
+}
+
+// The safety nets of 2026-11-03: a page unused for idle_close is closed by
+// the sweep (and never handed out), a page over max_page_mb is closed after
+// its call or by the sweep, and the next call opens a fresh one; with
+// open_on profile a page opens on the account's profile page, not the
+// post's.
+func TestPoolClosesIdleAndBigPages(t *testing.T) {
+	ctx := context.Background()
+	o := &opener{}
+	c := cfg()
+	c.PageMaxSigns, c.IdleClose, c.MaxPageMB, c.OpenOn = 1000, 2*time.Minute, 800, config.SignerOpenOnProfile
+	p := sign.New(c, o.open)
+	defer p.Close()
+	now := time.Unix(1_800_000_000, 0)
+	var mu sync.Mutex
+	p.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	advance := func(d time.Duration) { mu.Lock(); now = now.Add(d); mu.Unlock() }
+	a := identity("UA")
+	ref := "https://www.example.com/@someone/video/1?lang=en"
+	if _, err := p.SignURL(ctx, a, "comments", "/api/x?q=1", ref); err != nil {
+		t.Fatal(err)
+	}
+	if o.pages[0].url != "https://www.example.com/@someone" {
+		t.Fatalf("open_on profile opened %q", o.pages[0].url)
+	}
+	// Idle under idle_close: kept and reused.
+	advance(time.Minute)
+	p.Sweep()
+	if _, err := p.SignURL(ctx, a, "comments", "/api/x?q=2", ref); err != nil || len(o.pages) != 1 || o.pages[0].closed.Load() {
+		t.Fatalf("reuse: %v, %d pages", err, len(o.pages))
+	}
+	// Idle past idle_close: the sweep closes it.
+	advance(2 * time.Minute)
+	p.Sweep()
+	if !o.pages[0].closed.Load() || p.Pages() != 0 {
+		t.Fatalf("idle page: closed %v, %d open", o.pages[0].closed.Load(), p.Pages())
+	}
+	if _, err := p.SignURL(ctx, a, "comments", "/api/x?q=3", ref); err != nil || len(o.pages) != 2 {
+		t.Fatalf("after the sweep: %v, %d pages", err, len(o.pages))
+	}
+	// Over max_page_mb: closed as its call ends.
+	o.pages[1].mb.Store(900)
+	if _, err := p.SignURL(ctx, a, "comments", "/api/x?q=4", ref); err != nil || !o.pages[1].closed.Load() || p.Pages() != 0 {
+		t.Fatalf("big page after its call: %v, closed %v, %d open", err, o.pages[1].closed.Load(), p.Pages())
+	}
+	// Growing while idle: the sweep closes it.
+	if _, err := p.SignURL(ctx, a, "comments", "/api/x?q=5", ref); err != nil {
+		t.Fatal(err)
+	}
+	o.pages[2].mb.Store(1200)
+	p.Sweep()
+	if !o.pages[2].closed.Load() || p.Pages() != 0 {
+		t.Fatalf("big idle page: closed %v, %d open", o.pages[2].closed.Load(), p.Pages())
+	}
+	// The sweeper runs on its own.
+	sign.SweepEvery = 10 * time.Millisecond
+	defer func() { sign.SweepEvery = 10 * time.Second }()
+	q := sign.New(c, o.open)
+	defer q.Close()
+	if _, err := q.SignURL(ctx, a, "comments", "/api/x?q=6", ref); err != nil {
+		t.Fatal(err)
+	}
+	o.pages[3].mb.Store(5000)
+	deadline := time.Now().Add(2 * time.Second)
+	for q.Pages() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if q.Pages() != 0 || !o.pages[3].closed.Load() {
+		t.Fatal("the sweeper did not close a page over max_page_mb")
+	}
+}
+
+// The crawler's signer with the runaway's cures on (tt.signer.freeze, lite,
+// open_on profile) against fakett: the page opens on the account's profile
+// page, sleeps frozen between calls, and every comment page it signs is
+// answered.
+func TestBrowserSignerCuredAgainstFakett(t *testing.T) {
+	bin, err := browser.FindBinary("")
+	if err != nil {
+		t.Skip(err)
+	}
+	env := tttest.New(t, tttest.Options{Faults: fakett.Faults{RequireSignature: true,
+		SignedPaths: []string{"/api/comment/list/", "/api/comment/list/reply/"}}})
+	acc := env.World.Accounts()[0]
+	var post *fakett.Post
+	for _, p := range acc.Posts {
+		if len(p.Comments) > 0 {
+			post = p
+			break
+		}
+	}
+	id := env.Identity(t, acc.Username)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	bc := cfg()
+	bc.PageTimeout, bc.PageMaxSigns, bc.OpenOn, bc.IdleClose, bc.MaxPageMB = 30*time.Second, 100, config.SignerOpenOnProfile, time.Minute, 800
+	var opened []string
+	open := sign.BrowserOpener(sign.BrowserConfig{Binary: bin, NoSandbox: true, AcceptLanguage: tttest.AcceptLanguage,
+		CallTimeout: 30 * time.Second, Freeze: true, Lite: true})
+	pool := sign.New(bc, func(ctx context.Context, id *session.Identity, pageURL string) (sign.Page, error) {
+		opened = append(opened, pageURL)
+		return open(ctx, id, pageURL)
+	})
+	defer pool.Close()
+	env.Client.Signer = ttclient.SignerFor(config.SignerBrowser, pool)
+	ref := env.HTTP.URL + "/@" + acc.Username + "/video/" + strconv.FormatInt(post.ID, 10)
+	for cursor := range 3 {
+		resp, err := env.Client.Do(ctx, id, graphql.Request{Query: "comments", Vars: map[string]any{"item_id": post.ID, "count": 20, "cursor": cursor * 20}, Referer: ref})
+		if err != nil || resp.Class != detect.OK {
+			t.Fatalf("cursor %d: %v %v", cursor, resp, err)
+		}
+		time.Sleep(300 * time.Millisecond) // frozen meanwhile
+	}
+	if len(opened) != 1 || opened[0] != env.HTTP.URL+"/@"+acc.Username || pool.Pages() != 1 {
+		t.Fatalf("pages opened on %v, %d open", opened, pool.Pages())
 	}
 }
