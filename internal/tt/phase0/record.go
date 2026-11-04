@@ -74,6 +74,9 @@ type Record struct {
 	PageOpenMs   int64 `json:"page_open_ms,omitempty"`
 	CrossAccount bool  `json:"cross_account,omitempty"`
 	SignError    bool  `json:"sign_error,omitempty"`
+	// SignRetried marks a signed call TikTok refused once and the client
+	// signed and sent again on another page (graphql.SignRetry).
+	SignRetried bool `json:"sign_retried,omitempty"`
 
 	// sig_replay: the signature's age when it was sent again.
 	AgeS int64 `json:"age_s,omitempty"`

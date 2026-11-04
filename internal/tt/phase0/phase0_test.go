@@ -398,3 +398,22 @@ func keys(m map[string][]byte) []string {
 }
 
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
+
+// TikTok refusing some signed calls (C4's third attempt: about one in nine
+// comment pages signed on a page opened for another account): the client
+// signs each refused call once more on another page, the report counts the
+// retries, and the run still reaches GO.
+func TestRefusedSignedCallsAreRetried(t *testing.T) {
+	f := rotated()
+	f.SignerRefuseEvery = 7
+	k, _, _ := kit(t, f)
+	rep, err := k.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt := phase0.FormatReport(rep)
+	c := rep.Tiers[0].Summary.Ops["comments"]
+	if rep.Verdict != "GO" || c == nil || c.SignRetried == 0 || c.SignRetriedOK != c.SignRetried || !strings.Contains(txt, "sent again on another page") {
+		t.Fatalf("verdict %s, comments %+v:\n%s", rep.Verdict, c, txt)
+	}
+}

@@ -81,6 +81,9 @@ var (
 	// SignerPagesRefused counts pages replaced because TikTok refused their
 	// signed calls tt.signer.max_refusals times in a row.
 	SignerPagesRefused = counterVec("signer_pages_refused_total", "Signer pages replaced after TikTok refused their signed calls in a row.").WithLabelValues()
+	// SignRetries counts signed calls TikTok refused and the client signed
+	// and sent once more, on another page.
+	SignRetries = counterVec("sign_retries_total", "Signed calls refused and sent once more, signed on another page.").WithLabelValues()
 	// tks's comment reads (internal/tt/stage; ADR 0007 §5).
 	CommentReads      = counterVec("comment_reads_total", "tks comment reads by kind (post, thread) and how they ended (complete, partial, truncated).", "kind", "state")
 	TimelineTruncated = counterVec("timeline_truncated_total", "Timelines that hit a login wall before the end of the window.", "reason")

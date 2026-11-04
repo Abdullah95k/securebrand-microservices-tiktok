@@ -89,7 +89,7 @@ func TestSignersComparesBrowsers(t *testing.T) {
 	if good.BrowserProxyBytes != 1234 || good.Accounts != 2 || good.Stopped != "" {
 		t.Fatalf("good: %+v", good)
 	}
-	if bad.Signed == 0 || bad.SignedOK != 0 || bad.AfterIdle == "ok" || badClosed != 1 {
+	if bad.Signed == 0 || bad.SignedOK != 0 || bad.AfterIdle == "ok" || bad.PagesOpened < 2 || badClosed != bad.PagesOpened {
 		t.Fatalf("bad: %+v", bad)
 	}
 	txt, err := os.ReadFile(filepath.Join(out, phase0.FileSignersTxt))

@@ -62,6 +62,10 @@ type Faults struct {
 	// (2026-11-03): every call they signed was refused until a fresh page,
 	// a new device, took over.
 	SignerStaleAfter int
+	// SignerRefuseEvery refuses (an empty 200) every Nth signed call of a
+	// device, as TikTok refused about one in nine comment calls signed on
+	// a page opened for another account (C4's third attempt).
+	SignerRefuseEvery int
 }
 
 // Options configure a server.
@@ -294,10 +298,11 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	if f.SignerStaleAfter > 0 && f.RequireSignature && s.signed(r.URL.Path) {
+	if (f.SignerStaleAfter > 0 || f.SignerRefuseEvery > 0) && f.RequireSignature && s.signed(r.URL.Path) {
 		s.mu.Lock()
 		dev.signed++
-		stale := dev.signed > f.SignerStaleAfter
+		stale := (f.SignerStaleAfter > 0 && dev.signed > f.SignerStaleAfter) ||
+			(f.SignerRefuseEvery > 0 && dev.signed%f.SignerRefuseEvery == 0)
 		s.mu.Unlock()
 		if stale {
 			w.WriteHeader(http.StatusOK)

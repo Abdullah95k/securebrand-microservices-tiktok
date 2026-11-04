@@ -117,7 +117,7 @@ func (w *work) callWith(ctx context.Context, client *graphql.Client, id *session
 		return nil, r
 	}
 	r.Variant, r.Class, r.Status, r.Reason = resp.Query.DocID, resp.Class.String(), resp.Status, resp.Reason
-	r.Wire, r.Ms = resp.BytesIn+resp.BytesOut, resp.Elapsed.Milliseconds()
+	r.Wire, r.Ms, r.SignRetried = resp.BytesIn+resp.BytesOut, resp.Elapsed.Milliseconds(), resp.SignRetried
 	if resp.Class == detect.Checkpoint {
 		w.captchas.Add(1)
 	}

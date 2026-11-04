@@ -52,6 +52,9 @@ type Response struct {
 	// Wire bytes (compressed, as billed by proxies).
 	BytesIn  int64
 	BytesOut int64
+	// SignRetried marks a signed call TikTok refused once and answered
+	// signed again on another page (SignRetry).
+	SignRetried bool
 }
 
 // Client sends GraphQL and JSON web-API requests on behalf of identities.
@@ -103,6 +106,31 @@ type Signer interface {
 // refused (C4, 2026-11-03: a page went bad within minutes and stayed bad).
 type SignReporter interface {
 	SignOutcome(ctx context.Context, sentURL string, cls detect.Class)
+}
+
+// SignRetry is what a signer notes about a call it signed that TikTok
+// refused: the client then signs and sends the call once more, with the
+// same SignRetry in its context, and the signer avoids what it noted (the
+// page that signed it). In C4's third attempt (2026-11-04) every refused
+// comment call had been signed on a page opened for another account, and
+// those were answered 89 % of the time, the account's own page's 100 %.
+type SignRetry struct {
+	// Avoid is the signer's note; nil when it noted nothing, and the call
+	// is not retried.
+	Avoid any
+}
+
+type signRetryKey struct{}
+
+// WithSignRetry returns ctx carrying r, as Client.Do sends a call.
+func WithSignRetry(ctx context.Context, r *SignRetry) context.Context {
+	return context.WithValue(ctx, signRetryKey{}, r)
+}
+
+// SignRetryFrom returns the call's SignRetry, nil outside Client.Do.
+func SignRetryFrom(ctx context.Context) *SignRetry {
+	r, _ := ctx.Value(signRetryKey{}).(*SignRetry)
+	return r
 }
 
 // ErrSign wraps a signer's failure: no request was sent, and the identity
@@ -168,9 +196,23 @@ func (c *Client) Do(ctx context.Context, id *session.Identity, req Request) (*Re
 		}
 		q = fb
 	}
+	note := &SignRetry{}
+	ctx = WithSignRetry(ctx, note)
 	resp, err := c.do(ctx, id, q, req)
 	if err != nil {
 		return nil, err
+	}
+	if resp.Class == detect.RegistryStale && note.Avoid != nil {
+		// A signed call refused: once more, signed on another page.
+		metrics.SignRetries.Inc()
+		retried, err := c.do(ctx, id, q, req)
+		if err != nil {
+			return nil, err
+		}
+		retried.SignRetried = true
+		retried.BytesIn += resp.BytesIn
+		retried.BytesOut += resp.BytesOut
+		resp = retried
 	}
 	if resp.Class == detect.RegistryStale {
 		if c.Breakers != nil {
