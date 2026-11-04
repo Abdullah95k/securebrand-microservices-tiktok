@@ -81,6 +81,13 @@ var (
 	// SignerPagesRefused counts pages replaced because TikTok refused their
 	// signed calls tt.signer.max_refusals times in a row.
 	SignerPagesRefused = counterVec("signer_pages_refused_total", "Signer pages replaced after TikTok refused their signed calls in a row.").WithLabelValues()
+	// SignerPagesMax is tt.signer.pages, the pool's cap: pages at the cap
+	// with busy signatures mean the pool is too small.
+	SignerPagesMax   = gauge("signer_pages_max", "Signer pages this pod may keep open (tt.signer.pages).")
+	SignerPageCloses = counterVec("signer_page_closes_total", "Signer pages closed, by reason (spent, idle, memory, refused, error, room, shutdown).", "reason")
+	// SignedCalls counts TikTok's answers to the calls a signer page signed:
+	// answered, or refused (an empty answer).
+	SignedCalls = counterVec("signed_calls_total", "Calls a signer page signed, by TikTok's answer (answered, refused).", "result")
 	// SignRetries counts signed calls TikTok refused and the client signed
 	// and sent once more, on another page.
 	SignRetries = counterVec("sign_retries_total", "Signed calls refused and sent once more, signed on another page.").WithLabelValues()
@@ -130,6 +137,14 @@ var (
 	KafkaCommitted       = counterVec("kafka_commits_total", "Offset commits.", "group", "outcome")
 	KafkaHandlerPanics   = counterVec("kafka_handler_panics_total", "Record handlers that panicked (the record is retried; its partition waits).", "group")
 	ConsumerLag          = gaugeVec("kafka_consumer_lag", "Records behind the end of each topic, per fbs consumer group (leader scheduler).", "group", "topic")
+
+	// tks-canary (internal/tt/canary; build brief M8).
+	CanaryRuns        = counterVec("canary_runs_total", "tks canary runs by status (ok, degraded, error, skipped).", "status")
+	CanaryLastSuccess = gauge("canary_last_success_timestamp_seconds", "When the last tks canary run that gave every operation a verdict finished.")
+	CanaryChecks      = counterVec("canary_checks_total", "tks operation variant checks on canary accounts, by operation, the variant's status and the verdict (ok, stale, drift, inconclusive).", "operation", "status", "verdict")
+	CanaryPromotions  = counterVec("canary_promotions_total", "Operation variants the tks canary made active, by operation and why (failed: the active one stopped answering; unsigned: it answers without a signature).", "operation", "why")
+	CanaryHealthy     = gaugeVec("canary_operation_healthy", "1 when the operation's active variant answered on a canary account (or a working one was promoted), 0 when it failed with none to promote.", "operation")
+	CanarySigner      = gauge("canary_signer_healthy", "1 when the last tks canary run had its signed checks signed, 0 when the signer failed every one (unchanged when the run signed nothing).")
 
 	// Registry sync (fbs-registry-sync).
 	RegistrySyncRuns        = counterVec("registry_sync_runs_total", "Registry sync runs by status (ok, degraded, error).", "status")

@@ -14,10 +14,6 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/parse"
 )
 
-// signedSuffix is the registry label's mark of a variant the signer signs
-// (internal/tt/client).
-const signedSuffix = "-signed"
-
 // VariantTry is one operation variant tried on one account.
 type VariantTry struct {
 	Query   string `json:"query"`
@@ -60,12 +56,7 @@ func Candidates(seed registry.Seed, name string) []registry.Query {
 		have[q.DocID] = true
 	}
 	for _, q := range own {
-		twin := q
-		if ttclient.Signed(q) {
-			twin.DocID = strings.TrimSuffix(q.DocID, signedSuffix)
-		} else {
-			twin.DocID = q.DocID + signedSuffix
-		}
+		twin := ttclient.Twin(q)
 		if !have[twin.DocID] {
 			have[twin.DocID] = true
 			out = append(out, twin)

@@ -211,6 +211,7 @@ type TT struct {
 	Browser   Browser    `koanf:"browser"`
 	Detect    Detect     `koanf:"detect"`
 	Signer    Signer     `koanf:"signer"`
+	Canary    TTCanary   `koanf:"canary"`
 	Freshness Freshness  `koanf:"freshness"`
 	Comments  TTComments `koanf:"comments"`
 	Media     TTMedia    `koanf:"media"`
@@ -273,6 +274,39 @@ type Signer struct {
 	Freeze bool   `koanf:"freeze"`
 	Lite   bool   `koanf:"lite"`
 	OpenOn string `koanf:"open_on"`
+}
+
+// TTCanary configures tks-canary (build brief M8): it checks each
+// operation variant the crawler uses on canary accounts and promotes a
+// working one when TikTok stops answering the active one, or when an
+// unsigned variant answers where the active one needs a signature.
+type TTCanary struct {
+	Interval time.Duration `koanf:"interval"`
+	// Accounts are public TikTok usernames that post and get comments and
+	// replies; they are checked in order until every operation has a
+	// verdict. Set them in the deployment, never in git (build brief §7).
+	Accounts []string `koanf:"accounts"`
+	// Operations are the registry operations checked: the crawler's.
+	Operations []string `koanf:"operations"`
+	// Tier is the proxy tier the canary uses; "" = the first one.
+	Tier string `koanf:"tier"`
+	// Twins adds each variant's signed or unsigned twin as a candidate
+	// (TikTok changes which calls it accepts unsigned: T4, T25).
+	Twins bool `koanf:"twins"`
+	// Confirm is how many canary accounts must refuse a variant in a run
+	// before it counts as stale: one refusal may be the identity's.
+	Confirm int `koanf:"confirm"`
+	// Promote switches promotion on; false records checks only (dry run).
+	Promote bool `koanf:"promote"`
+	// KeepFallbacks is how many former variants stay as fallbacks.
+	KeepFallbacks int `koanf:"keep_fallbacks"`
+	// RetireAfter retires a candidate or fallback after this many failed
+	// checks in a row; RecheckRetired makes a retired twin a candidate
+	// again after this long.
+	RetireAfter    int           `koanf:"retire_after"`
+	RecheckRetired time.Duration `koanf:"recheck_retired"`
+	// Timeout bounds one run.
+	Timeout time.Duration `koanf:"timeout"`
 }
 
 // Where a signer page opens (tt.signer.open_on).
@@ -725,6 +759,13 @@ func (t TT) validate() []error {
 	case "", SignerOpenOnCall, SignerOpenOnProfile:
 	default:
 		errs = append(errs, fmt.Errorf("tt.signer.open_on %q must be call or profile", t.Signer.OpenOn))
+	}
+	c := t.Canary
+	if c.Interval <= 0 || c.Timeout <= 0 || c.Confirm < 1 || c.KeepFallbacks < 0 || c.RetireAfter < 0 || c.RecheckRetired < 0 {
+		errs = append(errs, errors.New("tt.canary: interval, timeout and confirm must be > 0; keep_fallbacks, retire_after and recheck_retired >= 0"))
+	}
+	if len(c.Operations) == 0 {
+		errs = append(errs, errors.New("tt.canary.operations must name the crawler's operations"))
 	}
 	f := t.Freshness
 	if f.ListInterval <= 0 || f.AccountRefresh <= 0 || f.PageRefresh <= 0 {

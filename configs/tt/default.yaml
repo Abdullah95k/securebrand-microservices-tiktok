@@ -115,6 +115,25 @@ tt:
     freeze: true
     lite: true
     open_on: profile   # call | profile
+  # tks-canary (build brief M8; runbook docs/runbooks/tks-canary.md): every
+  # interval it reads a profile page, a list page, a comment page and a reply
+  # page of the canary accounts with each variant of the crawler's
+  # operations, and promotes a working variant when the active one stops
+  # answering (or an unsigned one answers where the active one is signed).
+  canary:
+    interval: 1h
+    # Public usernames with posts, comments and replies, set in the
+    # deployment (TKS_TT__CANARY__ACCOUNTS), never committed.
+    accounts: []
+    operations: [creator_list, comments, replies]
+    tier: ""
+    twins: true        # try each variant's signed or unsigned twin
+    confirm: 2         # accounts that must refuse a variant in a run
+    promote: true
+    keep_fallbacks: 2
+    retire_after: 3
+    recheck_retired: 24h
+    timeout: 10m
   # How fresh the data is kept (build brief D2, ADR 0007 §4).
   freshness:
     # Each account's post list: 99 % of new posts stored within 3 h needs a

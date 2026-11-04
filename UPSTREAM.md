@@ -81,6 +81,8 @@ Shared code: none left (`gdpr.LockExclusive`, added for the eraser, went with it
 
 M7 added tks's Phase 0 kit (`internal/tt/phase0`, `tks-spike phase0`). igs's M8 `Measurer` has not landed (igs main `bbc5987`, 2026-11-02), so tks wrote its own, in the shape of fbs's kit (`internal/spike`: steps run in order and resumed with `--from`, `StepError` with `NeedsAction`, a bundle refused when it holds a proxy credential), on tks's own client, parsers, registry and signer; it counts signed calls and browser time as costs, climbs a per-IP rate ladder, and projects a cost per account per day. igs may want its shape (a ladder, a cost model on the crawler's schedule, results without names). No shared code changed; `fakett` gained the `MaxRPS` fault and `Sign`.
 
+M8 added `tks-canary` (`internal/tt/canary`, `cmd/tks-canary`; docs/tiktok ADR 0007 §16), tks's own code in the shape of `internal/registrysync` (the run lock, run records, check columns, promotion, fallbacks and retirement), on schema tt's `operations` and `canary_runs`. igs's registry sync (`internal/ig/registrysync`, igs main `359c135`, 2026-11-04) is fbs's doc_id discovery for Instagram and has no TikTok equivalent, so there is nothing to port: the canary checks each variant and its signed or unsigned twin instead. Shared code: the metrics `tks_canary_*`, `tks_signed_calls_total`, `tks_signer_pages_max` and `tks_signer_page_closes_total`; `fakett.Server.SetFaults` and `Faults.MovedPaths`; `ttclient.Twin` (used by the Phase 0 kit too).
+
 ## tks fixes igs or fbs may want
 
 Fixes made in tks's copy of shared code that igs or fbs still lack. Their own sessions decide whether to port them.

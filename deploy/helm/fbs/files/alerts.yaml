@@ -449,3 +449,127 @@ groups:
             tt_chain_token (T18, T33). The files are read again at the post's
             next read.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-media.md#refused-downloads
+
+  # tks-canary and the browser signer (docs/tiktok build brief M8; runbook
+  # docs/runbooks/tks-canary.md). The canary checks each variant of the
+  # crawler's operations on canary accounts every hour and promotes a
+  # working one; the signer signs comments and replies in a few pages.
+  - name: tks.canary
+    rules:
+      - alert: TksCanaryOperationFailing
+        expr: min by (operation) (tks_canary_operation_healthy) == 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.operation }}: TikTok no longer answers its active variant and the canary has none to promote"
+          description: >-
+            Refused on the canary accounts (TikTok moved or changed the call:
+            add a candidate variant) or drifted (the parser misses required
+            fields: fix it). GET /v1/admin/canary/runs has the checks.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-canary.md#an-operation-is-failing
+      - alert: TksCanaryNotRunning
+        # Every tks binary exports the gauge (0 outside tks-canary); the
+        # runs counter exists only where runs happen.
+        expr: |
+          time() - max(tks_canary_last_success_timestamp_seconds) > 3 * 3600
+            and on () count(tks_canary_runs_total) > 0
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: No tks-canary run in 3 hours gave every operation a verdict
+          description: >-
+            TikTok's changes will not be followed. Usually no canary account
+            loads (renamed, private, a blocked tier), the signer cannot sign,
+            the accounts lack posts with comments or replies, or
+            tt.canary.accounts is empty.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-canary.md#the-canary-is-not-running
+      - alert: TksCanaryPromoted
+        expr: sum by (operation, why) (increase(tks_canary_promotions_total[1h])) > 0
+        for: 0m
+        labels: {severity: info}
+        annotations:
+          summary: "{{ $labels.operation }}: the canary switched to another variant ({{ $labels.why }})"
+          description: >-
+            TikTok changed what it accepts. why=failed: the active variant
+            stopped answering; if the new one is signed, every such call now
+            costs browser time (the signer's share and pages rise). why=unsigned:
+            a call no longer needs a signature.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-canary.md#a-variant-was-promoted
+      - alert: TksCanaryDrift
+        expr: sum by (operation) (increase(tks_canary_checks_total{verdict="drift"}[2h])) > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.operation }}: TikTok's answer lacks fields the parser needs"
+          description: >-
+            A variant answered but its answer changed shape. If the active
+            variant drifted and nothing replaced it, TksCanaryOperationFailing
+            fires too. Add a fixture of the new answer and fix the parser.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-canary.md#drift
+      - alert: TksEmptyAnswers
+        # The crawler's own calls (the canary's are named canary:*).
+        expr: |
+          sum by (query) (rate(tks_tt_requests_total{query!~"canary:.*", class="registry_stale"}[15m]))
+            / clamp_min(sum by (query) (rate(tks_tt_requests_total{query!~"canary:.*"}[15m])), 1e-9) > 0.2
+          and sum by (query) (rate(tks_tt_requests_total{query!~"canary:.*"}[15m])) > 0.05
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.query }}: {{ $value | humanizePercentage }} of TikTok's answers are empty"
+          description: >-
+            TikTok refuses the call with an empty answer: a changed variant
+            the canary has not replaced yet, a signer whose pages went bad, or
+            burnt identities.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-canary.md#empty-answers
+      - alert: TksSignerFailing
+        expr: |
+          sum(rate(tks_signer_signs_total{result="error"}[15m]))
+            / clamp_min(sum(rate(tks_signer_signs_total[15m])), 1e-9) > 0.1
+          and sum(rate(tks_signer_signs_total[15m])) > 0.01
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of signatures fail"
+          description: >-
+            Signer pages do not open or fail to sign: Chromium missing or
+            crashing, TikTok's page not loading through the tier, or the
+            page's script changed. Comments and replies wait in retries.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-canary.md#the-signer-fails
+      - alert: TksSignedCallsRefused
+        expr: |
+          sum(rate(tks_signed_calls_total{result="refused"}[15m]))
+            / clamp_min(sum(rate(tks_signed_calls_total[15m])), 1e-9) > 0.1
+          and sum(rate(tks_signed_calls_total[15m])) > 0.01
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "TikTok refuses {{ $value | humanizePercentage }} of the calls the signer signed"
+          description: >-
+            Signed comment and reply calls come back empty: pages going bad
+            faster than they are replaced (C4), TikTok checking something new,
+            or the signer giving itself away as automated (S1).
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-canary.md#signed-calls-refused
+      - alert: TksSignerSaturated
+        expr: |
+          sum(rate(tks_signer_signs_total{result="busy"}[15m]))
+            / clamp_min(sum(rate(tks_signer_signs_total[15m])), 1e-9) > 0.05
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of signatures waited past the sign timeout: every signer page busy"
+          description: >-
+            The pool's cap (tt.signer.pages, tks_signer_pages_max) is too low
+            for the comment traffic: add crawler pods running the post and
+            thread stages, or raise the cap where memory allows.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-canary.md#the-signer-is-saturated
+      - alert: TksSignerPagesChurn
+        expr: sum(increase(tks_signer_page_closes_total{reason=~"memory|refused|error"}[1h])) > 60
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} signer pages closed in an hour for memory, refusals or errors"
+          description: >-
+            Pages are replaced far more often than their limits plan for:
+            each new page is a TikTok page load through the tier and browser
+            time. tks_signer_page_closes_total by reason says which.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-canary.md#signer-pages-churn

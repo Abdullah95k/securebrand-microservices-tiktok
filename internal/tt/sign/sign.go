@@ -92,6 +92,7 @@ func New(cfg config.Signer, open Opener) *Pool {
 	n := max(cfg.Pages, 1)
 	p := &Pool{cfg: cfg, open: open, slots: make(chan struct{}, n), quit: make(chan struct{}), done: make(chan struct{}),
 		signedBy: map[string]*page{}}
+	metrics.SignerPagesMax.Set(float64(n))
 	if cfg.IdleClose > 0 || cfg.MaxPageMB > 0 {
 		go p.sweeper(SweepEvery)
 	} else {
@@ -120,11 +121,20 @@ func (p *Pool) sweeper(every time.Duration) {
 // to 7 GB, 2026-11-03), and the next call opens a fresh one.
 func (p *Pool) Sweep() {
 	p.mu.Lock()
-	var stale []*page
+	var stale []closing
 	keep := p.idle[:0]
 	for _, pg := range p.idle {
-		if pg.bad || p.idleTooLong(pg) || p.tooBig(pg) {
-			stale = append(stale, pg)
+		why := ""
+		switch {
+		case pg.bad:
+			why = CloseRefused
+		case p.idleTooLong(pg):
+			why = CloseIdle
+		case p.tooBig(pg):
+			why = CloseMemory
+		}
+		if why != "" {
+			stale = append(stale, closing{pg, why})
 		} else {
 			keep = append(keep, pg)
 		}
@@ -132,10 +142,32 @@ func (p *Pool) Sweep() {
 	p.idle = keep
 	p.total -= len(stale)
 	p.mu.Unlock()
-	for _, pg := range stale {
-		pg.Close()
-		metrics.SignerPages.Dec()
+	for _, c := range stale {
+		closePage(c.pg, c.why)
 	}
+}
+
+// Why a signer page was closed (tks_signer_page_closes_total).
+const (
+	CloseSpent    = "spent"    // page_max_signs or page_max_age reached
+	CloseIdle     = "idle"     // unused for idle_close
+	CloseMemory   = "memory"   // its browser past max_page_mb
+	CloseRefused  = "refused"  // its signed calls refused max_refusals times in a row
+	CloseError    = "error"    // a signature failed
+	CloseRoom     = "room"     // closed to open a page for another user agent, or for a retry
+	CloseShutdown = "shutdown" // the pool closed
+)
+
+type closing struct {
+	pg  *page
+	why string
+}
+
+// closePage closes a page the pool no longer counts.
+func closePage(pg *page, why string) {
+	pg.Close()
+	metrics.SignerPages.Dec()
+	metrics.SignerPageCloses.WithLabelValues(why).Inc()
 }
 
 func (p *Pool) idleTooLong(pg *page) bool {
@@ -216,13 +248,17 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 		p.mu.Unlock()
 		return nil, ErrClosed
 	}
-	var stale []*page
+	var stale []closing
 	var got *page
 	keep := p.idle[:0]
 	for _, pg := range p.idle {
 		switch {
-		case pg.bad || p.spent(pg) || p.idleTooLong(pg):
-			stale = append(stale, pg)
+		case pg.bad:
+			stale = append(stale, closing{pg, CloseRefused})
+		case p.spent(pg):
+			stale = append(stale, closing{pg, CloseSpent})
+		case p.idleTooLong(pg):
+			stale = append(stale, closing{pg, CloseIdle})
 		case got == nil && pg.ua == ua && pg != avoid:
 			got = pg
 		default:
@@ -240,7 +276,7 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 				i = j
 			}
 		}
-		stale = append(stale, p.idle[i])
+		stale = append(stale, closing{p.idle[i], CloseRoom})
 		p.idle = append(p.idle[:i], p.idle[i+1:]...)
 		p.total--
 	}
@@ -248,9 +284,8 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 		p.total++ // reserved for the page about to open
 	}
 	p.mu.Unlock()
-	for _, pg := range stale {
-		pg.Close()
-		metrics.SignerPages.Dec()
+	for _, c := range stale {
+		closePage(c.pg, c.why)
 	}
 	if got != nil {
 		return got, nil
@@ -313,11 +348,21 @@ func (p *Pool) spent(pg *page) bool {
 func (p *Pool) give(pg *page) {
 	big := p.tooBig(pg)
 	p.mu.Lock()
-	if p.closed || pg.bad || p.spent(pg) || big {
+	why := ""
+	switch {
+	case p.closed:
+		why = CloseShutdown
+	case pg.bad:
+		why = CloseRefused
+	case p.spent(pg):
+		why = CloseSpent
+	case big:
+		why = CloseMemory
+	}
+	if why != "" {
 		p.total--
 		p.mu.Unlock()
-		pg.Close()
-		metrics.SignerPages.Dec()
+		closePage(pg, why)
 		return
 	}
 	p.idle = append(p.idle, pg)
@@ -328,8 +373,7 @@ func (p *Pool) discard(pg *page) {
 	p.mu.Lock()
 	p.total--
 	p.mu.Unlock()
-	pg.Close()
-	metrics.SignerPages.Dec()
+	closePage(pg, CloseError)
 }
 
 // maxSignedBy bounds the calls whose answer the pool waits to hear.
@@ -367,7 +411,9 @@ func (p *Pool) SignOutcome(ctx context.Context, sentURL string, cls detect.Class
 	switch cls {
 	case detect.OK:
 		pg.refusals = 0
+		metrics.SignedCalls.WithLabelValues("answered").Inc()
 	case detect.RegistryStale:
+		metrics.SignedCalls.WithLabelValues("refused").Inc()
 		if r := graphql.SignRetryFrom(ctx); r != nil && r.Avoid == nil {
 			r.Avoid = pg // the client signs the call once more, elsewhere
 		}
@@ -397,8 +443,7 @@ func (p *Pool) Close() {
 	p.total -= len(idle)
 	p.mu.Unlock()
 	for _, pg := range idle {
-		pg.Close()
-		metrics.SignerPages.Dec()
+		closePage(pg, CloseShutdown)
 	}
 	<-p.done
 }
