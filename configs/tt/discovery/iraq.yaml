@@ -1,0 +1,200 @@
+# Copied from fbs (Abdullah95k/securebrand-microservices) configs/discovery/iraq.yaml
+# at 9bea690 (2026-11-03) for tks keyword discovery (docs/tiktok/discovery-plan.md).
+# Not embedded or loaded yet: M10 adds `tksctl discovery keywords seed`.
+#
+# Discovery keyword seed: Iraq, the Kurdistan Region, the 19 governorates
+# and their key cities and towns. `fbctl discovery keywords seed` loads it;
+# loading it again adds only what is new, and never re-enables a keyword
+# someone turned off.
+#
+# Each group is a governorate (or the country). `terms` are searched;
+# `off` are loaded disabled: real spellings that are also common words or
+# names (حديثة "modern", القائم "the existing", Hit, Soran, Rania...), which
+# would bring in mostly unrelated posts. Enable them one by one through the
+# API if they prove useful.
+#
+# Languages: en English (with common transliterations), ar Arabic (with and
+# without the article where the bare form is distinctive), ckb Sorani
+# Kurdish (Arabic script), kmr Kurmanji Kurdish (Latin script). Spellings
+# Kurdish media use; where one wasn't certain it was left out, not guessed.
+groups:
+  - name: iraq
+    terms:
+      en: [Iraq, Iraqi]
+      ar: [العراق, عراق, العراقية, العراقي]
+      ckb: [عێراق]
+      kmr: [Iraq, Iraqê]
+
+  - name: kurdistan_region
+    terms:
+      en: [Kurdistan Region, KRG, Kurdistan Region of Iraq]
+      ar: [إقليم كوردستان, إقليم كردستان, اقليم كوردستان, اقليم كردستان]
+      ckb: [هەرێمی کوردستان]
+      kmr: [Herêma Kurdistanê]
+
+  - name: baghdad
+    terms:
+      en: [Baghdad, Kadhimiya, Kazimiyah, Adhamiya, Abu Ghraib, Sadr City]
+      ar: [بغداد, الكاظمية, الأعظمية, ابو غريب, أبو غريب, مدينة الصدر]
+      ckb: [بەغدا]
+      kmr: [Bexda]
+
+  - name: basra
+    terms:
+      en: [Basra, Basrah, Umm Qasr, Al-Faw, Qurna, Al-Qurnah]
+      ar: [البصرة, بصرة, أم قصر, ام قصر, الفاو, القرنة]
+      ckb: [بەسرە]
+      kmr: [Besra]
+    off:
+      en: [Zubayr, Zubair, Faw, Fao]
+      ar: [الزبير]
+
+  - name: nineveh
+    terms:
+      en: [Nineveh, Ninawa, Ninewa, Mosul, Sinjar, Shingal, Tal Afar, Tel Afar, Talafar, Qaraqosh, Bakhdida, Bashiqa]
+      ar: [نينوى, الموصل, موصل, سنجار, تلعفر, تل عفر, قره قوش, بغديدا, بعشيقة]
+      ckb: [نەینەوا, مووسڵ, شنگال]
+      kmr: [Neynewa, Mûsil, Şengal]
+
+  - name: erbil
+    terms:
+      en: [Erbil, Arbil, Irbil, Hawler, Hewler, Shaqlawa, Rawanduz, Rwanduz, Makhmour, Makhmur, Ankawa, Choman]
+      ar: [أربيل, اربيل, شقلاوة, راوندوز, مخمور, عنكاوا]
+      ckb: [هەولێر, کۆیە, شەقڵاوە, ڕەواندز, مەخموور, عەنکاوە, چۆمان]
+      kmr: [Hewlêr, Koye, Şeqlawe, Rewandiz, Mexmûr]
+    off:
+      en: [Soran, Koya, Koysinjaq]
+      ar: [سوران, كويه, كوية]
+      ckb: [سۆران]
+      kmr: [Soran]
+
+  - name: sulaymaniyah
+    terms:
+      en: [Sulaymaniyah, Sulaimaniyah, Sulaimani, Slemani, Suleimaniyah, Qaladiza, Qaladze, Chamchamal, Kalar, Darbandikhan, Penjwen, Said Sadiq]
+      ar: [السليمانية, سليمانية, قلعة دزة, جمجمال, كلار, دربندخان, بنجوين]
+      ckb: [سلێمانی, ڕانیە, قەڵادزێ, چەمچەماڵ, کەلار, دەربەندیخان, پێنجوێن]
+      kmr: [Silêmanî, Ranye, Qeladizê, Çemçemal, Kelar, Derbendîxan, Pêncwên]
+    off:
+      en: [Ranya, Rania]
+      ar: [رانية]
+
+  - name: duhok
+    terms:
+      en: [Duhok, Dohuk, Dahuk, Zakho, Akre, Aqrah, Amedi, Amadiya, Simele, Semel]
+      ar: [دهوك, زاخو, عقرة, عقره, العمادية, سميل]
+      ckb: [دهۆک, زاخۆ, ئاکرێ, ئامێدی, سێمێل]
+      kmr: [Dihok, Duhok, Zaxo, Akrê, Amêdî, Sêmêl]
+
+  - name: halabja
+    terms:
+      en: [Halabja, Halabjah]
+      ar: [حلبجة]
+      ckb: [هەڵەبجە]
+      kmr: [Helebce]
+
+  - name: kirkuk
+    terms:
+      en: [Kirkuk, Hawija, Hawijah, Daquq]
+      ar: [كركوك, الحويجة, داقوق]
+      ckb: [کەرکووک, حەویجە]
+      kmr: [Kerkûk]
+    off:
+      ar: [دبس]
+      en: [Dibis]
+
+  - name: diyala
+    terms:
+      en: [Diyala, Baqubah, Baquba, Khanaqin, Muqdadiya, Muqdadiyah, Mandali]
+      ar: [ديالى, بعقوبة, خانقين, المقدادية, مندلي]
+      ckb: [دیالە, خانەقین, مەندەلی]
+      kmr: [Diyala, Xaneqîn, Mendelî]
+    off:
+      ar: [الخالص]
+      en: [Khalis]
+
+  - name: salah_al_din
+    terms:
+      en: [Salahuddin, Salah al-Din, Salah ad-Din, Saladin province, Tikrit, Samarra, Baiji, Bayji, Tuz Khurmatu, Tuz Khurmatoo, Dujail, Shirqat, Sharqat]
+      ar: [صلاح الدين, تكريت, سامراء, بيجي, طوز خورماتو, الدجيل, الشرقاط]
+      ckb: [سەلاحەدین, تکریت, سامەڕا, دووزخورماتوو]
+      kmr: [Selahedîn, Tikrît, Duzxurmatû]
+    off:
+      en: [Balad]
+      ar: [بلد]
+
+  - name: anbar
+    terms:
+      en: [Anbar, Al Anbar, Ramadi, Fallujah, Falluja, Haditha, Al-Qaim, Rutba, Rutbah]
+      ar: [الأنبار, الانبار, الرمادي, رمادي, الفلوجة, فلوجة]
+      ckb: [ئەنبار, ڕەمادی, فەللووجە]
+      kmr: [Enbar]
+    off:
+      en: [Hit, Anah, Rawa]
+      ar: [هيت, حديثة, القائم, الرطبة, عنة, راوة]
+
+  - name: babil
+    terms:
+      en: [Babil, Babylon, Hillah, Hilla, Musayyib, Mahawil]
+      ar: [بابل, الحلة, المسيب, المحاويل]
+      ckb: [بابل]
+    off:
+      ar: [الهاشمية]
+      en: [Hashimiya]
+
+  - name: karbala
+    terms:
+      en: [Karbala, Kerbala, Ain al-Tamr]
+      ar: [كربلاء, كربلا, عين التمر]
+      ckb: [کەربەلا]
+      kmr: [Kerbela]
+
+  - name: najaf
+    terms:
+      en: [Najaf, Kufa, Kufah]
+      ar: [النجف, نجف, الكوفة]
+      ckb: [نەجەف]
+      kmr: [Necef]
+    off:
+      ar: [المناذرة]
+
+  - name: qadisiyah
+    terms:
+      en: [Qadisiyah, Qadisiyyah, Al-Qadisiyah, Diwaniyah, Diwaniya]
+      ar: [القادسية, الديوانية, ديوانية]
+      ckb: [دیوانیە]
+    off:
+      en: [Afak]
+      ar: [عفك, الشامية]
+
+  - name: muthanna
+    terms:
+      en: [Muthanna, Al-Muthanna, Samawah, Samawa, Rumaitha]
+      ar: [المثنى, السماوة, سماوة, الرميثة]
+      ckb: [سەماوە]
+
+  - name: dhi_qar
+    terms:
+      en: [Dhi Qar, Thi Qar, Nasiriyah, Nasiriya, Nasiriyya, Shatra, Suq al-Shuyukh, Chibayish]
+      ar: [ذي قار, الناصرية, ناصرية, الشطرة, سوق الشيوخ, الجبايش]
+      ckb: [ناسریە]
+    off:
+      en: [Rifai]
+      ar: [الرفاعي]
+
+  - name: maysan
+    terms:
+      en: [Maysan, Missan, Amarah, Majar al-Kabir]
+      ar: [ميسان, المجر الكبير]
+      ckb: [میسان, عەمارە]
+    off:
+      en: [Amara, Ali al-Gharbi]
+      ar: [العمارة, علي الغربي]
+
+  - name: wasit
+    terms:
+      en: [Wasit, Al-Kut, Kut al-Amara]
+      ar: [واسط, الكوت]
+      ckb: [کووت]
+    off:
+      en: [Kut, Aziziyah, Suwaira, Badra]
+      ar: [العزيزية, الصويرة, بدرة]
