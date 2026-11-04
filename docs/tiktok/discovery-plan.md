@@ -1,432 +1,473 @@
 # Finding and adding accounts: the plan
 
-**Status: proposed on 2026-11-04 and waiting for the owner's approval. Nothing here is built yet.**
-
-The owner asked for all three parts, on 2026-11-04:
-
-1. **A.** Bulk import.
-2. **B.** Suggestions from data tks already collects.
-3. **C.** Discovery through TikTok's own search, hashtag and sound pages.
-
-They asked for a plan that thinks through every case before anything is built. This document is that plan.
+**Status: approved by the owner on 2026-11-04, with the decisions in §1.**
+- The build starts when M8 merges. Building it alongside M8 would change the same files: migrations, config, the scheduler, the API and `build-status.md`.
+- Nothing here is built yet.
 
 **What tks does today** (checked in the code, 2026-11-04; see [`build-brief.md`](build-brief.md) and [`build-status.md`](build-status.md)):
 - It follows only the accounts it is given, one at a time, through `POST /v1/accounts`.
 - It keeps them up to date: new posts within 3 h, counts, comments, account details and renames.
-- There is no bulk import. tks has no command like fbs's `fbctl pages import`.
-- There is no discovery. The brief's D1 left search, hashtag and sound pages out of scope.
+- It has no bulk import and no discovery. The brief's D1 left search, hashtag and sound pages and follower lists out of scope; the owner has now brought them in (§1).
 
 ---
 
 ## 0. The plan on one page
 
-| Part | What it does | New TikTok traffic | Counsel | Owner step | Milestone |
-|---|---|---|---|---|---|
-| **A. Bulk import** | A file of accounts becomes registered accounts, with a report | None beyond each new account's normal backfill | No change | None | **M10** |
-| **B. Suggestions from collected data** | Accounts that your accounts mention, reply to or attract comments from are ranked, checked and suggested. You approve them, or a rule adds them automatically within caps. | One small read per candidate, to check it | **Yes**: commenters are private people | None to build; counsel before use in production | **M11** |
-| **C. Discovery through TikTok's discovery pages** | Keyword search, hashtags, sounds, related posts, suggested accounts, reposts, and lookalikes of your brands | **Yes**: new calls | **Yes**: a scope change (D1) | **C6**: a capped discovery probe on the droplet | **M12** |
+**The goal** (owner, 2026-11-04): find and monitor **every public, active TikTok account that is Iraqi, run by someone from or in Iraq, or followed by an Iraqi audience**. Accounts are added **automatically**.
 
-All three parts share the foundations in §2: where each account came from, labels, paced admission, a trial tier, lighter checks for dead accounts, and kill switches. They are built in M10.
+| Part | What it does | New TikTok traffic | Milestone |
+|---|---|---|---|
+| **Foundations** | Where each account came from, labels, paced admission, the **entry check** and the **dormant list** (§4), the Iraq score (§3), kill switches | None | **M10** |
+| **A. Bulk import** | A file of accounts becomes registered accounts, with a report | None beyond each account's normal reads | **M10** |
+| **B. From data tks collects** | Accounts mentioned, replied to, or commenting on monitored posts are checked and added | One list read per new account | **M11** |
+| **C. TikTok's discovery pages** | Search by the Iraq keyword list, hashtags, sounds, the For You feed, related posts | Yes | **M12**, after C6 |
+| **D. Who follows whom** | The following **and followers** lists of every monitored account, new ones included | Yes, the most of all | **M13**, after C6 |
+| **Review page** | Discovered accounts, the dormant list, keywords, evidence, cost, imports | None | **M14** |
 
-**Order:** M8 (running now; it now also marks posts that are no longer public, §12) → **M10** → M9 → **M11** → **C6** → **M12** → **G2** (counsel signs off on B and C).
+**Order:**
+1. M8 (running; it also marks posts that are no longer public, §17);
+2. **M10** and **M10b** (the C6 probe tool);
+3. M9;
+4. **M11**;
+5. **C6**, the owner's probe: any time after M10b; nothing waits for it except M12 and M13;
+6. **M12**, **M13**, **M14**;
+7. **G2**, counsel.
 
-- M10 comes before M9 because go-live (C5) registers 50–100 accounts and then ramps up. That needs the import and paced admission.
-- One build session runs at a time (brief §7).
-- Go-live (C5) does not wait for B or C.
-
-**Your decisions** are in §11, each with a recommendation.
-
----
-
-## 1. Words used here
-
-- **Monitored account**: an account on tks's schedule, registered by an API client.
-- **Candidate**: an account tks has seen somewhere but does not monitor.
-- **Signal**: one piece of evidence that a candidate matters. For example: "named in a caption by one of your accounts", "commented on 9 of your accounts' posts", "found by the search for a keyword".
-- **Rule**: your instruction for what to look for, which accounts qualify (filters), and what to do with them: suggest them to you, or add them automatically within caps.
-- **Suggestion**: a candidate that passed a rule and waits for your decision.
+One build session runs at a time (brief §7).
 
 ---
 
-## 2. Foundations shared by A, B and C (M10)
+## 1. The owner's decisions (2026-11-04)
 
-### 2.1 Where each account came from
+1. **What to find.** All accounts that are Iraqi, owned by someone from or in Iraq, or that the Iraqi audience is interested in. §3 turns this into a score.
+2. **Add automatically, with no caps in production.** Caps are for testing. The traffic budget and the machines are then the only limits (§12).
+3. **No follower minimum.** An account qualifies if it is **public** and has **at least one post in the last 3 months**.
+   - A private or inactive account goes on a **dedicated list**, the dormant list (§4).
+   - When it is seen again, it is **not checked again until 6 months or more** have passed.
+4. **Following and followers lists**, of every monitored account, **new ones included** (§9).
+5. **Keep everything** that is read (§10).
+6. **Build it all now**, the review page included (§11), without disturbing the M8 session.
+7. **No age filter.** TikTok's predicted age band is often wrong, so accounts are kept regardless of it.
 
-A new table, `account_sources`, records for every registration:
-- **how** it came: `api`, `import` or `rule`;
-- the **import batch** or the **rule**;
-- the **API client**;
-- **who approved it, and when**;
-- the **evidence**: the signals that made it a suggestion.
+**The search keywords are fbs's Iraq list** (`configs/discovery/iraq.yaml` in `Abdullah95k/securebrand-microservices`, 2026-11-03):
+- 21 groups: the country, the Kurdistan Region, the 19 governorates and their cities;
+- 317 terms in English (135), Arabic (97), Sorani (48) and Kurmanji (37);
+- plus `off` terms: ambiguous spellings loaded disabled.
 
-An account keeps all its sources. It may be imported by one client and suggested to another. `GET /v1/accounts/{account}` shows them, and `GET /v1/accounts?source=import` or `?source=rule:<id>` filters by them. Any account can always be explained ("why do we monitor this?") and removed. This also answers counsel's likely first question.
+tks gets a copy in `configs/tt/discovery/iraq.yaml`.
 
-### 2.2 Labels
+**The owner recorded a logged-out search session from Iraq.** The findings are in [`har-findings-search-2026-11-04.md`](har-findings-search-2026-11-04.md):
+- search answered 9 pages deep, with no login wall;
+- it is signed by TikTok's script, as comments are;
+- its results are full posts with their authors, but no post region;
+- the For You feed served logged out from Iraq is a source too.
 
-Free labels on a registration, per API client. Examples: `list:banks`, `city:basra`, `import:2026-11-05`, `rule:lookalikes`.
-- They are set on import, on approval or by a rule.
-- The API filters by them.
-- They never go to TikTok.
+The recording isn't in git. The build session that needs it asks the owner for the link.
 
-### 2.3 Paced admission (new accounts join at a set pace)
+---
 
-**Today** (checked): a new account is due at once, and its first job is a 365-day backfill. Backfills already have their own lane, so they don't delay the 2 h 45 min checks. But nothing limits how many new accounts start in an hour.
+## 2. What is reused
 
-**The problem:** 10,000 imported at once means 10,000 backfills of about 25 list pages each. C3 counted 381 posts per account in a year, at 15 to a page. They would use the day's proxy data within hours.
+fbs built this pattern for Facebook after tks was copied (ADR 0004 in fbs; `internal/discovery`, `internal/mentions`, migrations `00008_discovery` and `00009_mentions`). tks ports it, as it ported the rest (D7), adapting each part to TikTok:
+
+| fbs part | What it does | In tks |
+|---|---|---|
+| `discovery.Normalize` | Folds Arabic, Sorani and Kurmanji spellings (أ إ آ → ا, ة → ه, ي ى → ی, ك → ک, tatweel, zero-width joiners, harakat, Arabic-Indic digits; Latin accents, `-` and `_`) | Copied as is: keyword matching, de-duplication, Iraq text signals (§3) |
+| The keyword seed (`iraq.yaml`, `fbctl discovery keywords seed`) | Loads the keywords; loading again adds only new ones and never re-enables one someone turned off | `tksctl discovery keywords seed`, the same rules |
+| Keyword discovery (`discovery_keywords`, `discovery_mentions`, scheduler, `search` stage) | Searches each keyword every hour for recent posts, records each hit, adds new posters, with a daily cap | Part C, with TikTok's search call; no cap in production |
+| Mentions (ADR 0004) | The persister records the accounts that new posts and comments mention, and comment authors, **only for rows it inserts for the first time**. The leader counts them; a crawler stage checks each new one. | Part B, the same three steps |
+| `mentions.recheck_after: 4380h` | A not-public account is checked again only after about 6 months | The dormant list (§4), for every source |
+| `source` and `discovered_at` on the schedule | Where an account came from | `account_sources` (§5.1), with the evidence |
+
+From tks itself:
+- the `creator` list (plain HTTP, unsigned, 15 posts with `locationCreated` and the author's counts) **is the entry check** (§4);
+- the browser signer pool signs search and the other calls (D11);
+- the operations registry (switches per call), the budget, the canary and fakett.
+
+---
+
+## 3. What counts as Iraqi: the Iraq score
+
+TikTok shows no country on an account. In the recordings, `region` is the viewer's country, not the account's. So tks scores each account from what it can read, and records **why**.
+
+| Signal | Source | Strength |
+|---|---|---|
+| Recent posts made in Iraq (`locationCreated: IQ`) | The entry check's list read | **Strong**: one is enough |
+| Bio or nickname names Iraq, the Kurdistan Region or an Iraqi place (the keyword list, normalized) | Account | **Strong** |
+| An Iraqi phone number (`+964`, `00964`, `07xx…`) or a `.iq` link in the bio | Account | **Strong** |
+| Captions or hashtags name Iraqi places (#العراق, #بغداد, #هەولێر, …) in recent posts | The entry check's posts | Medium; strong when in several posts |
+| **Followed by** Iraqi accounts tks knows (§9) | Followers lists | Medium; strong when many |
+| **Its commenters** are Iraqi accounts tks knows | Comments | Medium; strong when a large share |
+| Mentioned by, or replied to by, monitored Iraqi accounts | Part B | Medium |
+| Shown to viewers in Iraq: search results and the For You feed served with `region=IQ` | Part C, only from exits TikTok places in Iraq (§8.3) | Medium |
+| Writes in Arabic or Kurdish (`textLanguage`) | Posts | **Weak**: never enough alone (Arabic spans the region; Sorani is also written in Iran) |
+
+**Rules:**
+- One strong signal qualifies an account. So do two different medium ones. Weak signals only add weight.
+- The thresholds are settings. The review page (§11) shows each account's evidence.
+- During testing the owner checks a sample of each kind ("is this Iraqi?") and the thresholds are tuned to what they say.
+
+The score covers all three of the owner's groups:
+- **an Iraqi account**: Iraqi text, phone, link or place;
+- **owned by someone in Iraq**: posts made in Iraq;
+- **the Iraqi audience is interested in**: Iraqi followers, commenters and viewers. This includes non-Iraqi accounts with a large Iraqi following.
+
+---
+
+## 4. The entry check and the dormant list
+
+**Every account any source finds goes through one entry check:** one read of its `creator` list (15 newest posts).
+
+| Result | What tks does |
+|---|---|
+| Public, a post in the last **90 days**, Iraq score passes | **Added** to monitoring automatically, with its sources and evidence (§5.1), at the admission pace (§5.3) |
+| Public, a post in the last 90 days, Iraq score doesn't pass (yet) | Stored as **not Iraqi (yet)**. Its posts and author are kept (§10). New signals can raise the score at any time, with no new read. |
+| **Private** | **Dormant list** |
+| **No post in the last 90 days**, including accounts that never posted | **Dormant list** |
+| Banned, missing (10221, 10202) | Dormant list |
+
+**The dormant list** (`dormant_accounts`):
+- It holds the account, the reason, what was read, when it was checked, and its next check date: **the check plus 180 days**.
+- **Seen again before that date:** the new signal is counted, and nothing is read.
+- **Seen after that date:** one entry check. If it now passes, it is added; if not, the next date moves 180 days on.
+- **Not seen again:** never checked again. Discovery is driven by being found.
+
+**Accounts already monitored that go quiet:**
+- A **discovered** account that goes private, or has no post for 90 days, **moves to the dormant list**. Its checks stop and its data stays.
+- **Accounts the owner registered** (API or import) are **never moved automatically**. They get the lighter checks of §5.4. This keeps the owner's own list as given; it's one setting if the owner wants otherwise.
+
+Cheap pre-checks avoid most reads:
+- Followers lists and search results already say whether an account is private.
+- Followers lists may say how many posts an account has (C6 confirms). An account shown with 0 posts goes on the dormant list without a read.
+
+---
+
+## 5. Foundations (M10)
+
+### 5.1 Where each account came from
+
+`account_sources` records for every account:
+- **how** it came: `api`, `import`, `mention`, `reply`, `commenter`, `search`, `hashtag`, `sound`, `feed`, `related`, `following`, `follower`;
+- which import, keyword, or account led to it;
+- when;
+- the evidence and the Iraq score at the time.
+
+An account keeps all its sources. `GET /v1/accounts/{account}` shows them, and `?source=` filters by them. Any account can always be explained and removed.
+
+### 5.2 Labels
+
+Free labels on a registration, per API client (`list:banks`, `import:2026-11-05`). They are set on import or by a source, and the API filters by them.
+
+### 5.3 Paced admission
+
+**Today** (checked): a new account is due at once, and its first job is a 365-day backfill. Backfills have their own lane, so they don't delay the 2 h 45 min checks. But nothing limits how many new accounts start in an hour. Thousands of new accounts at once would use the day's proxy data within hours.
 
 **The plan:** `tt.admission`:
-- **new accounts per hour.** The default is derived from the budget (D9). C5's ramp sets it.
-- **backfills running at once.**
-- **New accounts wait in a queue**, in this order: approved by hand, then imported, then added by a rule.
+- **The rate is derived from the budget (D9):** as many new accounts an hour as the day's budget allows after monitoring.
+- New accounts **wait in a queue**, in this order: the owner's own (API, import), then discovered accounts by Iraq score.
 - **Checks of existing accounts never wait.**
-- **The queue slows down when the budget stretches**, and pauses before monitoring is affected.
-- **The API shows each queued account's place and an estimated start time.** The import report gives the whole batch's estimated finish.
+- **Testing:** `tt.discovery.max_new_per_day` caps automatic additions.
+- **Production:** `0` means no cap (owner's decision 2). The queue then grows as fast as discovery finds accounts.
+- The API and the review page show the queue, its estimated drain time, and **the IPs and signer pages it would take to drain it in a day** (§12).
 
-### 2.4 Trial tier for accounts a rule adds automatically
+### 5.4 Lighter checks for the owner's accounts that go quiet
 
-An account added automatically starts **on trial**:
-- it is checked **daily**, not every 2 h 45 min, which is about 1/9 of the list traffic;
-- its backfill covers **30 days**, not 365, about 1/12 of the pages;
-- its comments are re-read only for posts younger than 7 days.
-
-When you approve it, it gets the full schedule, and the backfill continues from where the trial stopped (nothing is read twice). If you don't approve it within a set time (default 30 days), checking stops. The data stays (D8) and the candidate shows as "trial ended". Only accounts you approved, or that you monitor anyway, produce new signals (§4.4), so a trial account never brings in more trial accounts.
-
-### 2.5 Lighter checks for private, banned and missing accounts
-
-**Today** (checked): a private, banned or missing account is checked as often as an active one. The planner backs off only after failed jobs, and these jobs don't fail. Imports and discovery will bring many such accounts. The plan, `tt.freshness.inactive`:
+**Today** (checked): a private, banned or missing account is checked as often as an active one. The plan, `tt.freshness.inactive`:
 
 | Status | Checked |
 |---|---|
 | Private | Daily for 7 days, then weekly |
-| Banned or not found (TikTok's 10221, 10202) | Weekly for 30 days, then monthly |
-| Active again | Back to its normal schedule from that read |
+| Banned or not found | Weekly for 30 days, then monthly |
+| Active again | Back to normal from that read |
 
-### 2.6 Identity: the same account seen in different ways
+Discovered accounts don't need this, because they move to the dormant list (§4).
 
-- **A candidate is known by its TikTok user id.** Captions and comments carry the id and the `secUid` of the people in them; tks already stores both.
-- **tks registers a found account by its `secUid`**, which doesn't change when the account is renamed, not by its username.
-- **A rename** between "seen" and "approved" changes nothing. The username history already exists (`account_usernames`).
-- **An account another client already monitors** gets your registration added, with no second schedule. `scheduleRef` already matches by user id.
-- **An account you removed before** is shown as "removed by you on <date>". Rules don't suggest it again unless you ask.
+### 5.5 Identity
 
-### 2.7 Kill switches and permissions
+- An account is known by its **TikTok user id**. tks registers found accounts by **`secUid`**, which a rename doesn't change.
+- **An account another client already monitors** gets this client's registration added, with no second schedule (`scheduleRef` matches by user id).
+- **An account the owner removed** is never added again by discovery. Removal is recorded as a block on that client.
 
-**Kill switches:**
-- `tt.discovery.enabled` turns all discovery off.
-- Each rule has its own on/off.
-- Each new TikTok call (part C) is an operation in the existing registry, **off by default**. It is switched with `PUT /v1/admin/operations/{name}`.
+### 5.6 Switches and permissions
 
-**Permissions:**
-- New API scopes: `discovery:read` (see candidates and rules) and `discovery:write` (change rules, approve, reject).
-- Import uses the existing `accounts:write`.
+**Switches:**
+- `tt.discovery.enabled` turns everything off.
+- Each source can be turned off.
+- Each keyword can be turned off (as in fbs).
+- Each new TikTok call is an operation in the registry, **off until C6 shows it works**, switched with `PUT /v1/admin/operations/{name}`.
+
+**Permissions:** the scopes `discovery:read` and `discovery:write`. Import uses `accounts:write`.
 
 ---
 
-## 3. Part A: bulk import (M10)
-
-**How you use it:**
+## 6. Part A: bulk import (M10)
 
 ```bash
 tksctl accounts import accounts.txt --label list:banks --dry-run
 ```
 
-then the same command without `--dry-run`. The API equivalent is `POST /v1/accounts/import` (up to 1,000 lines a call), and the command sends a big file in chunks. Both end with a report:
+Then the same command without `--dry-run`. The API equivalent is `POST /v1/accounts/import` (1,000 lines a call). Both end with a report:
 - added;
 - already monitored;
 - duplicates in the file;
 - not accepted, with line numbers and reasons;
 - queued, with an estimated finish.
 
-`tksctl accounts import --report <batch>` later shows which accounts turned out private, banned or missing.
+`tksctl accounts import --report <batch>` later lists the accounts that turned out private, inactive or missing.
 
 **Accepted per line:**
 - `username` or `@username`;
-- a profile link (`tiktok.com/@name`, with or without `www.` or `m.`, with any `?…`);
-- a video link (`tiktok.com/@name/video/…`: the account is taken from it);
+- a profile link (any `www.`, `m.`, `?…`);
+- a video link (the account is taken from it);
 - a `secUid`;
 - `id:<user id>`, for accounts tks has read.
 
-Or a CSV with an `account` column and optional `labels`, `interval`, `max_age_days` and `include_media` columns. Lines starting with `#` and blank lines are skipped.
+Or a CSV with `account`, `labels`, `interval`, `max_age_days` and `include_media` columns. `#` comments and blank lines are skipped.
 
 | Case | What tks does |
 |---|---|
-| The same account twice in the file (different case, with `@`, as a link) | Counted once |
-| Already monitored by you | Unchanged; reported as "already monitored"; new labels added |
+| The same account twice (case, `@`, link) | Counted once |
+| Already monitored by you | Unchanged, reported; new labels added |
 | Monitored by another client | Your registration added; no second schedule |
-| Hidden characters from copy and paste (zero-width spaces, the right-to-left marks common in Arabic text, a byte-order mark, Windows line ends, full-width `@`) | Removed before the line is checked |
+| Hidden characters from copy and paste (zero-width spaces, right-to-left marks, a byte-order mark, Windows line ends, full-width `@`) | Removed before the line is checked |
 | Capital letters | Lowercased |
-| Not a possible username (spaces, Arabic letters, other symbols) | Not accepted; reported with the line number |
-| Short links (`vm.tiktok.com/…`, `tiktok.com/t/…`) | Reported as "not supported yet". Resolving one is a request to TikTok, so C6 checks how they redirect and M12 resolves them through the crawler. |
-| A username that doesn't exist, or a typo | Registered. The first read finds TikTok's code; the account gets the lighter checks of §2.5; the report lists it. |
-| A private account | The same: status private, lighter checks, listed |
-| A very large file (100,000 lines or more) | Sent in chunks of 1,000; joins at the admission pace (§2.3); estimated finish shown |
-| The command stops halfway (network, Ctrl-C) | Run it again: registration is idempotent, and finished lines are skipped |
-| You want the file to be your full list | `--disable-missing` removes your registrations that aren't in the file (the data stays, D8). It runs only with that flag, always shows a dry run first, and refuses to remove more than 10 % of your list without `--force`. |
-| Settings per account | CSV columns, checked like the API's |
-| Two imports at the same time | Each is its own batch; nothing breaks |
-
-There are no new TikTok calls and no legal change.
+| Not a possible username | Not accepted; line number and reason |
+| Short links (`vm.tiktok.com/…`, `tiktok.com/t/…`) | "Not supported yet". Resolving one is a request to TikTok, so C6 checks how they redirect and M12 resolves them. |
+| A missing account or a typo | Registered. The first read finds TikTok's code; the account gets the lighter checks (§5.4) and is listed in the report. |
+| A private account | The same |
+| 100,000+ lines | Sent in chunks of 1,000; admission pace; estimated finish |
+| The command stops halfway | Run it again: it is idempotent, and finished lines are skipped |
+| The file should be your whole list | `--disable-missing` removes your other registrations (the data stays). It runs only with that flag and always shows a dry run first. It refuses to remove more than 10 % of the list without `--force`. |
+| Two imports at once | Each is its own batch |
 
 ---
 
-## 4. Part B: suggestions from data tks already collects (M11)
+## 7. Part B: from data tks already collects (M11)
 
-### 4.1 Sources
+**Sources:**
+1. Accounts mentioned in **captions** and **bios** of monitored accounts.
+2. Accounts a monitored account **replies to** in its comments.
+3. Accounts mentioned **inside comments**.
+4. **Every commenter** on monitored posts.
 
-| Source | Already stored | Strength | Notes |
-|---|---|---|---|
-| **Caption mentions** by your accounts | `post_mentions` (user id, `secUid` in `people`) | Strong: your account chose to name it | Partners, branches, staff, collaborations |
-| **Bio mentions** (`@name` in your accounts' bios) | `accounts.bio` | Strong | Only a username, so tks reads that profile page once to identify it |
-| **Your accounts' replies** to someone in comments | `comments` (the author is your account) | Medium | |
-| **Mentions inside comments** | Comment mentions (user id) | Medium | |
-| **Commenters** | `comments`, `people` | Weak on its own, strong when repeated across many posts and accounts | Mostly private people: the safeguards in §4.5 |
-| Duets and stitches | Not available: the list's items carry only "duet allowed" flags, no source (checked in the fixtures) | | |
-| Sounds | Only the sound's author name, no id | | The sound's own page gives the author; that's part C |
+All four already carry the person's id and `secUid`, except bios, which carry only a username and need one profile read.
 
-### 4.2 How signals add up
-
-- **As things arrive.** Each new mention, reply or comment the persister writes adds to a running count per candidate, source and monitored account: the count, and when it was first and last seen.
-- **No rescans.** The big tables are never rescanned; at hundreds of thousands of accounts they are too large.
-- **Catch-up.** A one-time job counts what is already stored.
-
-### 4.3 Ranking, and the check before a suggestion
-
-**The score:**
-- Most weight goes to **how many different monitored accounts point to the candidate**.
-- Then how often, and how recently. A signal fades over about 90 days.
-- Then the source's strength: caption > bio > reply by your account > mention in a comment > comment.
-
-Every suggestion shows **why**, for example: "named in captions by 4 of your accounts, 11 times, last 2 days ago".
-
-**The check before suggesting:**
-- tks makes one read of the candidate's newest posts. It is the `creator` list, by plain HTTP, unsigned: the same call the crawler already uses (C2).
-- It gives followers, likes, number of videos, verified, private, the last post's date, and each post's **region** (`locationCreated`) and **language**.
-- tks has no other way to tell an Iraqi account from another: TikTok shows no country on the account itself.
-- The result is cached for 7 days, and the number of checks a day is capped (§9).
-
-### 4.4 Filters (per rule; defaults in brackets)
-
-- Followers from [1,000] to [no maximum]. Verified only [no]. Organisation accounts only [no].
-- Region of recent posts [IQ]. Language [ar, ku, en].
-- Posted within [30 days]. At least [3] posts. Account at least [30 days] old.
-- **Always:** not private, not predicted under 18, not on the exclude list. The exclude list starts with TikTok's own and other global accounts, and you add to it.
-- **Signals come only from accounts you monitor**, whether you added them or approved them. A trial account (§2.4) produces none, so suggestions never snowball into suggestions of suggestions.
-
-### 4.5 Cases
+**How it runs** (fbs ADR 0004, ported):
+1. **The persister records** the accounts a post or comment brings in, only for rows it inserts for the first time. That is the de-duplication: a re-read, an edit or a redelivered batch records nothing again. It is one write to an append-only table, in the same transaction.
+2. **The scheduler leader counts them** into per-account totals (sources, distinct monitored accounts, first and last seen) and queues each **new** account for the entry check (§4). Accounts on the dormant list wait for their date.
+3. **A crawler stage runs the entry check**, through the same identities, pacing and budget as every read.
 
 | Case | What tks does |
 |---|---|
-| A famous global account named by many of yours | The region and follower filters, your exclude list, and "reject: not relevant", which then holds for every rule |
-| Bots or spam accounts commenting everywhere | Minimum followers, posts and account age, plus "pointed to by N different accounts" |
-| **A private person who comments a lot** | Under the public threshold, so never suggested |
-| **Predicted under 18** (TikTok's age band on comment authors, already stored) | Never suggested |
-| A private account | Not eligible; checked again monthly in case it becomes public |
-| Banned or not found | Not eligible |
-| Already monitored by you | Not suggested |
-| Monitored by another client | Suggested as "already monitored by tks": approving adds your registration, with no backfill |
-| You rejected it | Not suggested again unless its snooze has ended **and** its evidence has at least doubled, or never, if you chose "never" |
-| You removed it before | Treated as rejected |
-| Renamed between the suggestion and your approval | Found by user id, registered by `secUid` |
-| Thousands of candidates a day | Ranked, with a daily cap on suggestions per rule; the rest wait their turn; a daily summary |
-| A rule that adds automatically gets out of hand | A cap per rule [20 a day] and for all rules [100 a day]; nothing is added while the budget is stretched; added accounts start on trial; a daily summary; one switch stops it |
-| Several accounts of one business | Shown together when they share a bio-link domain or a nickname |
-| Pseudonymized mode (D8) | tks doesn't keep people's ids in that mode, so B can't work: tks refuses to turn B on, with a clear message |
-| Several API clients | The facts about a candidate are shared; rules and decisions belong to each client |
+| The same commenter on thousands of posts | Recorded each time (it is evidence of the audience), checked once |
+| A commenter who is private, or has never posted | Dormant list, re-checked after 6 months only if seen again |
+| A famous account mentioned by many | Added if its Iraq score passes. Its Iraqi audience counts, by the owner's decision 1. |
+| An account already monitored | Its evidence grows; nothing is read |
+| An account the owner removed | Never added again (§5.5) |
+| Renamed between being seen and being checked | Found by user id, registered by `secUid` |
+| Pseudonymized mode (D8) | tks keeps no ids of people in that mode, so B can't work: tks refuses to turn it on, with a clear message |
+| Many new accounts a day | The checks queue; production has no cap; the budget sets the pace (§5.3) |
 
 ---
 
-## 5. Part C: discovery through TikTok's discovery pages (C6, then M12)
+## 8. Part C: TikTok's discovery pages (C6, then M12)
 
-### 5.1 What is known, and what isn't
+### 8.1 Known from the owner's recording
 
-- **Recorded:** the logged-out web app made these calls in the owner's recordings (HAR findings §1; C2):
-  - `/api/repost/item_list/` (reposts, 7–30 items);
-  - `/api/user/list/` (a profile's suggestions or lists: which one is still to be confirmed);
-  - "explore" recommendations;
-  - related posts on a post page.
-- **Never recorded:** search, hashtag pages and sound pages. Nothing is known about how they answer logged out: how far they go before asking to log in, whether they need a signature, and how often they block.
-- **Region:** from the US exits every page said `region: US`. That is TikTok's US service (C2). Results for Iraqi keywords may differ by exit country.
+- **Logged-out search works**, 9 pages deep with no login wall. It needs TikTok's signature, which tks gets from its signer pool.
+- Its results are **full posts with their authors**, but **no post region**. That's why the entry check reads the account's own list.
+- **The For You feed is served logged out**, with `region=IQ` from Iraq.
 
-The C6 probe answers these on the droplet before M12 builds anything.
+### 8.2 Sources
 
-### 5.2 Sources
-
-| Source | What it finds | Probe questions (C6) |
+| Source | Call | What C6 must still answer |
 |---|---|---|
-| **Keyword search: accounts** | Accounts whose name or bio matches: brands, places, topics, Arabic and Kurdish keywords | Answered logged out? Pages until a login wall? Signed? Differs by exit country? |
-| **Keyword search: videos** | The authors of videos about a keyword | The same |
-| **Hashtag pages** | The authors posting with a hashtag | How deep it goes; its order (popular, not newest); signed? |
-| **Sound pages** | The authors using a sound (a brand's jingle, an original sound of one of yours); the sound's own author | The same |
-| **Related posts** on your accounts' posts | The authors of similar posts | Answered unsigned? |
-| **Suggested accounts** on your accounts' profiles | TikTok's own "similar accounts" | Is `/api/user/list/` that, or the following list? |
-| **Reposts** by your accounts | The authors your accounts repost | Answered in the recordings; confirm at volume |
-| **Following lists** of your accounts | Whom your accounts follow | D1 excludes them. Each profile page says whether the list is shown (`followingVisibility`; all three recorded profiles have the same value, 2, whose meaning C6 confirms). Decision 4 in §11 |
-| **Lookalikes** of your accounts (possible impersonation) | Accounts whose name looks like one of yours | Uses the account search with name variants (§5.4) |
-| Explore page | Trending accounts by category | Bound to the exit's region; low value; optional |
+| **Keyword search**, all 317 Iraq terms, plus any the owner adds | `/api/search/general/full/` (recorded) | From tks's exits: answered with a signature from the pool? How deep before a login wall? Same results as from Iraq? |
+| **Account search** (the accounts tab) | `/api/search/user/full/` | Everything: not recorded yet |
+| **Hashtag pages**: the Iraq terms as hashtags, and hashtags that Iraqi posts use | the tag page and its post list | Everything |
+| **Sound pages**: sounds used by Iraqi accounts | the music page and its post list | Everything |
+| **For You feed** | `/api/recommend/item_list/` (recorded) | What a tks exit gets; whether repeated reads bring new posts |
+| **Related posts** on monitored posts | the post page's related list (seen in C2) | Answered unsigned? |
+| **Account suggestions and reposts** on profiles | `/api/user/list/`, `/api/repost/item_list/` (seen in the first recording) | What `/api/user/list/` is |
+| Short links in imports | `vm.tiktok.com` redirects | How they redirect |
 
-**Not planned:**
-- **Followers lists**: millions of private people, a lot of traffic, and a legal question.
-- **Web search engines** (Google, Bing): their APIs are paid services, and scraping them breaks their terms. You use no providers.
-- **TikTok's Research API**: non-commercial use only (`methods.md` §4).
-- **Logging in**: never (D3).
+**How it runs:**
+- **Sources run on timetables.** Each keyword is searched every hour for recent posts, as in fbs. The For You feed and hashtag pages run every few hours, and sound and related pages as new ones are found.
+- **Calls go through what monitoring already uses:** the same identities, pacing, budget and signer pool. Each call is a registry operation with its own rate, canary check and parser drift count. A broken call pauses only its source; monitoring carries on.
+- **Every author found** goes through the entry check (§4).
+- **Every post found is stored** (§10).
 
-### 5.3 How part C runs
+### 8.3 Exit country
 
-- **As rules on a schedule.** Each rule runs on its own timetable, for example a keyword every 24 h or a hashtag every 12 h, with a cap on pages per run.
-- **Through what monitoring already uses:** the same proxies, identities, pacing and budget. Calls that need a signature are signed by TikTok's own script in the existing signer pool, like comments (D11). tks never re-implements a signature.
-- **New registry operations.** Each call is a new operation, off until C6 shows it works. Each has its own rate, canary check (M8) and parser drift count. A broken discovery call pauses its rule and never touches monitoring.
-- **Its own budget share.** Discovery gets its own share of the day's requests and bytes (default **10 %**). When the budget stretches, discovery pauses first.
-- **What is stored from a discovery read:** only what is needed to judge the candidate. That is the account's facts and the evidence: the keyword or hashtag, the post id, its rank, and when it was seen. The other accounts' posts and comments are not stored; once you approve an account, its backfill reads everything as usual. This is decision 5 in §11.
+**The country matters.** From Iraq, TikTok serves `region=IQ`. tks's exits are served `region: US` (C2).
 
-### 5.4 Lookalikes (possible impersonation)
+**C6 compares the same Iraqi keywords, and the For You feed, from tks's exits.**
+- If the results hardly change, nothing more is needed.
+- If they change a lot, "what the Iraqi audience sees" needs exits that TikTok places in or near Iraq. That's a **proxy decision for the owner**, because the owner uses no providers beyond their own proxies.
+- Setting `region=IQ` in the call while the exit is in the US would make tks say it is somewhere it isn't. It's not planned without counsel.
 
-For each account you mark as a brand (a label, or a rule's list), tks searches name variants and compares the accounts found with yours.
-
-**Before comparing,** tks normalizes both names:
-- capitals, and the `.` and `_` separators;
-- digits and letters that look alike: `0`/`o`, `1`/`l`, `3`/`e`, `5`/`s`, `rn`/`m`;
-- Arabic letter forms: أ إ آ ا, ى ي, ة ه, and the Persian ک and ی;
-- the tatweel stretch and diacritics;
-- added words such as `official`, `iq`, `real` and `_1`.
-
-**Then it ranks them:**
-- by how close the names are, and the nicknames too;
-- a verified lookalike ranks low, because it is likely legitimate;
-- a new account ranks high.
-
-They are labelled **"possible impersonation"** and are **only ever suggested, never added automatically**. Comparing profile pictures can come later.
-
-### 5.5 Cases
+### 8.4 Cases
 
 | Case | What tks does |
 |---|---|
-| Search asks to log in after some results | Stops there and records it; the rule shows "limited by TikTok"; never logs in (D3) |
-| TikTok refuses the signature, answers empty, or shows a captcha (10000) | As for comments: one retry on another signer page, the rate controller slows down, the canary sees it, and the rule pauses after repeated blocks |
-| Results depend on the exit's country | C6 compares US exits with others on your keywords. If Iraqi results need exits TikTok places in or near Iraq, that's a proxy decision for you; no paid service without you. |
-| Different results each run | De-duplicated by user id, with evidence added up; a rule can require a candidate to appear in N runs |
-| A hashtag with millions of posts | A pages-per-run cap. Its order is by popularity, so new authors come over several runs. "New authors per run" is shown, and a rule that finds nothing new slows down. |
-| Keywords in Arabic or Kurdish | Sent as typed; spelling variants (§5.4) can be added as extra searches per rule |
-| A keyword matches thousands of private people | The public threshold, ranking and caps (§4.4) |
-| Sponsored results | Skipped when TikTok marks them |
-| A discovery call breaks after a TikTok change | The canary and parser drift count catch it; only its rule pauses; monitoring carries on |
-| Discovery competing with monitoring for the budget | Its share is capped; monitoring comes first |
+| Search asks to log in after some pages | Stops there and records it; never logs in (D3) |
+| Refused signatures, empty answers, captchas (10000) | As for comments: one retry on another signer page, the rate controller slows down, the canary sees it, and the source pauses after repeated blocks |
+| Different results each run | De-duplicated by post and user id; evidence adds up |
+| A keyword that is also a common word | The keyword can be turned off (as fbs's `off` list) |
+| A hashtag with millions of posts | Its pages are read in TikTok's order, a few pages a run. New authors keep coming over runs, and "new accounts per run" is shown. |
+| A call changes after a TikTok update | The canary and parser drift catch it; only that source pauses |
 
 ---
 
-## 6. Rules: what you set
+## 9. Part D: who follows whom (C6, then M13)
 
-Each rule has:
-- a name and its API client;
-- a **source** (§4.1 or §5.2);
-- **inputs**: keywords, hashtags, sounds, and which of your accounts it applies to (all, or a label);
-- **filters** (§4.4) and a minimum score;
-- a **mode**: suggest, or add automatically;
-- **caps**: per day and in total;
-- a **timetable** (part C only);
-- **labels** for the accounts it adds;
-- on/off.
+**What is read:** for **every monitored account, including the ones discovery adds**, its **following** list and its **followers** list.
 
-**Examples:**
-- *Partners of my banks*: caption and bio mentions by accounts labelled `list:banks`, at least 5,000 followers, region IQ, **suggest**.
-- *Baghdad restaurants*: account and video search for «مطعم بغداد» and "Baghdad restaurant", plus the hashtag #مطاعم_بغداد. At least 1,000 followers, posted within 30 days, **add automatically, 10 a day, on trial**.
-- *Lookalikes of my brands*: lookalikes of accounts labelled `list:brands`, **suggest** (the only mode allowed).
+**How:**
+- **Following lists:** read in full, then re-read weekly.
+- **Followers lists:** TikTok serves the newest first, so each re-read takes only the new followers since the last one, daily.
+  - The first read of a large account goes as deep as TikTok serves logged out, at low priority, filling in over days. An account with millions of followers costs hundreds of thousands of pages.
+- **Every person in a list** passes the cheap pre-check (private, no posts) and then the entry check (§4).
+- **The links themselves are kept** (`follows`: who, whom, first and last seen). They feed the Iraq score: followed by Iraqi accounts (§3).
 
----
+**The open question:**
+- On the website, follower lists may be shown only to logged-in visitors. Many accounts also hide their following list; each profile says so in `followingVisibility`.
+- C6 measures what a logged-out visitor gets.
+- **If TikTok shows these lists only to logged-in users, tks can't read them**, because D3 says logged out only. tks never logs in without the owner changing D3, which is a decision for the owner and counsel.
 
-## 7. Reviewing suggestions
-
-**API:**
-- **List:** sorted by score, filtered by rule, label or state.
-- **Detail:** the evidence and the check's result.
-- **Approve:** with labels and schedule options.
-- **Reject:** with a reason (not relevant, a private person, spam, a duplicate, other) and a snooze (30 days, 90 days, never).
-- **In bulk:** approve or reject many at once.
-
-**CLI:** `tksctl discovery list | show | approve | reject | export --csv`.
-
-**Daily summary:** suggestions, automatic additions and trials ending, through the API. It is optionally also an add-only event on a new topic, `tt.discovery.v1`, for the analysis service.
-
-A review web page is not in this plan; the API has all it would need (decision 6 in §11).
-
-**A candidate's states:** seen → qualified → checked → **suggested** → approved, rejected, snoozed or expired. The other states are not eligible, added automatically (on trial), and trial ended.
+**Scale:**
+- This source finds the most accounts by far.
+- Most followers are personal accounts that never post. The pre-check sends them to the dormant list without a read, when the list says so.
+- Even so, the following and followers lists of hundreds of thousands of accounts are billions of links. They are stored partitioned, like comments.
 
 ---
 
-## 8. Privacy and legal (for counsel)
+## 10. Storing everything found
 
-- **Commenters and mentioned people are private people (D8).** B suggests only accounts above a public threshold (decision 3). It never suggests accounts predicted to be under 18 or private accounts. Nothing else changes about what tks keeps.
-- **Part C reads pages that D1 left out.** That is a scope change for counsel. [`methods.md`](methods.md) §5 gets a section on what discovery reads, how often, what it stores, and the safeguards.
-- **Every added account records why, and who approved it** (§2.1).
-- **Unchanged:** no logging in, no followers lists, no re-implemented signatures.
-- **D15:** B and C stay **off in production until counsel signs off (G2)**. A needs nothing new.
+By the owner's decision 5, everything read is kept, as D8 already says for monitored data:
+- **Posts found** by search, hashtag, sound, the For You feed and related lists are stored as posts. `discovered_via` is `SEARCH` or `HASHTAG` (both reserved since ADR 0007), plus new add-only values: `SOUND`, `FEED`, `RELATED`.
+- **Their authors** are stored as accounts, whether they are added, dormant or not Iraqi (yet).
+- **The posts read by an entry check** are stored too.
+- **The follow links** (§9) are stored.
+- **Evidence and scores** are stored, with their history.
 
----
-
-## 9. Keeping the cost under control
-
-Phase 0 measured, per 1,000 monitored accounts: 2 IPs, 2 signer pages and 6.1 GB of proxy data a day. Every account discovery adds costs the same, so:
-
-- **Caps:** per rule, and for all rules.
-- **The admission pace** (§2.3).
-- **The trial tier** (§2.4): about 1/9 of the list traffic and 1/12 of the backfill.
-- **Candidate checks:** one read each, cached 7 days, capped per day.
-- **Discovery's budget share:** 10 % (§5.3).
-
-tks reports per rule and per day: requests, bytes, candidates, suggestions, approvals, automatic additions, and the approval rate. You can see what each rule costs and whether it's worth it. This goes with D9's cost per account.
+An account becomes **monitored** only when it qualifies. The rest is stored, not followed.
 
 ---
 
-## 10. Testing (no live TikTok requests from build sessions)
+## 11. The review page (M14)
 
-- **fakett** gains synthetic search, hashtag, sound, related-post, suggestion and repost answers. It can also produce login walls, empty answers, captchas and refused signatures on demand.
+A web page served by `tks-api`, behind the API's own keys and scopes. Personal data appears only with `pii:read`; actions are protected against cross-site forgery.
+
+- **Accounts**:
+  - discovered and added, filtered by source, keyword, label, Iraq score and date;
+  - each with its evidence ("posts made in Iraq: 11 of 15", "followed by 37 monitored Iraqi accounts") and a **remove** button, which also blocks it from coming back.
+- **Dormant list**: why each account is there and its next check date.
+- **Not Iraqi (yet)**: accounts close to the threshold, to tune it.
+- **Keywords**: on or off, add, hits per keyword.
+- **Imports**: upload a file, the dry run, the report.
+- **Cost and capacity**: requests, data and accounts added per source and per day; the admission queue; the IPs and signer pages needed (§12).
+
+The API stays the source of truth: the page only calls it.
+
+---
+
+## 12. Scale and cost
+
+Phase 0 measured, per 1,000 monitored accounts:
+- 2 ISP IPs;
+- 2 signer pages;
+- 16.3 browser hours a day;
+- 6.1 GB of proxy data a day;
+- 174 GB of storage.
+
+| Monitored accounts | ISP IPs | Signer pages | Proxy data a day | Storage |
+|---|---|---|---|---|
+| 100,000 | 200 | 200 | 610 GB | 17 TB |
+| 1,000,000 | 2,000 | 2,000 | 6.1 TB | 174 TB |
+
+Discovery adds its own reads on top:
+- entry checks;
+- searches;
+- the follower and following lists, the largest part.
+
+**What "no caps" means in practice:**
+- tks adds every qualifying account and admits them as fast as the budget allows.
+- When the budget is the limit, the queue grows and tks says what it would take to drain it.
+- Without the budget, tks would outrun its IPs and get blocked, which would harm monitoring too. The budget stays, and the owner raises it as capacity grows.
+
+**Iraq on TikTok may be millions of public, active accounts.** The design target was hundreds of thousands (D2). Before production goes past about 300,000 accounts, the database, Kafka and the crawler fleet need a load test at the larger size. This goes in M9's load testing and is a step in the ramp.
+
+---
+
+## 13. Privacy and legal (for counsel; G2)
+
+- **Larger scope (D1).** Discovery reads search, hashtag and sound pages and the For You feed. Above all, it reads followers lists: millions of private people, kept for good (D8 and decision 5).
+- **No age filter (decision 7).** Accounts are added whatever TikTok predicts about age, so minors' public accounts will be monitored if they qualify. Counsel should know this explicitly.
+- **Every added account records why** (§5.1). The owner can remove any account, and it then stays out.
+- **Unchanged:** no logging in (D3), no re-implemented signatures (D11).
+- **D15 still holds:** B, C and D stay **off in production until counsel signs off (G2)**. A needs nothing new.
+- After M8 merges, [`methods.md`](methods.md) §5 gets a discovery section for counsel. Sending it early keeps G2 from holding up M12 and M13.
+
+---
+
+## 14. Testing (no live TikTok requests from build sessions)
+
+- **fakett** gains synthetic search, hashtag, sound, feed, related, suggestion, repost, following and followers answers. It can also produce login walls, empty answers, captchas and refused signatures on demand.
+- **Golden fixtures for search and the feed** come from the owner's recording, scrubbed by tks's scrubber (no names, ids or text; D13). The others come from C6's bundle.
 - **End-to-end tests:**
-  - importing 10,000 synthetic accounts keeps the admission pace and leaves existing accounts' checks on time;
-  - a rule leads to suggestions, then approval, then the backfill;
-  - automatic-addition caps and trials hold;
-  - a rejected candidate isn't suggested again;
-  - the kill switches work;
-  - pseudonymized mode refuses B.
-- **Golden fixtures** come from C6's bundle, scrubbed of real names, ids and text (D13).
+  - importing 10,000 accounts keeps the admission pace and leaves existing accounts' checks on time;
+  - each source leads to an entry check, then the account is added or goes on the dormant list;
+  - a dormant account isn't checked again within 180 days;
+  - removed accounts stay out;
+  - the test caps hold, and `0` means no cap;
+  - the switches work;
+  - pseudonymized mode refuses B, C and D.
 
 ---
 
-## 11. Decisions for you (recommendation first)
+## 15. Milestones and order
 
-1. **What should discovery look for?** For C6 and the first rules, tks needs your keywords, hashtags and brand accounts. They stay on the droplet, never in git.
-   - *Recommended first rules:* (a) partners and branches of your accounts (caption and bio mentions); (b) lookalikes of your brands; (c) Iraqi accounts in your topics, through hashtags and keywords.
-2. **Approve each one, or add automatically?**
-   - *Recommended:* approve by default. Add automatically only on rules you mark, within caps, and on trial.
-3. **The public threshold for people found through comments.**
-   - *Recommended:* 1,000 followers or verified, for counsel to confirm.
-4. **Following lists of your accounts** (D1 excludes them).
-   - *Recommended:* include them as a source in C, only for accounts whose profile shows the list (`followingVisibility`), if logged-out TikTok serves it. Followers stay out.
-5. **What to keep from discovery reads.**
-   - *Recommended:* the candidate's facts and the evidence, not the full posts of accounts you don't monitor.
-6. **A review page.**
-   - *Recommended:* API, CLI and CSV now; a page when the analysis service exists.
+| # | What | Needs from the owner |
+|---|---|---|
+| M8 | (running) Canary and signer operations, plus posts no longer public (§17) | — |
+| **M10** | Foundations (§5), the entry check and dormant list (§4), the Iraq score with the text, place and contact signals (§3), bulk import (§6), and `iraq.yaml` loaded | — |
+| **M10b** | The C6 probe tool: search (both tabs), hashtag, sound, feed, related, user lists, following and followers, short links, from tks's exits, capped. Plus the runbook. | — |
+| M9 | Deploy and operations (as planned), with the load test at the larger size (§12) | — |
+| **M11** | Part B, ported from fbs's mentions | — |
+| **C6** | Owner: run the discovery probe on the droplet (about an hour, capped) and send the bundle | Run it |
+| **M12** | Part C, ported from fbs's keyword discovery, with C6's findings | — |
+| **M13** | Part D: following and followers lists, if C6 shows logged-out access | — |
+| **M14** | The review page (§11) | — |
+| **G2** | Counsel signs off B, C and D for production | Counsel |
 
-**When you approve:**
-- the brief's D1 is updated, with discovery sources in scope as sources for finding accounts;
-- the milestones go into `build-status.md`;
-- `methods.md` §5 gets the discovery section for counsel. Sending it to counsel early means G2 doesn't hold up M12.
+Go-live (C5) doesn't wait for discovery. Part A is usable as soon as M10 merges.
 
 ---
 
-## 12. Posts that are no longer public (approved, in M8)
+## 16. Still open
 
-The owner approved this on 2026-11-04, and it was handed to the M8 build session. Today a post the creator deletes stays stored as last seen.
+1. **Exits in or near Iraq**, if C6 shows that TikTok serves Iraqi results only to Iraqi viewers (§8.3). This is a proxy decision.
+2. **Follower lists behind login** (§9). If TikTok serves them only to logged-in users, part D can't run without changing D3.
+3. **The owner's own accounts that go quiet** stay monitored with lighter checks (§4). The owner can say instead that they move to the dormant list like discovered accounts.
+4. **Counsel's review** (§13).
+
+---
+
+## 17. Posts that are no longer public (approved, in M8)
+
+The owner approved this on 2026-11-04, and it was handed to the M8 build session.
 
 **How a post is found and marked:**
 1. **A candidate.** A list read covering the post's date returns its neighbours but not the post.
-2. **A confirmation.** One read of the post page by plain HTTP, before anything is marked.
-3. **The status: "unavailable", not "deleted".** A logged-out reader can't tell a deletion from a post the creator made private, or one TikTok removed. TikTok's code and the exit's region are recorded.
+2. **A confirmation.** One read of the post page by plain HTTP.
+3. **The status: "unavailable", not "deleted".** A logged-out reader can't tell a deletion from a post made private, or one TikTok removed. TikTok's code and the exit's region are recorded.
 
 **Guards:**
-- A short or empty list page (TikTok's usual way of blocking) marks nothing.
-- If many of an account's posts vanish at once, it's treated as a reading problem, not deletions.
-- An account that goes private or is banned keeps its posts as they were; the account's status says why.
+- A short or empty list page marks nothing.
+- Many posts vanishing at once is treated as a reading problem.
+- An account that goes private or is banned keeps its posts as they were.
 
 **Afterwards:**
-- If the post comes back, it shows as visible again, with the change kept.
+- A post that comes back is visible again, with the change kept.
 - Unavailable posts stop being re-read. All data stays (D8).
-- The API shows the status, since when, and the code.
