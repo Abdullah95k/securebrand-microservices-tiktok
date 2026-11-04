@@ -13,6 +13,8 @@ tks marks a stored post **unavailable** when TikTok stops showing it to a logged
 3. **Guards.** A page with fewer than `min_page_posts` posts marks nothing; more than `max_per_page` candidates on one page is a reading problem (`reading_problem`); a check reads at most `max_checks` post pages (`deferred`); a private, banned or gone account ends its check first, so its posts keep their status.
 4. **Afterwards.** An unavailable post's page is not read again. If a list returns it later, it is visible again; `post_status_changes` keeps every change.
 
+A post the list leaves out but whose page still shows it (TikTok filtering the list for the viewer: T30) stays visible and is checked again by each walk over its date; `max_checks` bounds what that costs. A steady share of `result="visible"` is that, not an error.
+
 Read it in the API: `GET /v1/accounts/{account}/posts?status=unavailable` (each with `unavailable_since`, `status_code`, `status_region`). Metrics: `tks_post_vanish_total{result}`, `tks_post_status_changes_total{status}`.
 
 To turn it off: `TKS_TT__POSTS__UNAVAILABLE__ENABLED=false` on the crawler.
