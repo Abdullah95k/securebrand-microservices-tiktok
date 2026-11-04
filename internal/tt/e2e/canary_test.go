@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakett"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
