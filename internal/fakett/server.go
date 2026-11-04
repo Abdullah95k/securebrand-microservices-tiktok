@@ -66,6 +66,10 @@ type Faults struct {
 	// device, as TikTok refused about one in nine comment calls signed on
 	// a page opened for another account (C4's third attempt).
 	SignerRefuseEvery int
+	// MovedPaths moves API calls, as TikTok renames an endpoint (T25): a
+	// call to a key's path is refused with an empty 200, and the value's
+	// path serves what the key's did.
+	MovedPaths map[string]string
 }
 
 // Options configure a server.
@@ -77,6 +81,8 @@ type Options struct {
 type Server struct {
 	World *World
 	opts  Options
+	// fmu guards opts.Faults, which SetFaults changes while it serves.
+	fmu sync.RWMutex
 
 	mu        sync.Mutex
 	devices   map[string]*device
@@ -108,6 +114,22 @@ type device struct {
 	signed int // signed calls (SignerStaleAfter)
 	chain  string
 	cursor map[string]bool // cursors issued to this device (CursorBound)
+}
+
+// SetFaults replaces the faults while the server runs, as TikTok changes
+// what it accepts (T25): a test rotates variants or the signing rules
+// between rounds.
+func (s *Server) SetFaults(f Faults) {
+	s.fmu.Lock()
+	s.opts.Faults = f
+	s.fmu.Unlock()
+}
+
+// faults returns the current faults.
+func (s *Server) faults() Faults {
+	s.fmu.RLock()
+	defer s.fmu.RUnlock()
+	return s.opts.Faults
 }
 
 // NewServer returns a server for w.
@@ -183,7 +205,7 @@ func Sign(raw string) (string, error) {
 // page serves a profile, video or photo page: the rehydration document
 // with the app context (a fresh device) and the account or the post.
 func (s *Server) page(w http.ResponseWriter, r *http.Request) {
-	if s.opts.Faults.Challenge {
+	if s.faults().Challenge {
 		page(w, `<html><head><title>Please wait...</title></head><body><div id="cs" data-x="eyJ2IjoxfQ=="></div>`+
 			`<script>document.cookie="_wafchallengeid=pending; max-age=1"</script></body></html>`)
 		return
@@ -225,7 +247,7 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 		// The full pass's shells of banned accounts (C3; T1).
 		scope["webapp.user-detail"] = map[string]any{"statusCode": 10221, "statusMsg": ""}
 	case len(parts) == 1:
-		if !s.opts.Faults.ShellPages {
+		if !s.faults().ShellPages {
 			scope["webapp.user-detail"] = map[string]any{"userInfo": s.userInfo(acc, r.Host), "statusCode": 0}
 		}
 	default:
@@ -234,7 +256,7 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 	}
 	blob, _ := json.Marshal(map[string]any{"__DEFAULT_SCOPE__": scope})
 	script := ""
-	if s.opts.Faults.RequireSignature {
+	if s.faults().RequireSignature {
 		script = signer
 	}
 	page(w, `<!doctype html><html><head>`+script+`</head><body><div id="app"></div>`+
@@ -266,10 +288,20 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	if v, _ := s.Requests.LoadOrStore(r.URL.Path, new(atomic.Int64)); v != nil {
 		v.(*atomic.Int64).Add(1)
 	}
-	f := s.opts.Faults
+	f := s.faults()
 	if f.RateLimitEvery > 0 && n%int64(f.RateLimitEvery) == 0 {
 		http.Error(w, "too many requests", http.StatusTooManyRequests)
 		return
+	}
+	path := r.URL.Path
+	for from, to := range f.MovedPaths {
+		switch path {
+		case from:
+			w.WriteHeader(http.StatusOK) // gone: an empty 200, as TikTok refuses
+			return
+		case to:
+			path = from
+		}
 	}
 	s.mu.Lock()
 	dev := s.devices[q.Get("device_id")]
@@ -288,8 +320,8 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	if f.RequireSignature && s.signed(r.URL.Path) && (q.Get("X-Gnarly") == "" || !signedFor(q.Get("X-Gnarly"), q.Get("device_id"))) {
-		if r.URL.Path == "/api/user/detail/" {
+	if f.RequireSignature && s.signed(path) && (q.Get("X-Gnarly") == "" || !signedFor(q.Get("X-Gnarly"), q.Get("device_id"))) {
+		if path == "/api/user/detail/" {
 			// The account call is refused with an empty account, not an
 			// empty body (the C2 run).
 			writeJSON(w, map[string]any{"userInfo": map[string]any{"user": map[string]any{}, "stats": map[string]any{}, "shareMeta": map[string]any{}}})
@@ -298,7 +330,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	if (f.SignerStaleAfter > 0 || f.SignerRefuseEvery > 0) && f.RequireSignature && s.signed(r.URL.Path) {
+	if (f.SignerStaleAfter > 0 || f.SignerRefuseEvery > 0) && f.RequireSignature && s.signed(path) {
 		s.mu.Lock()
 		dev.signed++
 		stale := (f.SignerStaleAfter > 0 && dev.signed > f.SignerStaleAfter) ||
@@ -313,7 +345,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"statusCode": 10000, "statusMsg": "", "verify_event": map[string]any{"type": "slide", "subtype": "3d"}})
 		return
 	}
-	switch r.URL.Path {
+	switch path {
 	case "/api/creator/item_list/":
 		s.creatorList(w, r, dev)
 	case "/api/post/item_list/":
@@ -376,10 +408,10 @@ func (s *Server) overRate(limit float64) bool {
 }
 
 func (s *Server) signed(path string) bool {
-	if len(s.opts.Faults.SignedPaths) == 0 {
+	if len(s.faults().SignedPaths) == 0 {
 		return true
 	}
-	for _, p := range s.opts.Faults.SignedPaths {
+	for _, p := range s.faults().SignedPaths {
 		if p == path {
 			return true
 		}
@@ -403,7 +435,7 @@ func (s *Server) listable(w http.ResponseWriter, sec string) *Account {
 }
 
 func (s *Server) checkCursor(w http.ResponseWriter, dev *device, cursor string) bool {
-	if !s.opts.Faults.CursorBound || cursor == "" || cursor == "0" {
+	if !s.faults().CursorBound || cursor == "" || cursor == "0" {
 		return true
 	}
 	s.mu.Lock()
@@ -435,10 +467,10 @@ func (s *Server) creatorList(w http.ResponseWriter, r *http.Request, dev *device
 	if cursor <= 0 {
 		cursor = (s.World.Now.Unix() + 1) * 1000
 	}
-	if s.opts.Faults.DeviceBanAfter > 0 && dev.calls > s.opts.Faults.DeviceBanAfter {
+	if s.faults().DeviceBanAfter > 0 && dev.calls > s.faults().DeviceBanAfter {
 		cursor = (s.World.Now.Unix() + 1) * 1000 // a banned device sees its first page again
 	}
-	if n := s.opts.Faults.ListErrorEvery; n > 0 && s.listCalls.Add(1)%int64(n) == 0 {
+	if n := s.faults().ListErrorEvery; n > 0 && s.listCalls.Add(1)%int64(n) == 0 {
 		writeJSON(w, map[string]any{"statusCode": 10102, "status_code": 0, "status_msg": ""})
 		return
 	}
@@ -454,12 +486,12 @@ func (s *Server) creatorList(w http.ResponseWriter, r *http.Request, dev *device
 		if len(page) == count {
 			continue
 		}
-		if win := s.opts.Faults.ListWindow; win > 0 && ms < cursor-win.Milliseconds() {
+		if win := s.faults().ListWindow; win > 0 && ms < cursor-win.Milliseconds() {
 			continue
 		}
 		page = append(page, p)
 	}
-	if s.opts.Faults.ListWallAfter > 0 && skipped >= s.opts.Faults.ListWallAfter {
+	if s.faults().ListWallAfter > 0 && skipped >= s.faults().ListWallAfter {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -509,7 +541,7 @@ func (s *Server) postList(w http.ResponseWriter, r *http.Request, dev *device) {
 		page = append(page, p)
 		taken++
 	}
-	if s.opts.Faults.ListWallAfter > 0 && skipped >= s.opts.Faults.ListWallAfter {
+	if s.faults().ListWallAfter > 0 && skipped >= s.faults().ListWallAfter {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -530,7 +562,7 @@ func (s *Server) postList(w http.ResponseWriter, r *http.Request, dev *device) {
 }
 
 func (s *Server) commentPage(w http.ResponseWriter, q url.Values, list []*Comment, item, total int64, parent string) {
-	if s.opts.Faults.NoGuestComments {
+	if s.faults().NoGuestComments {
 		writeJSON(w, map[string]any{"status_code": 0, "comments": nil, "has_more": 0, "total": 0})
 		return
 	}
@@ -639,7 +671,7 @@ func (s *Server) item(p *Post, host string) map[string]any {
 }
 
 func (s *Server) media(w http.ResponseWriter, r *http.Request) {
-	if s.opts.Faults.MediaNeedsCookie && strings.HasPrefix(r.URL.Path, "/fake-cdn/video/") {
+	if s.faults().MediaNeedsCookie && strings.HasPrefix(r.URL.Path, "/fake-cdn/video/") {
 		// Akamai's "Access Denied" without a tt_chain_token a page issued
 		// (T18).
 		ck, err := r.Cookie("tt_chain_token")

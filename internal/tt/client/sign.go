@@ -20,6 +20,18 @@ const signedSuffix = "-signed"
 // Signed reports whether an operation variant needs a signature.
 func Signed(q registry.Query) bool { return strings.HasSuffix(q.DocID, signedSuffix) }
 
+// Twin returns q's signed or unsigned twin: the same call with its label's
+// "-signed" mark added or removed. TikTok changes which calls it accepts
+// unsigned (T4, T25), so Phase 0 and the canary try both.
+func Twin(q registry.Query) registry.Query {
+	if Signed(q) {
+		q.DocID = strings.TrimSuffix(q.DocID, signedSuffix)
+	} else {
+		q.DocID += signedSuffix
+	}
+	return q
+}
+
 // URLSigner signs one call's URL in a TikTok page (internal/tt/sign): it
 // returns the URL the page's own script made of it, for the identity to
 // send by plain HTTP. referer is the page the call is made from. One that
