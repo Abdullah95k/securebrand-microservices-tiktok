@@ -54,6 +54,10 @@ type OpStats struct {
 	// (T32), and how many of them TikTok answered.
 	Cross   int `json:"cross_account,omitempty"`
 	CrossOK int `json:"cross_account_ok,omitempty"`
+	// SignRetried are signed calls refused once and sent again, signed on
+	// another page; SignRetriedOK the ones then answered.
+	SignRetried   int `json:"sign_retried,omitempty"`
+	SignRetriedOK int `json:"sign_retried_ok,omitempty"`
 
 	wire, ms, sign, open []float64
 }
@@ -231,6 +235,12 @@ func Summarize(recs []Record) Summary {
 				o.Cross++
 				if r.Class == detect.OK.String() {
 					o.CrossOK++
+				}
+			}
+			if r.SignRetried {
+				o.SignRetried++
+				if r.Class == detect.OK.String() {
+					o.SignRetriedOK++
 				}
 			}
 		}
@@ -525,16 +535,19 @@ func checks(s Summary, e Estimate, tol float64, ips int, o ReportOptions) []Chec
 		Want:  fmt.Sprintf("<= %.1f", t.MaxCaptchasPer1000), Advice: "at the crawler's pace TikTok should rarely ask (T6); a higher rate means the exits are scored badly"})
 	add(Check{Name: "parsers", Status: status(s.Drift == 0), Value: fmt.Sprintf("%d answers with missing required fields", s.Drift), Want: "0",
 		Advice: "TikTok's answers changed shape: send the bundle"})
-	signed, signedOK, signErr := 0, 0, 0
+	signed, signedOK, signErr, retried, retriedOK := 0, 0, 0, 0, 0
 	for _, op := range []string{OpComments, OpReplies, OpListCheck, OpListBackfill} {
 		if x := s.Ops[op]; x != nil {
 			signed += x.Signed
 			signedOK += x.SignedOK
 			signErr += x.SignErrors
+			retried += x.SignRetried
+			retriedOK += x.SignRetriedOK
 		}
 	}
 	add(Check{Name: "signed calls", Status: status(atLeast(signedOK, signed, t.MinSigned)),
-		Value: pct(signedOK, signed) + fmt.Sprintf(", %d signer errors", signErr), Want: fmt.Sprintf(">= %.0f%%", 100*t.MinSigned),
+		Value:  pct(signedOK, signed) + fmt.Sprintf(", %d signer errors; %d refused once and sent again on another page, %d of them then answered", signErr, retried, retriedOK),
+		Want:   fmt.Sprintf(">= %.0f%%", 100*t.MinSigned),
 		Advice: "comments and replies need TikTok's signature (G1); check the browser (make tks-browser-check) and the signer's errors"})
 	served := Check{Name: "comments collected (T15)", Status: Pass, Value: fmt.Sprintf("median %.0f%% of a post's count over %d whole reads", 100*s.Served.P50, s.Served.N),
 		Want: fmt.Sprintf(">= %.0f%% (warning only; A4)", 100*t.MinServed)}

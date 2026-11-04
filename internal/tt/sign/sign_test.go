@@ -444,9 +444,9 @@ func TestPoolReplacesRefusedPages(t *testing.T) {
 }
 
 // End to end with Chromium against a fakett whose signer pages go bad
-// after 3 signed calls, as in C4: with max_refusals 2 the client's reports
-// replace each bad page, and most calls are answered; without, every call
-// after the third is refused.
+// after 3 signed calls, as in C4: each refused call is signed once more on
+// a new page (the client's retry), and with max_refusals 2 a bad page is
+// also replaced; every call is answered either way.
 func TestBrowserSignerReplacesPagesGoneBad(t *testing.T) {
 	bin, err := browser.FindBinary("")
 	if err != nil {
@@ -488,12 +488,120 @@ func TestBrowserSignerReplacesPagesGoneBad(t *testing.T) {
 		}
 		pool.Close()
 		cancel()
-		switch {
-		case maxRefusals == 0 && (answered != 3 || opened.Load() != 1):
-			t.Fatalf("without replacement: %d of 12 answered, %d pages", answered, opened.Load())
-		case maxRefusals == 2 && (answered < 7 || opened.Load() < 3):
-			t.Fatalf("with max_refusals 2: %d of 12 answered, %d pages", answered, opened.Load())
+		if answered != 12 || opened.Load() < 3 {
+			t.Fatalf("max_refusals %d: %d of 12 answered, %d pages", maxRefusals, answered, opened.Load())
 		}
 		t.Logf("max_refusals %d: %d of 12 answered, %d pages opened", maxRefusals, answered, opened.Load())
 	}
+}
+
+// A refused call is noted for the client's retry, which avoids the page
+// that signed it: another idle page with the user agent if there is one,
+// else a new page (closing the avoided one when there is no room).
+func TestPoolRetryAvoidsTheRefusingPage(t *testing.T) {
+	ctx := context.Background()
+	o := &opener{}
+	c := cfg()
+	c.PageMaxSigns, c.Pages = 1000, 2
+	p := sign.New(c, o.open)
+	defer p.Close()
+	a := identity("UA")
+	signAs := func(ctx context.Context, q string) string {
+		t.Helper()
+		got, err := p.SignURL(ctx, a, "comments", "https://www.example.com/api/comment/list/?q="+q, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	// Two pages open (two calls at once).
+	o.hold = 50 * time.Millisecond
+	var wg sync.WaitGroup
+	for _, q := range []string{"a", "b"} {
+		wg.Add(1)
+		go func() { defer wg.Done(); signAs(ctx, q) }()
+	}
+	wg.Wait()
+	o.hold = 0
+	if len(o.pages) != 2 {
+		t.Fatalf("%d pages", len(o.pages))
+	}
+	// A refused call outside a client's Do notes nothing.
+	got := signAs(ctx, "c")
+	p.SignOutcome(ctx, got, detect.RegistryStale)
+	// Inside one: the retry signs on the other page.
+	retry := &graphql.SignRetry{}
+	rctx := graphql.WithSignRetry(ctx, retry)
+	got = signAs(rctx, "d")
+	first := got[strings.LastIndex(got, "page"):]
+	p.SignOutcome(rctx, got, detect.RegistryStale)
+	if retry.Avoid == nil {
+		t.Fatal("a refused call was not noted for the retry")
+	}
+	again := signAs(rctx, "d")
+	if again[strings.LastIndex(again, "page"):] == first {
+		t.Fatalf("the retry signed on the page that was refused (%s)", first)
+	}
+	if len(o.pages) != 2 {
+		t.Fatalf("the retry opened a page with another one idle: %d pages", len(o.pages))
+	}
+	// With one page only, the retry opens a new one in its place.
+	c.Pages = 1
+	q := sign.New(c, o.open)
+	defer q.Close()
+	got, _ = q.SignURL(ctx, a, "comments", "https://www.example.com/api/comment/list/?q=e", "")
+	retry = &graphql.SignRetry{}
+	rctx = graphql.WithSignRetry(ctx, retry)
+	q.SignOutcome(rctx, got, detect.RegistryStale)
+	n := len(o.pages)
+	if _, err := q.SignURL(rctx, a, "comments", "https://www.example.com/api/comment/list/?q=e", ""); err != nil || len(o.pages) != n+1 || !o.pages[n-1].closed.Load() {
+		t.Fatalf("one page: %v, %d pages (was %d), refused one closed %v", err, len(o.pages), n, o.pages[n-1].closed.Load())
+	}
+}
+
+// End to end with Chromium against a fakett that refuses every third
+// signed call of a device: the client signs a refused call once more on
+// another page, and every call is answered.
+func TestClientRetriesRefusedSignedCalls(t *testing.T) {
+	bin, err := browser.FindBinary("")
+	if err != nil {
+		t.Skip(err)
+	}
+	env := tttest.New(t, tttest.Options{Faults: fakett.Faults{RequireSignature: true, SignerRefuseEvery: 3,
+		SignedPaths: []string{"/api/comment/list/", "/api/comment/list/reply/"}}})
+	acc := env.World.Accounts()[0]
+	var post *fakett.Post
+	for _, p := range acc.Posts {
+		if len(p.Comments) > 0 {
+			post = p
+			break
+		}
+	}
+	id := env.Identity(t, acc.Username)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	bc := cfg()
+	bc.Pages, bc.PageTimeout, bc.PageMaxSigns, bc.MaxRefusals = 1, 30*time.Second, 1000, 2
+	pool := sign.New(bc, sign.BrowserOpener(sign.BrowserConfig{Binary: bin, NoSandbox: true, AcceptLanguage: tttest.AcceptLanguage,
+		CallTimeout: 30 * time.Second, Freeze: true, Lite: true}))
+	defer pool.Close()
+	env.Client.Signer = ttclient.SignerFor(config.SignerBrowser, pool)
+	ref := env.HTTP.URL + "/@" + acc.Username
+	answered, retried := 0, 0
+	for i := range 9 {
+		resp, err := env.Client.Do(ctx, id, graphql.Request{Query: "comments", Vars: map[string]any{"item_id": post.ID, "count": 20, "cursor": i}, Referer: ref})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.Class == detect.OK {
+			answered++
+		}
+		if resp.SignRetried {
+			retried++
+		}
+	}
+	if answered != 9 || retried == 0 {
+		t.Fatalf("%d of 9 answered, %d retried", answered, retried)
+	}
+	t.Logf("9 of 9 answered, %d after a retry on another page", retried)
 }

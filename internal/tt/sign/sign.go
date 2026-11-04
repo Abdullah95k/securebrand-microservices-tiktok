@@ -26,6 +26,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/browser"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 	ttclient "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/client"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/htmlx"
@@ -206,6 +207,10 @@ func (p *Pool) SignURL(ctx context.Context, id *session.Identity, query, rawURL,
 // holds a slot, so at most cfg.Pages-1 other pages are in use.
 func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (*page, error) {
 	ua := id.FP.UserAgent
+	var avoid *page
+	if r := graphql.SignRetryFrom(ctx); r != nil {
+		avoid, _ = r.Avoid.(*page)
+	}
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
@@ -218,7 +223,7 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 		switch {
 		case pg.bad || p.spent(pg) || p.idleTooLong(pg):
 			stale = append(stale, pg)
-		case got == nil && pg.ua == ua:
+		case got == nil && pg.ua == ua && pg != avoid:
 			got = pg
 		default:
 			keep = append(keep, pg)
@@ -227,9 +232,16 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 	p.idle = keep
 	p.total -= len(stale)
 	if got == nil && p.total >= cap(p.slots) && len(p.idle) > 0 {
-		// Room for a page with this user agent: close the oldest idle one.
-		stale = append(stale, p.idle[0])
-		p.idle = p.idle[1:]
+		// Room for a page with this user agent: close the oldest idle one,
+		// or the one a retry avoids.
+		i := 0
+		for j, pg := range p.idle {
+			if pg == avoid {
+				i = j
+			}
+		}
+		stale = append(stale, p.idle[i])
+		p.idle = append(p.idle[:i], p.idle[i+1:]...)
 		p.total--
 	}
 	if got == nil {
@@ -334,12 +346,16 @@ func callKey(raw string) string {
 }
 
 // SignOutcome implements graphql.SignReporter: TikTok's answer to a call a
-// page signed. A page whose signed calls are refused (an empty answer)
-// tt.signer.max_refusals times in a row is closed and the next call opens
-// a fresh one: in C4 (2026-11-03) pages went bad within minutes, every call
+// page signed. A refused call (an empty answer) is noted for the client's
+// retry (graphql.SignRetry), which then signs on another page: an idle one
+// with the same user agent, or a new page on the call's own account
+// (C4's third attempt: refusals came only from pages opened for other
+// accounts). A page whose signed calls are refused tt.signer.max_refusals
+// times in a row is closed and the next call opens a fresh one: in C4's
+// second attempt (2026-11-03) pages went bad within minutes, every call
 // they signed was refused until they were replaced, and a fresh page was
 // answered again. An answered call resets the count.
-func (p *Pool) SignOutcome(_ context.Context, sentURL string, cls detect.Class) {
+func (p *Pool) SignOutcome(ctx context.Context, sentURL string, cls detect.Class) {
 	key := callKey(sentURL)
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -352,6 +368,9 @@ func (p *Pool) SignOutcome(_ context.Context, sentURL string, cls detect.Class) 
 	case detect.OK:
 		pg.refusals = 0
 	case detect.RegistryStale:
+		if r := graphql.SignRetryFrom(ctx); r != nil && r.Avoid == nil {
+			r.Avoid = pg // the client signs the call once more, elsewhere
+		}
 		pg.refusals++
 		if p.cfg.MaxRefusals > 0 && pg.refusals >= p.cfg.MaxRefusals && !pg.bad {
 			pg.bad = true

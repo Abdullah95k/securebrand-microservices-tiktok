@@ -81,6 +81,12 @@ The third attempt writes to its own folder, keeps the second's, and climbs only 
 make tks-phase0 TKS_PHASE0_OUT=phase0/out-tt-phase0-3 TKS_PHASE0_ARGS="--ladder-rates 1,2,4 --replay-ages 2m,10m --replay-wait 15m"
 ```
 
+The fourth attempt (after the third's NO-GO at 94.1 % signed calls, 2026-11-04) measures the run again with the signed-call retry; the ladder (4 requests/s per IP, no block) and the replays (T27) are measured already, so it climbs one short step and sends nothing again:
+
+```bash
+make tks-phase0 TKS_PHASE0_OUT=phase0/out-tt-phase0-4 TKS_PHASE0_ARGS="--ladder-rates 4 --ladder-step 2m --ladder-ips 1 --replays 0"
+```
+
 ## Rehearse first (no traffic, under a minute)
 
 ```bash
