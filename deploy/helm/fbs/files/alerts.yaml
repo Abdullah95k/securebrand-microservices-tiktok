@@ -573,3 +573,30 @@ groups:
             each new page is a TikTok page load through the tier and browser
             time. tks_signer_page_closes_total by reason says which.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-canary.md#signer-pages-churn
+  # Posts no longer public (docs/tiktok/adr/0007 §17, M8b).
+  - name: tks.posts
+    rules:
+      - alert: TksPostPagesUnknownCode
+        expr: sum(increase(tks_post_vanish_total{result="unknown_code"}[6h])) > 20
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} post pages answered a statusCode not known to mean a post is gone (6 h)"
+          description: >-
+            Posts a list stopped returning were checked on their pages, which
+            answered a code not in tt.posts.unavailable.codes, so they stay
+            visible in the store. The crawler logs each code. Confirm what the
+            code means (T34) before adding it.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-posts.md#unknown-codes
+      - alert: TksPostsVanishingAtOnce
+        expr: sum(increase(tks_post_vanish_total{result="reading_problem"}[6h])) > 50
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} stored posts missing from crowded list pages (6 h)"
+          description: >-
+            Full list pages left out more stored posts than
+            tt.posts.unavailable.max_per_page, which tks treats as a reading
+            problem and marks nothing. Many at once suggests the creator list
+            changed what it serves.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-posts.md#many-posts-missing-at-once

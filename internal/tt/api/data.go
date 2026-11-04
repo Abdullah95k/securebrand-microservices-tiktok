@@ -57,16 +57,24 @@ type Post struct {
 	Completeness      *float32   `json:"completeness,omitempty"`
 	CommentsState     string     `json:"comments_state"`
 	CommentsSyncedAt  *time.Time `json:"comments_synced_at,omitempty"`
-	Status            string     `json:"status"`
-	FirstSeenAt       time.Time  `json:"first_seen_at"`
-	LastSeenAt        time.Time  `json:"last_seen_at"`
+	// Status is visible, private, or unavailable: no longer public (a list
+	// covering its date stopped returning it and its page confirmed it;
+	// never "deleted": docs/tiktok/discovery-plan.md §17). Its content stays.
+	Status           string     `json:"status"`
+	UnavailableSince *time.Time `json:"unavailable_since,omitempty"`
+	// StatusCode is the statusCode the post's page answered, and
+	// StatusRegion the region of the exit that read it, when unavailable.
+	StatusCode   *int64    `json:"status_code,omitempty"`
+	StatusRegion *string   `json:"status_region,omitempty"`
+	FirstSeenAt  time.Time `json:"first_seen_at"`
+	LastSeenAt   time.Time `json:"last_seen_at"`
 }
 
 const postSelect = `SELECT p.post_id, p.user_id, p.created_at, p.kind, a.username, p.caption, p.text_ranges, p.hashtags,
 	p.duration_ms, p.width, p.height, p.cover_media_id::text, p.photo_count, p.music_id, p.is_pinned, p.is_ad, p.labels,
 	p.comments_disabled, p.region, p.text_language, p.discovered_via, p.play_count, p.like_count, p.comment_count,
 	p.share_count, p.save_count, p.repost_count, p.comments_collected, p.replies_collected, p.completeness, p.comments_state,
-	p.comments_synced_at, p.status, p.first_seen_at, p.last_seen_at
+	p.comments_synced_at, p.status, p.unavailable_since, p.status_code, p.status_region, p.first_seen_at, p.last_seen_at
 	FROM posts p LEFT JOIN accounts a ON a.user_id = p.user_id`
 
 // scanPost reads a postSelect row; without pii, the link and who the
@@ -80,7 +88,7 @@ func scanPost(pii bool) pgx.RowToFunc[Post] {
 			&p.DurationMS, &p.Width, &p.Height, &p.CoverMediaID, &p.PhotoCount, &p.MusicID, &p.IsPinned, &p.IsAd, &p.Labels,
 			&p.CommentsDisabled, &p.Region, &p.TextLanguage, &p.DiscoveredVia, &c.Plays, &c.Likes, &c.Comments, &c.Shares,
 			&c.Saves, &c.Reposts, &p.CommentsCollected, &p.RepliesCollected, &p.Completeness, &p.CommentsState,
-			&p.CommentsSyncedAt, &p.Status, &p.FirstSeenAt, &p.LastSeenAt)
+			&p.CommentsSyncedAt, &p.Status, &p.UnavailableSince, &p.StatusCode, &p.StatusRegion, &p.FirstSeenAt, &p.LastSeenAt)
 		if err != nil {
 			return p, err
 		}
@@ -140,6 +148,7 @@ type postQuery struct {
 	seenSince time.Time // last_seen_at at or after (job results)
 	since     time.Time // created at or after
 	kind      string
+	status    string
 	cur       *cursorPos
 	limit     int
 }
@@ -157,6 +166,9 @@ func (s *Server) queryPosts(ctx context.Context, q postQuery, pii bool) ([]Post,
 	}
 	if q.kind != "" {
 		add("p.kind = $%d", q.kind)
+	}
+	if q.status != "" {
+		add("p.status = $%d", q.status)
 	}
 	if !q.seenSince.IsZero() {
 		add("p.last_seen_at >= $%d", q.seenSince)
@@ -194,8 +206,13 @@ func (s *Server) listPosts(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusBadRequest, "invalid kind", "kind must be video or photo")
 		return
 	}
+	status := r.URL.Query().Get("status")
+	if status != "" && status != "visible" && status != "unavailable" && status != "private" {
+		problem(w, http.StatusBadRequest, "invalid status", "status must be visible, unavailable or private")
+		return
+	}
 	limit := limitParam(r)
-	posts, err := s.queryPosts(r.Context(), postQuery{userID: id, since: since, kind: kind, cur: cur, limit: limit},
+	posts, err := s.queryPosts(r.Context(), postQuery{userID: id, since: since, kind: kind, status: status, cur: cur, limit: limit},
 		clientFrom(r.Context()).Has(ScopePIIRead))
 	if err != nil {
 		serverError(w, err)

@@ -214,6 +214,7 @@ type TT struct {
 	Canary    TTCanary   `koanf:"canary"`
 	Freshness Freshness  `koanf:"freshness"`
 	Comments  TTComments `koanf:"comments"`
+	Posts     TTPosts    `koanf:"posts"`
 	Media     TTMedia    `koanf:"media"`
 	// Retention is tks's own (privacy.retention stays the copied Facebook
 	// pipeline's): every value 0 by default, so tks keeps everything it
@@ -362,6 +363,34 @@ type TTComments struct {
 	// for it) may be from that count for the read to be checked for
 	// deletions (hidden and filtered comments make up a gap; T15).
 	DeletionSlack float64 `koanf:"deletion_slack"`
+}
+
+// TTPosts configures what the account stage does with posts.
+type TTPosts struct {
+	Unavailable PostsUnavailable `koanf:"unavailable"`
+}
+
+// PostsUnavailable finds stored posts that are no longer public
+// (docs/tiktok/discovery-plan.md §17): a full list page covering a post's
+// date that does not return it makes the post a candidate, and one read of
+// its page by plain HTTP confirms it.
+type PostsUnavailable struct {
+	Enabled bool `koanf:"enabled"`
+	// MinPagePosts: a list page holding fewer posts marks nothing (a short
+	// or empty page may be TikTok's time window or a reading problem).
+	MinPagePosts int `koanf:"min_page_posts"`
+	// MaxPerPage: more candidates than this on one page is treated as a
+	// reading problem, and none is checked.
+	MaxPerPage int `koanf:"max_per_page"`
+	// MaxChecks caps the post pages one account check reads to confirm
+	// candidates; the rest wait for a later walk over their dates.
+	MaxChecks int `koanf:"max_checks"`
+	// Codes are the post page's statusCodes that mean the post is not
+	// public; any other code marks nothing and is counted (unknown_code).
+	Codes []int64 `koanf:"codes"`
+	// AccountCodes mean the account, not the post, is unavailable: its
+	// posts keep their status.
+	AccountCodes []int64 `koanf:"account_codes"`
 }
 
 // Detect replaces parts of the platform's built-in detect rules
@@ -796,6 +825,9 @@ func (t TT) validate() []error {
 	}
 	if t.Comments.MaxPerPost < 0 {
 		errs = append(errs, errors.New("tt.comments.max_per_post must be >= 0 (0: no cap)"))
+	}
+	if u := t.Posts.Unavailable; u.Enabled && (u.MinPagePosts < 1 || u.MaxPerPage < 1 || u.MaxChecks < 1 || len(u.Codes) == 0) {
+		errs = append(errs, errors.New("tt.posts.unavailable: min_page_posts, max_per_page and max_checks must be > 0, and codes set"))
 	}
 	for _, d := range t.Media.CookieDomains {
 		if d == "" || strings.HasPrefix(d, ".") || strings.ContainsAny(d, "/:* ") || strings.ToLower(d) != d {

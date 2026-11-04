@@ -233,11 +233,18 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 	case len(parts) == 3 && (parts[1] == "video" || parts[1] == "photo"):
 		id, _ := strconv.ParseInt(parts[2], 10, 64)
 		post := s.World.Post(id)
-		if post == nil || post.Owner != acc {
+		switch {
+		case post != nil && post.Owner != acc:
 			http.NotFound(w, r)
 			return
+		case post == nil:
+			// A deleted post: public sources' answer (T34).
+			scope["webapp.video-detail"] = map[string]any{"statusCode": 10204, "statusMsg": "item not exist"}
+		case post.Unavailable != 0:
+			scope["webapp.video-detail"] = map[string]any{"statusCode": post.Unavailable, "statusMsg": ""}
+		default:
+			scope["webapp.video-detail"] = map[string]any{"itemInfo": map[string]any{"itemStruct": s.item(post, r.Host)}, "statusCode": 0}
 		}
-		scope["webapp.video-detail"] = map[string]any{"itemInfo": map[string]any{"itemStruct": s.item(post, r.Host)}, "statusCode": 0}
 	case len(parts) == 1 && acc == nil:
 		// No account under this username (renamed or never there): a page
 		// that names nothing, with the app context. Its statusCode is a
@@ -363,7 +370,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	case "/api/item/detail/":
 		id, _ := strconv.ParseInt(q.Get("itemId"), 10, 64)
 		post := s.World.Post(id)
-		if post == nil {
+		if post == nil || post.Unavailable != 0 {
 			writeJSON(w, map[string]any{"statusCode": 10204, "statusMsg": "item not exist"})
 			return
 		}

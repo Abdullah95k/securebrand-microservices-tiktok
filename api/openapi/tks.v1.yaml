@@ -251,6 +251,7 @@ paths:
       parameters:
         - {in: query, name: since, schema: {type: string, format: date-time}, description: Posted at or after}
         - {in: query, name: kind, schema: {type: string, enum: [video, photo]}}
+        - {in: query, name: status, schema: {type: string, enum: [visible, unavailable, private]}, description: "unavailable: no longer public"}
         - {$ref: '#/components/parameters/Limit'}
         - {$ref: '#/components/parameters/Cursor'}
       responses:
@@ -569,7 +570,13 @@ components:
         completeness: {type: number, description: Collected comments and replies over TikTok's count}
         comments_state: {type: string, enum: [none, partial, complete, truncated]}
         comments_synced_at: {type: string, format: date-time}
-        status: {type: string}
+        status:
+          type: string
+          enum: [visible, unavailable, private]
+          description: "unavailable: no longer public (a list covering its date stopped returning it and its page confirmed it); never deleted, and its content stays"
+        unavailable_since: {type: string, format: date-time, description: When it was found no longer public}
+        status_code: {type: integer, format: int64, description: "The statusCode its page answered when found unavailable (10216: made private)"}
+        status_region: {type: string, description: The region of the exit that read its page}
         first_seen_at: {type: string, format: date-time}
         last_seen_at: {type: string, format: date-time}
     Comment:

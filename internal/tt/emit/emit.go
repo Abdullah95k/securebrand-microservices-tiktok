@@ -115,6 +115,18 @@ func (e *Emitter) Post(ctx context.Context, b *kafka.Batch, src Source, p *ttv1.
 	return b.AddProto(ctx, topics.PostMetrics, key, m)
 }
 
+// PostUnavailable publishes that a known post is no longer public: a Post
+// with status UNAVAILABLE and only its keys, the page's statusCode and the
+// exit's region set (docs/tiktok/discovery-plan.md §17). Its event id is the
+// job's, so a post that went again after coming back is a new event.
+func (e *Emitter) PostUnavailable(ctx context.Context, b *kafka.Batch, src Source, postID, userID int64, created time.Time, code int64, region string) error {
+	key := strconv.FormatInt(postID, 10)
+	p := &ttv1.Post{PostId: postID, UserId: userID, CreatedAt: timestamppb.New(created),
+		Status: ttv1.PostStatus_POST_STATUS_UNAVAILABLE, StatusCode: proto.Int64(code), StatusRegion: region}
+	e.stamp(src, "post-unavailable:"+key+":"+src.JobID, p, func(o *commonv1.Observation) { p.Obs = o })
+	return b.AddProto(ctx, topics.Post, key, p)
+}
+
 // Music publishes a post's sound. Its author name is the creator's for an
 // original sound: personal data, cleared when pseudonymising (ADR 0007 §6).
 func (e *Emitter) Music(ctx context.Context, b *kafka.Batch, src Source, m *ttv1.Music) error {

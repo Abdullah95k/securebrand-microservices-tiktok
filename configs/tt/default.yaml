@@ -173,6 +173,31 @@ tt:
     # count includes comments it does not serve (T15; one post read to the
     # end had 96 % in the recordings). After Phase 0.
     deletion_slack: 0.1
+  # Posts no longer public (docs/tiktok/discovery-plan.md §17): a stored
+  # visible post that a full list page covering its date did not return is
+  # a candidate; one read of its page by plain HTTP confirms it, and it is
+  # marked "unavailable" (never "deleted") with the page's statusCode and
+  # the exit's region. Nothing is deleted (D8); a post that comes back is
+  # visible again, with the change kept.
+  posts:
+    unavailable:
+      enabled: true
+      # A page with fewer posts marks nothing: the creator list serves 15,
+      # one account 14 throughout (C2), and a short page may be TikTok's
+      # time window (C3 §4).
+      min_page_posts: 14
+      # More candidates than this on one page is a reading problem.
+      max_per_page: 3
+      # Post pages one account check reads to confirm candidates (93 KB
+      # and 1.3 s each: C3 §5).
+      max_checks: 5
+      # The post page's statusCode for a post that is not public: 10216, a
+      # post made private (yt-dlp's; T6). Other codes mark nothing and are
+      # counted (unknown_code; 10204 "item not exist" is unconfirmed: T34).
+      codes: [10216]
+      # Codes about the account (unknown, banned, private): its posts keep
+      # their status.
+      account_codes: [10202, 10221, 10222]
   # Media downloads (build brief D5): off until the analysis service exists.
   # Metadata (covers, photos, video renditions, avatars) is always published;
   # TKS_TT__MEDIA__INCLUDE=true queues the downloads too.

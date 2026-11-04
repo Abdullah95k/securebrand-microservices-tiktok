@@ -68,6 +68,10 @@ type Account struct {
 	Gone bool
 	// Posts are newest first by createTime; pinned posts are flagged.
 	Posts []*Post
+	// Hidden are posts no longer public (HidePost): not listed, and their
+	// pages answer their Unavailable statusCode. tks keeps them stored as
+	// they were, marked unavailable (docs/tiktok/discovery-plan.md §17).
+	Hidden []*Post
 }
 
 // Music is a post's sound.
@@ -99,6 +103,8 @@ type Post struct {
 	// time), each with its replies.
 	Comments []*Comment
 	Owner    *Account
+	// Unavailable is the statusCode a hidden post's page answers (HidePost).
+	Unavailable int64
 }
 
 // CommentCount is what TikTok shows: top-level comments plus replies.
@@ -308,12 +314,36 @@ func (w *World) DeleteComment(p *Post, c *Comment) {
 	})
 }
 
-// DeletePost removes a post: it is no longer listed or served.
+// DeletePost removes a post: it is no longer listed, and its page answers
+// statusCode 10204 "item not exist" (public sources'; unconfirmed: T34).
 func (w *World) DeletePost(p *Post) {
 	w.Mutate(func() {
 		acc := p.Owner
 		acc.Posts = slices.DeleteFunc(acc.Posts, func(x *Post) bool { return x == p })
 		delete(w.posts, p.ID)
+	})
+}
+
+// HidePost makes a post no longer public, as a post made private or
+// removed: it is no longer listed, and its page answers code (10216 for a
+// post made private: T6) without the post.
+func (w *World) HidePost(p *Post, code int64) {
+	w.Mutate(func() {
+		acc := p.Owner
+		acc.Posts = slices.DeleteFunc(acc.Posts, func(x *Post) bool { return x == p })
+		acc.Hidden = append(acc.Hidden, p)
+		p.Unavailable = code
+	})
+}
+
+// ShowPost makes a hidden post public again, at its own date.
+func (w *World) ShowPost(p *Post) {
+	w.Mutate(func() {
+		acc := p.Owner
+		acc.Hidden = slices.DeleteFunc(acc.Hidden, func(x *Post) bool { return x == p })
+		p.Unavailable = 0
+		i, _ := slices.BinarySearchFunc(acc.Posts, p, func(x, t *Post) int { return t.Created.Compare(x.Created) })
+		acc.Posts = slices.Insert(acc.Posts, i, p)
 	})
 }
 

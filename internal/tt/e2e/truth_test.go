@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"encoding/hex"
+	"slices"
 	"testing"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakett"
@@ -17,7 +18,10 @@ type truth struct{}
 // ground truth (build brief §8, A6): the account and its username history,
 // every post with its latest counts (in posts and as the newest metrics
 // row), every top-level comment and reply with its author, and no other
-// visible comment (those TikTok stopped serving are marked deleted).
+// visible comment (those TikTok stopped serving are marked deleted). Posts
+// fakett no longer shows (HidePost) are stored as they were, marked
+// unavailable with their page's statusCode (docs/tiktok/discovery-plan.md
+// §17), with their comments.
 func sameStore(t *testing.T, s *Stack, acc *fakett.Account, tr truth) {
 	t.Helper()
 	ctx := context.Background()
@@ -44,12 +48,13 @@ func sameStore(t *testing.T, s *Stack, acc *fakett.Account, tr truth) {
 	}
 
 	type postRow struct {
-		caption, kind                         string
+		caption, kind, status                 string
+		code                                  *int64
 		pinned, ad                            *bool
 		plays, likes, comments, shares, saves int64
 		mPlays, mLikes, mComments             int64
 	}
-	rows, err := db.Query(ctx, `SELECT p.post_id, p.caption, p.kind, p.is_pinned, p.is_ad, p.play_count, p.like_count,
+	rows, err := db.Query(ctx, `SELECT p.post_id, p.caption, p.kind, p.status, p.status_code, p.is_pinned, p.is_ad, p.play_count, p.like_count,
 			p.comment_count, p.share_count, p.save_count, m.play_count, m.like_count, m.comment_count
 		FROM posts p
 		JOIN LATERAL (SELECT play_count, like_count, comment_count FROM post_metrics
@@ -62,21 +67,24 @@ func sameStore(t *testing.T, s *Stack, acc *fakett.Account, tr truth) {
 	for rows.Next() {
 		var id int64
 		var r postRow
-		if err := rows.Scan(&id, &r.caption, &r.kind, &r.pinned, &r.ad, &r.plays, &r.likes, &r.comments, &r.shares, &r.saves,
+		if err := rows.Scan(&id, &r.caption, &r.kind, &r.status, &r.code, &r.pinned, &r.ad, &r.plays, &r.likes, &r.comments, &r.shares, &r.saves,
 			&r.mPlays, &r.mLikes, &r.mComments); err != nil {
 			t.Fatal(err)
 		}
 		stored[id] = r
 	}
 	rows.Close()
-	if len(stored) != len(acc.Posts) {
-		t.Errorf("account %s: %d posts stored (with metrics), want %d", acc.Username, len(stored), len(acc.Posts))
+	if len(stored) != len(acc.Posts)+len(acc.Hidden) {
+		t.Errorf("account %s: %d posts stored (with metrics), want %d", acc.Username, len(stored), len(acc.Posts)+len(acc.Hidden))
 	}
-	for _, p := range acc.Posts {
+	for _, p := range append(slices.Clone(acc.Posts), acc.Hidden...) {
 		r, ok := stored[p.ID]
 		switch {
 		case !ok:
 			t.Errorf("post %d missing", p.ID)
+		case p.Unavailable == 0 && (r.status != "visible" || r.code != nil),
+			p.Unavailable != 0 && (r.status != "unavailable" || r.code == nil || *r.code != p.Unavailable):
+			t.Errorf("post %d: status %s code %v, want code %d", p.ID, r.status, r.code, p.Unavailable)
 		case r.caption != p.Desc, r.kind != p.Kind, r.pinned == nil || *r.pinned != p.Pinned, r.ad == nil || *r.ad != p.Ad,
 			r.plays != p.Plays, r.likes != p.Likes, r.comments != p.CommentCount(), r.shares != p.Shares, r.saves != p.Saves:
 			t.Errorf("post %d: stored %+v", p.ID, r)
@@ -141,7 +149,7 @@ func sameStore(t *testing.T, s *Stack, acc *fakett.Account, tr truth) {
 			t.Errorf("reply %d: depth %d parent %v, want %d", c.ID, r.depth, r.parent, parent)
 		}
 	}
-	for _, p := range acc.Posts {
+	for _, p := range append(slices.Clone(acc.Posts), acc.Hidden...) {
 		for _, c := range p.Comments {
 			check(p, c, 0)
 			for _, r := range c.Replies {
