@@ -135,6 +135,11 @@ type answer struct {
 }
 
 // call sends one variant of an operation and records it.
+// callDeadline bounds one call of the probe, from its signature to its
+// answer: the pacing, a signer page's opening (tt.signer.page_timeout) and
+// signing, and the request itself fit well within it.
+const callDeadline = 3 * time.Minute
+
 func (l *lane) call(ctx context.Context, src string, item, page int, q registry.Query, signOn string, vars map[string]any, referer string, try bool) answer {
 	k := l.k
 	client := &graphql.Client{Registry: registry.NewStatic(registry.Seed{ClientParams: k.seed.ClientParams, Queries: []registry.Query{q}}),
@@ -150,7 +155,12 @@ func (l *lane) call(ctx context.Context, src string, item, page int, q registry.
 	if ttclient.Signed(q) && pool != nil {
 		r.Signed, r.SignPage = true, first(signOn, SignOnProfile)
 	}
-	resp, err := client.Do(ctx, l.id, graphql.Request{Query: q.Name, Vars: vars, Referer: referer})
+	// A safety net: one call, its signature included, never holds the lane
+	// longer than callDeadline (C6 run 1 waited 36 minutes on a signer page
+	// that would not close).
+	cctx, cancel := context.WithTimeout(ctx, callDeadline)
+	resp, err := client.Do(cctx, l.id, graphql.Request{Query: q.Name, Vars: vars, Referer: referer})
+	cancel()
 	if err != nil {
 		r.Class, r.Reason = detect.Transport.String(), err.Error()
 		if isSignErr(err) {

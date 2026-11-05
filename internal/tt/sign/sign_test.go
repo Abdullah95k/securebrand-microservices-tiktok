@@ -32,6 +32,7 @@ type fakePage struct {
 	most   *atomic.Int32
 	hold   time.Duration
 	mb     atomic.Int64
+	stuck  chan struct{}
 }
 
 func (p *fakePage) Sign(ctx context.Context, raw string) (string, error) {
@@ -53,7 +54,12 @@ func (p *fakePage) Sign(ctx context.Context, raw string) (string, error) {
 	return raw + "&X-Gnarly=page" + string(rune('0'+p.n)), nil
 }
 
-func (p *fakePage) Close() { p.closed.Store(true) }
+func (p *fakePage) Close() {
+	p.closed.Store(true)
+	if p.stuck != nil {
+		<-p.stuck // a page that does not close (C6, 2026-11-05)
+	}
+}
 
 // MemoryMB is the page's browser memory, as the opener sets it.
 func (p *fakePage) MemoryMB() float64 { return float64(p.mb.Load()) }
@@ -66,13 +72,14 @@ type opener struct {
 	most  atomic.Int32
 	hold  time.Duration
 	delay time.Duration // opening a page takes this long
+	stuck chan struct{} // its pages' Close blocks until this closes
 }
 
 func (o *opener) open(_ context.Context, _ *session.Identity, pageURL string) (sign.Page, error) {
 	time.Sleep(o.delay)
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	p := &fakePage{n: len(o.pages), url: pageURL, fail: &o.fail, busy: &o.busy, most: &o.most, hold: o.hold}
+	p := &fakePage{n: len(o.pages), url: pageURL, fail: &o.fail, busy: &o.busy, most: &o.most, hold: o.hold, stuck: o.stuck}
 	o.pages = append(o.pages, p)
 	return p, nil
 }
@@ -348,8 +355,10 @@ func TestPoolClosesIdleAndBigPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	o.pages[3].mb.Store(5000)
+	// The pool counts the page gone when it takes it out, before the close
+	// (bounded by CloseTimeout) has run: wait for both.
 	deadline := time.Now().Add(2 * time.Second)
-	for q.Pages() != 0 && time.Now().Before(deadline) {
+	for (q.Pages() != 0 || !o.pages[3].closed.Load()) && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if q.Pages() != 0 || !o.pages[3].closed.Load() {
@@ -638,6 +647,45 @@ func TestPoolBrowserSeconds(t *testing.T) {
 	now = now.Add(time.Hour)
 	if got := p.BrowserSeconds(); got != 20 {
 		t.Fatalf("closed pages cost nothing: %v s", got)
+	}
+}
+
+// A page that will not close does not hold the sign that replaces it: in
+// C6 (2026-11-05) a spent page's Close never returned and the probe's lane
+// waited 36 minutes. The close is given up after CloseTimeout, counted as
+// stuck, and the call is signed on a new page.
+func TestStuckCloseDoesNotHoldTheSign(t *testing.T) {
+	ctx := context.Background()
+	o := &opener{stuck: make(chan struct{})}
+	defer close(o.stuck)
+	p := sign.New(cfg(), o.open)
+	p.CloseTimeout = 200 * time.Millisecond
+	a := identity("UA-a")
+	ref := "https://www.example.com/@someone/video/1"
+	for i := range 3 { // page_max_signs: the first page is spent after these
+		if _, err := p.SignURL(ctx, a, "comments", "/api/comment/list/?cursor="+string(rune('0'+i)), ref); err != nil {
+			t.Fatal(err)
+		}
+	}
+	done := make(chan string, 1)
+	start := time.Now()
+	go func() {
+		got, err := p.SignURL(ctx, a, "comments", "/api/comment/list/?cursor=9", ref)
+		if err != nil {
+			got = err.Error()
+		}
+		done <- got
+	}()
+	select {
+	case got := <-done:
+		if !strings.HasSuffix(got, "page1") {
+			t.Fatalf("signed %q, want it on a new page", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the sign waited for a page that never closes")
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("the sign took %v, want about CloseTimeout", d)
 	}
 }
 

@@ -66,6 +66,18 @@ It runs every source against a built-in fake TikTok and ends with `discover: don
 | `make tks-discover` | The whole probe |
 | `make tks-discover TKS_DISCOVER_ARGS="--sources search,feed"` | Some sources only |
 | `make tks-discover TKS_DISCOVER_ARGS="--report-only"` | The report and the bundle again from the files |
+| `make tks-discover TKS_DISCOVER_OUT=phase0/out-tt-discover-2 TKS_DISCOVER_ARGS="--sources feed,hashtag,sound,related,entry,pages"` | Some sources into a new folder, keeping an earlier run's (C6 run 2 does this) |
 | `make tks-discover-dryrun` | The rehearsal |
 
 `go run ./cmd/tks-spike discover --help` lists every flag (each source's cap, the keywords, the signer).
+
+## If it stops printing
+
+Each source prints `start` and `done`; a long silence is normal only while one source walks many pages. To tell a slow run from a stuck one, from a second shell (or after leaving tmux with Ctrl-b, then d):
+
+1. `wc -l phase0/out-tt-discover/calls.jsonl`, then again a minute later: the count grows while it works.
+2. `systemctl status tks-discover.scope --no-pager`: memory against the 3 GB cap, and CPU time.
+
+If the count has not moved for 10 minutes, it is stuck. Before stopping it, save where it waits, for the build session: `tmux pipe-pane -o -t tks 'cat >> /root/tks-discover-stuck.txt'`, then `pkill -QUIT -f 'bin/tks-spike discover'` (it prints every goroutine and stops), then `systemctl stop tks-discover.scope` and `make tks-discover TKS_DISCOVER_ARGS="--report-only"` for the report and bundle. Send the bundle through your Drive, with the dump (it holds no names or text).
+
+C6 run 1 (2026-11-05) hung this way on the For You page: a browser call Chromium never answered held the page's close ([`c6-findings-2026-11-05.md`](../tiktok/c6-findings-2026-11-05.md) §3). Fixed: browser calls and page closes are bounded, and so is every probe call (3 minutes).

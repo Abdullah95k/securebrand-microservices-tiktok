@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strconv"
 	"strings"
@@ -54,6 +55,10 @@ type Pool struct {
 	open Opener
 	// Now is the clock (tests).
 	Now func() time.Time
+	// CloseTimeout bounds how long closing a page holds its caller (the
+	// sign that replaces a spent page, the sweeper); a page still closing
+	// then is left to finish on its own. Zero is DefaultCloseTimeout.
+	CloseTimeout time.Duration
 
 	slots chan struct{} // one per page: a page signs one call at a time
 
@@ -148,7 +153,7 @@ func (p *Pool) Sweep() {
 	p.addTotal(-len(stale))
 	p.mu.Unlock()
 	for _, c := range stale {
-		closePage(c.pg, c.why)
+		p.closePage(c.pg, c.why)
 	}
 }
 
@@ -161,6 +166,7 @@ const (
 	CloseError    = "error"    // a signature failed
 	CloseRoom     = "room"     // closed to open a page for another user agent, or for a retry
 	CloseShutdown = "shutdown" // the pool closed
+	CloseStuck    = "stuck"    // did not close within CloseTimeout (left to finish)
 )
 
 type closing struct {
@@ -169,8 +175,31 @@ type closing struct {
 }
 
 // closePage closes a page the pool no longer counts.
-func closePage(pg *page, why string) {
-	pg.Close()
+// DefaultCloseTimeout is Pool.CloseTimeout's default: a browser.Session
+// closes within about 7 seconds even when its page is stuck.
+const DefaultCloseTimeout = 15 * time.Second
+
+// closePage closes pg, waiting at most CloseTimeout. A page that would not
+// close held the C6 probe's lane for good (2026-11-05): browser.Session's
+// Close is bounded since, and this bound keeps any Page from doing it again.
+func (p *Pool) closePage(pg *page, why string) {
+	done := make(chan struct{})
+	go func() {
+		pg.Close()
+		close(done)
+	}()
+	wait := p.CloseTimeout
+	if wait <= 0 {
+		wait = DefaultCloseTimeout
+	}
+	t := time.NewTimer(wait)
+	select {
+	case <-done:
+	case <-t.C:
+		why = CloseStuck
+		slog.Warn("sign: a signer page did not close in time; left to finish on its own", "after", wait)
+	}
+	t.Stop()
 	metrics.SignerPages.Dec()
 	metrics.SignerPageCloses.WithLabelValues(why).Inc()
 }
@@ -317,7 +346,7 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 	}
 	p.mu.Unlock()
 	for _, c := range stale {
-		closePage(c.pg, c.why)
+		p.closePage(c.pg, c.why)
 	}
 	if got != nil {
 		return got, nil
@@ -394,7 +423,7 @@ func (p *Pool) give(pg *page) {
 	if why != "" {
 		p.addTotal(-1)
 		p.mu.Unlock()
-		closePage(pg, why)
+		p.closePage(pg, why)
 		return
 	}
 	p.idle = append(p.idle, pg)
@@ -405,7 +434,7 @@ func (p *Pool) discard(pg *page) {
 	p.mu.Lock()
 	p.addTotal(-1)
 	p.mu.Unlock()
-	closePage(pg, CloseError)
+	p.closePage(pg, CloseError)
 }
 
 // maxSignedBy bounds the calls whose answer the pool waits to hear.
@@ -475,7 +504,7 @@ func (p *Pool) Close() {
 	p.addTotal(-len(idle))
 	p.mu.Unlock()
 	for _, pg := range idle {
-		closePage(pg, CloseShutdown)
+		p.closePage(pg, CloseShutdown)
 	}
 	<-p.done
 }

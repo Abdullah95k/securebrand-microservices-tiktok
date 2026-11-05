@@ -387,6 +387,11 @@ func attachPage(ctx context.Context, proc *process, opts Options, proxyUser, pro
 }
 
 // renderer follows the page session's events.
+// postDataTimeout bounds the one call an event handler waits for (a
+// request's post data): every other answer to an event is sent without
+// waiting.
+const postDataTimeout = 2 * time.Second
+
 type renderer struct {
 	c          *conn
 	pid        int // the browser's process
@@ -567,9 +572,14 @@ func (r *renderer) handle(ctx context.Context, ev event) error {
 			var pd struct {
 				PostData string `json:"postData"`
 			}
-			if err := r.c.call(ctx, r.s, "Network.getRequestPostData", map[string]any{"requestId": p.RequestID}, &pd); err == nil {
+			// Bounded: the pump waits for this answer, and Chromium may
+			// never give one (a TikTok For You page did not in C6, which
+			// froze the page's events and, through Close, its signer).
+			pctx, cancel := context.WithTimeout(ctx, postDataTimeout)
+			if err := r.c.call(pctx, r.s, "Network.getRequestPostData", map[string]any{"requestId": p.RequestID}, &pd); err == nil {
 				post = pd.PostData
 			}
+			cancel()
 		}
 		if form, err := url.ParseQuery(post); err == nil {
 			x.Form = form
