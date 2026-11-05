@@ -100,18 +100,35 @@ func postRow(p *ttv1.Post, storedAt time.Time) []any {
 		c.Plays, c.Likes, c.Comments, c.Shares, c.Saves, c.Reposts, hashOf(p.Obs), status, seen, seen, storedAt, modeName(p.Obs)}
 }
 
+// unavailableKept is true, in an upsert of posts, when the stored post was
+// marked unavailable after the read being written was observed: the read
+// does not bring it back.
+const unavailableKept = "(t.status = 'unavailable' AND t.unavailable_since > EXCLUDED.last_seen_at)"
+
 // Posts upserts posts, their index rows and the people their captions
-// mention. The pinned and ad flags, known only from lists, are kept when a
-// read does not carry them.
+// mention, and applies status-only records (a post no longer public:
+// markUnavailable). The pinned and ad flags, known only from lists, are kept
+// when a read does not carry them. A full read observed after a post was
+// marked unavailable makes it visible again; every status change is kept in
+// post_status_changes (docs/tiktok/discovery-plan.md §17).
 func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 	ps = latest(ps, func(p *ttv1.Post) string { return strconv.FormatInt(p.PostId, 10) })
 	kept := ps[:0]
+	var marks []*ttv1.Post
 	for _, p := range ps {
-		if p.PostId == 0 || p.UserId == 0 || p.CreatedAt == nil {
+		switch {
+		case p.PostId == 0 || p.UserId == 0 || p.CreatedAt == nil:
 			metrics.PersistRows.WithLabelValues("post", "rejected").Inc()
-			continue
+		case p.Status == ttv1.PostStatus_POST_STATUS_UNAVAILABLE:
+			marks = append(marks, p)
+		default:
+			kept = append(kept, p)
 		}
-		kept = append(kept, p)
+	}
+	if len(marks) > 0 {
+		if err := w.markUnavailable(ctx, marks); err != nil {
+			return err
+		}
 	}
 	if ps = kept; len(ps) == 0 {
 		return nil
@@ -138,18 +155,40 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 			if err := copyTemp(ctx, tx, "tmp_posts", "posts", postCols, rows); err != nil {
 				return err
 			}
+			// The status changes this batch makes, before it makes them.
+			changed, err := tx.Query(ctx, `INSERT INTO post_status_changes AS h (post_id, changed_at, status, previous)
+				SELECT n.post_id, n.last_seen_at, n.status, t.status
+				FROM tmp_posts n JOIN posts t ON t.created_at = n.created_at AND t.post_id = n.post_id
+				WHERE t.status IS DISTINCT FROM n.status AND t.last_seen_at <= n.last_seen_at
+				  AND NOT `+strings.ReplaceAll(unavailableKept, "EXCLUDED.", "n.")+`
+				ON CONFLICT DO NOTHING RETURNING h.status`)
+			if err != nil {
+				return err
+			}
+			statuses, err := pgx.CollectRows(changed, pgx.RowTo[string])
+			if err != nil {
+				return err
+			}
 			tag, err := tx.Exec(ctx, `INSERT INTO posts AS t (`+strings.Join(postCols, ",")+`)
 				SELECT `+strings.Join(postCols, ",")+` FROM tmp_posts
 				ON CONFLICT (created_at, post_id) DO UPDATE SET `+set(postCols, map[string]string{
 				"created_at": "", "post_id": "", "first_seen_at": "", "discovered_via": "", "stored_at": "", "first_mode": "",
-				"is_pinned": "COALESCE(EXCLUDED.is_pinned, t.is_pinned)", "is_ad": "COALESCE(EXCLUDED.is_ad, t.is_ad)"})+`
+				"is_pinned": "COALESCE(EXCLUDED.is_pinned, t.is_pinned)", "is_ad": "COALESCE(EXCLUDED.is_ad, t.is_ad)",
+				"status": "CASE WHEN " + unavailableKept + " THEN t.status ELSE EXCLUDED.status END"},
+				"unavailable_since = CASE WHEN "+unavailableKept+" THEN t.unavailable_since END",
+				"status_code = CASE WHEN "+unavailableKept+" THEN t.status_code END",
+				"status_region = CASE WHEN "+unavailableKept+" THEN t.status_region END")+`
 				WHERE t.last_seen_at <= EXCLUDED.last_seen_at
 				  AND (t.content_hash IS DISTINCT FROM EXCLUDED.content_hash
+				   OR t.status IS DISTINCT FROM EXCLUDED.status
 				   OR t.last_seen_at < EXCLUDED.last_seen_at - interval '1 day')`)
 			if err != nil {
 				return err
 			}
 			n = tag.RowsAffected()
+			for _, st := range statuses {
+				metrics.PostStatusChanges.WithLabelValues(st).Inc()
+			}
 			// post_index is written with the post, so a post new to it is new.
 			idx, err := tx.Query(ctx, `INSERT INTO post_index (post_id, user_id, created_at, kind)
 				SELECT post_id, user_id, created_at, kind FROM tmp_posts ON CONFLICT (post_id) DO NOTHING RETURNING post_id`)
@@ -179,6 +218,56 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 	written("post", n, start)
 	metrics.PersistRows.WithLabelValues("post", "unchanged").Add(float64(int64(len(ps)) - n))
 	observeDelay(ps, fresh, now)
+	return nil
+}
+
+// markUnavailable applies status-only records: a visible post that a list
+// read covering its date no longer returned, and whose page confirmed it, is
+// marked unavailable with the page's statusCode and the exit's region. Its
+// content stays (D8). A post read after the mark was observed, or already
+// not visible, is left as it is.
+func (w *Writer) markUnavailable(ctx context.Context, ps []*ttv1.Post) error {
+	created := make([]time.Time, 0, len(ps))
+	ids := make([]int64, 0, len(ps))
+	users := make([]int64, 0, len(ps))
+	at := make([]time.Time, 0, len(ps))
+	codes := make([]*int64, 0, len(ps))
+	regions := make([]*string, 0, len(ps))
+	for _, p := range ps {
+		created = append(created, p.CreatedAt.AsTime())
+		ids = append(ids, p.PostId)
+		users = append(users, p.UserId)
+		at = append(at, observed(p.Obs))
+		codes = append(codes, p.StatusCode)
+		regions = append(regions, nilIfEmpty(p.StatusRegion))
+	}
+	start := time.Now()
+	var n int64
+	err := pgx.BeginFunc(ctx, w.DB, func(tx pgx.Tx) error {
+		// The subquery reads the rows as they were before the update, so
+		// the history gets their previous status.
+		tag, err := tx.Exec(ctx, `WITH m AS (
+				SELECT t.created_at, t.post_id, t.status AS previous, d.at, d.code, d.region
+				FROM unnest($1::timestamptz[], $2::bigint[], $3::bigint[], $4::timestamptz[], $5::bigint[], $6::text[])
+					AS d(created, post_id, user_id, at, code, region)
+				JOIN posts t ON t.created_at = d.created AND t.post_id = d.post_id AND t.user_id = d.user_id
+				WHERE t.status = 'visible' AND t.last_seen_at < d.at),
+			u AS (UPDATE posts t SET status = 'unavailable', unavailable_since = m.at, status_code = m.code,
+					status_region = m.region
+				FROM m WHERE t.created_at = m.created_at AND t.post_id = m.post_id
+				RETURNING t.post_id)
+			INSERT INTO post_status_changes (post_id, changed_at, status, previous, status_code, region)
+			SELECT m.post_id, m.at, 'unavailable', m.previous, m.code, m.region FROM m JOIN u USING (post_id)
+			ON CONFLICT DO NOTHING`, created, ids, users, at, codes, regions)
+		n = tag.RowsAffected()
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("persist: post statuses: %w", err)
+	}
+	written("post_status", n, start)
+	metrics.PersistRows.WithLabelValues("post_status", "unchanged").Add(float64(int64(len(ps)) - n))
+	metrics.PostStatusChanges.WithLabelValues("unavailable").Add(float64(n))
 	return nil
 }
 

@@ -135,6 +135,7 @@ func (s *AccountStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 	started := time.Now()
 	finished := false
 	softRetried := false
+	v := &vanish{seen: map[int64]bool{}}
 	for !finished {
 		if kafka.IsDraining(ctx) || st.Pages >= d.Cfg.Crawler.YieldPages || time.Since(started) > d.Cfg.Crawler.YieldAfter {
 			break
@@ -195,6 +196,9 @@ func (s *AccountStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 		children, out, stop := s.posts(ctx, b, t, sc, &st, &w, src, res, edgeIDs, fetcherOf(id), c)
 		if stop {
 			return out
+		}
+		if err := s.vanished(ctx, b, t, sc, id, v, res, cursor, edgeIDs, c); err != nil {
+			return retry(t, st.Cursor, "30s", err.Error(), c)
 		}
 		if err := b.Wait(ctx); err != nil {
 			return retry(t, st.Cursor, "30s", "produce: "+err.Error(), c)

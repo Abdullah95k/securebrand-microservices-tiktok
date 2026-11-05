@@ -18,6 +18,10 @@ enum PostKind {
 enum PostStatus {
   POST_STATUS_UNSPECIFIED = 0;
   POST_STATUS_VISIBLE = 1;
+  // No longer public: a list read covering its date no longer returned it
+  // and its page confirmed it. A logged-out reader cannot tell a deletion
+  // from a post made private or removed by TikTok, so it is never "deleted"
+  // (docs/tiktok/discovery-plan.md §17).
   POST_STATUS_UNAVAILABLE = 2;
   POST_STATUS_PRIVATE = 3;
 }
@@ -70,8 +74,13 @@ message PostLabels {
   string anchors_json = 4;
 }
 
-// Post is published on tt.post.v1, keyed by post_id, when a post is first
-// read in full (from the list or its page), so created_at is always set.
+// Post is published on tt.post.v1, keyed by post_id, when a post is read in
+// full (from the list or its page), so created_at is always set.
+//
+// A post that is no longer public is published as a Post with status
+// UNAVAILABLE and only post_id, user_id, created_at, status, status_code,
+// status_region and obs set: keep the content you already have. A later
+// full read with status VISIBLE means it came back.
 message Post {
   securebrand.common.v1.Observation obs = 1;
   int64 post_id = 2;
@@ -104,6 +113,12 @@ message Post {
   PostCounts counts = 23;
   PostStatus status = 24;
   DiscoveredVia discovered_via = 25;
+  // With status UNAVAILABLE: the statusCode the post's page answered (10216
+  // for a post made private; T6), and the region of the exit that read it
+  // (the page's app context), since what TikTok shows depends on it (T23,
+  // T30).
+  optional int64 status_code = 26;
+  string status_region = 27;
 }
 
 // PostMetrics is published on tt.post_metrics.v1, keyed by post_id, when a

@@ -73,6 +73,16 @@ var (
 	// Coverage.
 	CommentCompleteness = histVec("comment_completeness_ratio", "Collected / reported comments per post at job completion.", []float64{0.1, 0.25, 0.5, 0.7, 0.8, 0.9, 0.95, 0.99, 1.0, 1.01}, "lane")
 	ListStops           = counterVec("list_stops_total", "tks account list walks by mode (full, incremental, refresh) and why they stopped (first_post, age, watermark, max_posts, stuck).", "mode", "reason")
+	// PostVanish counts stored posts a full list page covering their date
+	// did not return (docs/tiktok/discovery-plan.md §17), by what the
+	// check made of them: unavailable (the post's page confirmed it),
+	// visible (the page still shows it), account (the page says the
+	// account, not the post, is unavailable: nothing marked),
+	// unknown_code (a statusCode not known to mean a post that is gone:
+	// nothing marked), reading_problem (too many on one page: nothing
+	// marked), deferred (over the check's cap, or the page load paced) and
+	// error.
+	PostVanish = counterVec("post_vanish_total", "tks stored posts a list page covering their date did not return, by what the check made of them (unavailable, visible, account, unknown_code, reading_problem, deferred, error).", "result")
 	// tks's browser signer (internal/tt/sign; build brief D11).
 	SignerSigns     = counterVec("signer_signs_total", "Calls the browser signer signed, by query and result (ok, error, busy).", "query", "result")
 	SignerSeconds   = histVec("signer_sign_seconds", "Time to sign one call in a signer page.", prometheus.ExponentialBuckets(0.01, 2, 12), "query")
@@ -104,6 +114,7 @@ var (
 	PersistRows        = counterVec("persist_rows_total", "Rows written by the persister.", "entity", "op")
 	PersistQuarantined = counterVec("persist_quarantined_total", "Records the persister set aside in its quarantine topic: undecodable, or refused by Postgres.", "entity", "reason")
 	CommentChanges     = counterVec("comment_changes_total", "Stored comments edited, marked deleted or seen again after a deletion, by kind (edited, deleted, restored).", "kind")
+	PostStatusChanges  = counterVec("post_status_changes_total", "tks stored posts whose status changed, by new status (unavailable, visible, private).", "status")
 	DeletionChecks     = counterVec("deletion_checks_total", "Full comment reads of a post checked for deleted comments, by outcome (checked, skipped_partial).", "outcome")
 	PersistBatch       = histVec("persist_batch_seconds", "Persister batch flush duration.", prometheus.ExponentialBuckets(0.005, 2, 12), "entity")
 	Jobs               = counterVec("jobs_total", "Jobs reaching a terminal state.", "status", "lane")

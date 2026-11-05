@@ -392,3 +392,106 @@ func TestNewPostDelay(t *testing.T) {
 		}
 	}
 }
+
+// unavailable is the status-only record of a post no longer public.
+func unavailable(id int64, at time.Time, code int64) *ttv1.Post {
+	p := post(id, at, 0, nil)
+	return &ttv1.Post{Obs: obs(at, "gone"), PostId: id, UserId: p.UserId, CreatedAt: p.CreatedAt,
+		Status: ttv1.PostStatus_POST_STATUS_UNAVAILABLE, StatusCode: proto.Int64(code), StatusRegion: "US"}
+}
+
+// A post no longer public is marked unavailable with its code and region and
+// keeps its content (D8); a mark older than the post's last read changes
+// nothing; a read after the mark makes it visible again, and the history
+// keeps both changes (docs/tiktok/discovery-plan.md §17).
+func TestPostUnavailableAndBack(t *testing.T) {
+	w := newWriter(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	if _, err := ttstore.EnsurePartitions(ctx, w.DB, now, storeWindow); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Posts(ctx, []*ttv1.Post{post(1, now.Add(-10*time.Minute), 10, proto.Bool(false)),
+		post(2, now.Add(-10*time.Minute), 10, nil)}); err != nil {
+		t.Fatal(err)
+	}
+	type row struct {
+		status, caption string
+		since           *time.Time
+		code            *int64
+		region          *string
+		likes           int64
+	}
+	get := func(id int64) row {
+		var r row
+		if err := w.DB.QueryRow(ctx, `SELECT status, caption, unavailable_since, status_code, status_region, like_count
+			FROM posts WHERE post_id = $1`, id).Scan(&r.status, &r.caption, &r.since, &r.code, &r.region, &r.likes); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+
+	// A mark observed before the post's last read: nothing changes.
+	if err := w.Posts(ctx, []*ttv1.Post{unavailable(2, now.Add(-20*time.Minute), 10216)}); err != nil {
+		t.Fatal(err)
+	}
+	if r := get(2); r.status != "visible" || r.since != nil {
+		t.Fatalf("a stale mark changed the post: %+v", r)
+	}
+
+	// Marked: status, code, region and time; the content stays.
+	marked := now.Add(-5 * time.Minute)
+	if err := w.Posts(ctx, []*ttv1.Post{unavailable(1, marked, 10216)}); err != nil {
+		t.Fatal(err)
+	}
+	r := get(1)
+	if r.status != "unavailable" || r.since == nil || !r.since.Equal(marked) || r.code == nil || *r.code != 10216 ||
+		r.region == nil || *r.region != "US" || r.caption != "caption #tag @someone" || r.likes != 10 {
+		t.Fatalf("marked post: %+v", r)
+	}
+	// Marked again: nothing new (only visible posts are marked).
+	if err := w.Posts(ctx, []*ttv1.Post{unavailable(1, now.Add(-4*time.Minute), 10216)}); err != nil {
+		t.Fatal(err)
+	}
+	// A read observed before the mark, delivered late, does not bring it back.
+	if err := w.Posts(ctx, []*ttv1.Post{post(1, now.Add(-7*time.Minute), 12, nil)}); err != nil {
+		t.Fatal(err)
+	}
+	if r := get(1); r.status != "unavailable" || !r.since.Equal(marked) {
+		t.Fatalf("a read from before the mark changed it: %+v", r)
+	}
+	// It comes back, with the same content: visible again, the mark cleared.
+	back := now.Add(-time.Minute)
+	if err := w.Posts(ctx, []*ttv1.Post{post(1, back, 10, proto.Bool(false))}); err != nil {
+		t.Fatal(err)
+	}
+	if r := get(1); r.status != "visible" || r.since != nil || r.code != nil || r.region != nil {
+		t.Fatalf("post back: %+v", r)
+	}
+	rows, err := w.DB.Query(ctx, `SELECT status, previous, changed_at, status_code FROM post_status_changes
+		WHERE post_id = 1 ORDER BY changed_at`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type change struct {
+		status, previous string
+		at               time.Time
+		code             *int64
+	}
+	var got []change
+	for rows.Next() {
+		var c change
+		if err := rows.Scan(&c.status, &c.previous, &c.at, &c.code); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, c)
+	}
+	rows.Close()
+	if len(got) != 2 || got[0].status != "unavailable" || got[0].previous != "visible" || !got[0].at.Equal(marked) ||
+		got[0].code == nil || *got[0].code != 10216 || got[1].status != "visible" || got[1].previous != "unavailable" || !got[1].at.Equal(back) {
+		t.Fatalf("history: %+v", got)
+	}
+	if n := one[int64](t, w.DB, `SELECT count(*) FROM post_status_changes WHERE post_id = 2`); n != 0 {
+		t.Fatalf("post 2: %d status changes, want none", n)
+	}
+}
