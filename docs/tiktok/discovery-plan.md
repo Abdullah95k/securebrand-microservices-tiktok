@@ -406,7 +406,7 @@ Discovery adds its own reads on top:
 - **No age filter (decision 7).** Accounts are added whatever TikTok predicts about age, so minors' public accounts will be monitored if they qualify. Counsel should know this explicitly.
 - **Every added account records why** (§5.1). The owner can remove any account, and it then stays out.
 - **Unchanged:** no logging in (D3), no re-implemented signatures (D11).
-- **D15 still holds:** B, C and D stay **off in production until counsel signs off (G2)**. A needs nothing new.
+- **D15 still holds:** B, C and D stay **off in production until counsel signs off (G2)**. A needs nothing new. **G2 signed off** (owner, 2026-11-05, relayed by the M6c session): the approval covers automatic adding with no age filter and following and followers lists.
 - After M8 merges, [`methods.md`](methods.md) §5 gets a discovery section for counsel. Sending it early keeps G2 from holding up M12 and M13.
 
 ---
@@ -449,8 +449,8 @@ Go-live (C5) doesn't wait for discovery. Part A is usable as soon as M10 merges.
 
 1. **Exits in or near Iraq**, if C6 shows that TikTok serves Iraqi results only to Iraqi viewers (§8.3). This is a proxy decision.
 2. **Follower lists behind login** (§9). If TikTok serves them only to logged-in users, part D can't run without changing D3.
-3. **The owner's own accounts that go quiet** stay monitored with lighter checks (§4). The owner can say instead that they move to the dormant list like discovered accounts.
-4. **Counsel's review** (§13).
+3. ~~The owner's own accounts that go quiet~~: **closed** (owner, 2026-11-05): they stay monitored with lighter checks (§4, built in M10a).
+4. ~~Counsel's review~~ (§13): **closed** (owner, 2026-11-05): signed off, discovery included.
 
 ---
 

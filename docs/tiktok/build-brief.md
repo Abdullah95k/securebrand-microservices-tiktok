@@ -41,7 +41,7 @@ Made by the owner or carried over from fbs and igs. D2's delay target, D7 and D1
 | D12 | **Proxies** | The owner's **rotating ISP proxies** first. **Residential only if the owner agrees.** The code supports both (`static_list`, `gateway`) |
 | D13 | **Probes** | Run by the owner on the **Phase 0 droplet** (never the owner's Mac, never the cloud session), paced like a person. Their output holds everything they read (names, links, pictures, videos, comments), is written 0600 under `phase0/`, and stays off git |
 | D14 | **Pull requests** | One draft PR per milestone (a large one may split). The session merges its own PR once CI is green |
-| D15 | **Legal** | **No production traffic until the legal team signs off.** `methods.md` §5 is the briefing for it |
+| D15 | **Legal** | **No production traffic until the legal team signs off.** `methods.md` §5 is the briefing for it. **Signed off** (owner, 2026-11-05, relayed by the M6c session; covers discovery, G2): production now waits on staging and the canary (C5) |
 
 ---
 
