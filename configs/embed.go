@@ -4,7 +4,7 @@ package configs
 
 import "embed"
 
-//go:embed *.yaml tt/*.yaml
+//go:embed *.yaml tt/*.yaml tt/discovery/*.yaml
 var FS embed.FS
 
 // Default returns the embedded default.yaml.

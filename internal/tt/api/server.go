@@ -90,6 +90,8 @@ func (s *Server) routes(r chi.Router) {
 	r.Post("/jobs/{id}/cancel", require(ScopeJobsWrite, s.cancelJob))
 
 	r.Post("/accounts", require(ScopeAccountsWrite, s.registerAccount))
+	r.Post("/accounts/import", require(ScopeAccountsWrite, s.importAccounts))
+	r.Get("/accounts/imports/{batch}", require(ScopeAccountsWrite, s.importReport))
 	r.Get("/accounts", require(ScopeDataRead, s.listAccounts))
 	r.Get("/accounts/{account}", require(ScopeDataRead, s.getAccount))
 	r.Patch("/accounts/{account}", require(ScopeAccountsWrite, s.updateAccount))
@@ -104,6 +106,11 @@ func (s *Server) routes(r chi.Router) {
 	r.Get("/posts/{post}/media", require(ScopeDataRead, s.postMedia))
 	r.Get("/music/{music}", require(ScopeDataRead, s.getMusic))
 	r.Get("/media/{media}", require(ScopeDataRead, s.getMedia))
+
+	r.Get("/admission", require(ScopeDataRead, s.admission))
+	r.Get("/discovery/keywords", require(ScopeDiscoveryRead, s.listKeywords))
+	r.Post("/discovery/keywords", require(ScopeDiscoveryWrite, s.addKeyword))
+	r.Patch("/discovery/keywords/{id}", require(ScopeDiscoveryWrite, s.updateKeyword))
 
 	r.Get("/admin/operations", require(ScopeAdmin, s.listOperations))
 	r.Put("/admin/operations/{name}", require(ScopeAdmin, s.putOperation))

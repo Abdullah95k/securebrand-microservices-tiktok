@@ -1,9 +1,9 @@
 # Copied from fbs (Abdullah95k/securebrand-microservices) configs/discovery/iraq.yaml
-# at 9bea690 (2026-11-03) for tks keyword discovery (docs/tiktok/discovery-plan.md).
-# Not embedded or loaded yet: M10 adds `tksctl discovery keywords seed`.
+# at 4816736 (2026-11-05) for tks keyword discovery (docs/tiktok/discovery-plan.md).
+# Embedded; `tksctl discovery keywords seed` loads it into tt.discovery_keywords (M10a).
 #
 # Discovery keyword seed: Iraq, the Kurdistan Region, the 19 governorates
-# and their key cities and towns. `fbctl discovery keywords seed` loads it;
+# and their key cities and towns. `tksctl discovery keywords seed` loads it;
 # loading it again adds only what is new, and never re-enables a keyword
 # someone turned off.
 #
@@ -20,17 +20,20 @@
 groups:
   - name: iraq
     terms:
-      en: [Iraq, Iraqi]
-      ar: [العراق, عراق, العراقية, العراقي]
+      en: [Iraq, Iraqi, Iraqis, Iraqia, Irak]
+      ar: [العراق, عراق, العراقية, العراقي, عيراق]
       ckb: [عێراق]
       kmr: [Iraq, Iraqê]
 
+  # Kurdistan alone also names the Kurdish parts of Turkey, Syria and Iran;
+  # Iraqi pages often mean the Region by it. Turn it off in the table if
+  # its searches bring in mostly pages from outside Iraq.
   - name: kurdistan_region
     terms:
-      en: [Kurdistan Region, KRG, Kurdistan Region of Iraq]
-      ar: [إقليم كوردستان, إقليم كردستان, اقليم كوردستان, اقليم كردستان]
-      ckb: [هەرێمی کوردستان]
-      kmr: [Herêma Kurdistanê]
+      en: [Kurdistan Region, KRG, Kurdistan Region of Iraq, Kurdistan]
+      ar: [إقليم كوردستان, إقليم كردستان, اقليم كوردستان, اقليم كردستان, كردستان, كوردستان]
+      ckb: [هەرێمی کوردستان, کوردستان]
+      kmr: [Herêma Kurdistanê, Kurdistanê]
 
   - name: baghdad
     terms:
@@ -59,7 +62,7 @@ groups:
   - name: erbil
     terms:
       en: [Erbil, Arbil, Irbil, Hawler, Hewler, Shaqlawa, Rawanduz, Rwanduz, Makhmour, Makhmur, Ankawa, Choman]
-      ar: [أربيل, اربيل, شقلاوة, راوندوز, مخمور, عنكاوا]
+      ar: [أربيل, اربيل, هولير, شقلاوة, راوندوز, مخمور, عنكاوا]
       ckb: [هەولێر, کۆیە, شەقڵاوە, ڕەواندز, مەخموور, عەنکاوە, چۆمان]
       kmr: [Hewlêr, Koye, Şeqlawe, Rewandiz, Mexmûr]
     off:
@@ -70,13 +73,13 @@ groups:
 
   - name: sulaymaniyah
     terms:
-      en: [Sulaymaniyah, Sulaimaniyah, Sulaimani, Slemani, Suleimaniyah, Qaladiza, Qaladze, Chamchamal, Kalar, Darbandikhan, Penjwen, Said Sadiq]
+      en: [Sulaymaniyah, Sulaimaniyah, Sulaimani, Sulaymani, Slemani, Suleimaniyah, Qaladiza, Qaladze, Chamchamal, Kalar, Darbandikhan, Penjwen, Said Sadiq]
       ar: [السليمانية, سليمانية, قلعة دزة, جمجمال, كلار, دربندخان, بنجوين]
       ckb: [سلێمانی, ڕانیە, قەڵادزێ, چەمچەماڵ, کەلار, دەربەندیخان, پێنجوێن]
       kmr: [Silêmanî, Ranye, Qeladizê, Çemçemal, Kelar, Derbendîxan, Pêncwên]
     off:
       en: [Ranya, Rania]
-      ar: [رانية]
+      ar: [رانية, سليماني]   # سليماني is also a common surname
 
   - name: duhok
     terms:
@@ -125,7 +128,7 @@ groups:
   - name: anbar
     terms:
       en: [Anbar, Al Anbar, Ramadi, Fallujah, Falluja, Haditha, Al-Qaim, Rutba, Rutbah]
-      ar: [الأنبار, الانبار, الرمادي, رمادي, الفلوجة, فلوجة]
+      ar: [الأنبار, الانبار, انبار, الرمادي, رمادي, الفلوجة, فلوجة]
       ckb: [ئەنبار, ڕەمادی, فەللووجە]
       kmr: [Enbar]
     off:
@@ -138,7 +141,7 @@ groups:
       ar: [بابل, الحلة, المسيب, المحاويل]
       ckb: [بابل]
     off:
-      ar: [الهاشمية]
+      ar: [الهاشمية, حلة]   # حلة is also "outfit", "a new look"
       en: [Hashimiya]
 
   - name: karbala
@@ -174,8 +177,8 @@ groups:
 
   - name: dhi_qar
     terms:
-      en: [Dhi Qar, Thi Qar, Nasiriyah, Nasiriya, Nasiriyya, Shatra, Suq al-Shuyukh, Chibayish]
-      ar: [ذي قار, الناصرية, ناصرية, الشطرة, سوق الشيوخ, الجبايش]
+      en: [Dhi Qar, Thi Qar, Dhiqar, Nasiriyah, Nasiriya, Nasiriyya, Shatra, Suq al-Shuyukh, Chibayish]
+      ar: [ذي قار, ذيقار, الناصرية, ناصرية, الشطرة, سوق الشيوخ, الجبايش]
       ckb: [ناسریە]
     off:
       en: [Rifai]
@@ -183,7 +186,7 @@ groups:
 
   - name: maysan
     terms:
-      en: [Maysan, Missan, Amarah, Majar al-Kabir]
+      en: [Maysan, Missan, Misan, Amarah, Majar al-Kabir]
       ar: [ميسان, المجر الكبير]
       ckb: [میسان, عەمارە]
     off:

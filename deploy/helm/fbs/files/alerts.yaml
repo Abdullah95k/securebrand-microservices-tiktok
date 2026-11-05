@@ -374,6 +374,8 @@ groups:
         expr: max(tks_account_check_oldest_seconds * on (instance) (tks_scheduler_leader == 1))
       - record: tks:leader:account_refresh_overdue
         expr: max(tks_account_refresh_overdue * on (instance) (tks_scheduler_leader == 1))
+      - record: tks:leader:admission_queue
+        expr: max(tks_admission_queue * on (instance) (tks_scheduler_leader == 1))
       - record: tks:leader:scheduled_accounts_active
         expr: max(tks_scheduled_accounts{status="active"} * on (instance) group_left () (tks_scheduler_leader == 1))
       - alert: TksChecksMissingWindow
@@ -411,6 +413,19 @@ groups:
             The profile page reads that give exact counts and the bio link do
             not succeed. Look at the account stage's page loads.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-objectives.md#a1-daily-account-refresh
+      - alert: TksAdmissionStalled
+        expr: |
+          tks:leader:admission_queue > 0 and sum(increase(tks_admitted_accounts_total[6h])) == 0
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} new accounts wait for admission and none started in 6 h"
+          description: >-
+            Paced admission lets no new account start its first read: the
+            budget leaves nothing after monitoring, or pauses backfills. Raise
+            scheduler.budget.requests_per_day or set tt.admission.per_hour;
+            GET /v1/admission says what draining the queue in a day takes.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-import.md#the-admission-queue
       - alert: TksNewPostsLate
         expr: |
           sum(increase(tks_post_store_delay_seconds_bucket{le="10800"}[1d]))

@@ -25,6 +25,12 @@ func counterVec(name, help string, labels ...string) *prometheus.CounterVec {
 	return c
 }
 
+func counter(name, help string) prometheus.Counter {
+	c := prometheus.NewCounter(prometheus.CounterOpts{Namespace: "tks", Name: name, Help: help})
+	Registry.MustRegister(c)
+	return c
+}
+
 func histVec(name, help string, buckets []float64, labels ...string) *prometheus.HistogramVec {
 	h := prometheus.NewHistogramVec(prometheus.HistogramOpts{Namespace: "tks", Name: name, Help: help, Buckets: buckets}, labels)
 	Registry.MustRegister(h)
@@ -124,6 +130,9 @@ var (
 	Checks         = counterVec("checks_total", "tks scheduled account checks that ended, by kind (check, walk, backfill), job status and whether they ended within their interval of being started (window: in, late; build brief §8 A1).", "kind", "result", "window")
 	CheckOldest    = gauge("account_check_oldest_seconds", "Time since the active scheduled account with the oldest successful check was last checked well (leader scheduler).")
 	RefreshOverdue = gauge("account_refresh_overdue", "Active scheduled tks accounts whose daily profile read is more than a day overdue (build brief §8 A1; leader scheduler).")
+	// Paced admission of new accounts (docs/tiktok/discovery-plan.md §5.3).
+	AdmissionQueue   = gauge("admission_queue", "tks accounts registered and waiting for paced admission before their first read (leader scheduler).")
+	AdmittedAccounts = counter("admitted_accounts_total", "tks new accounts paced admission let start their first read.")
 	// tks's delay before a new post is stored (build brief §8 A2): the
 	// buckets hold the targets (median 1.5 h, 99 % in 3 h, 99.9 % in 6 h).
 	PostStoreDelay = histVec("post_store_delay_seconds", "Time from a new tks post's createTime to its row in Postgres, for posts first read by a scheduled check (mode incremental) or a metrics walk in its place (refresh); backfills are not counted.",

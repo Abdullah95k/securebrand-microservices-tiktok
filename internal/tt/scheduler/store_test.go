@@ -48,7 +48,8 @@ func newEnv(t *testing.T) *env {
 	}
 	t.Cleanup(prod.Close)
 	var specs []kafka.TopicSpec
-	for _, n := range []string{topics.Job, topics.Task(tkstaskv1.Kind_KIND_ACCOUNT, tkstaskv1.Lane_LANE_P1)} {
+	for _, n := range []string{topics.Job, topics.Task(tkstaskv1.Kind_KIND_ACCOUNT, tkstaskv1.Lane_LANE_P1),
+		topics.Task(tkstaskv1.Kind_KIND_ACCOUNT, tkstaskv1.Lane_LANE_P2)} {
 		specs = append(specs, kafka.TopicSpec{Name: n, Partitions: 1})
 	}
 	if err := kafka.EnsureTopics(ctx, prod.Client(), prefix, specs, 1); err != nil {

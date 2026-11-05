@@ -6,6 +6,8 @@
 //	tksctl schemas apply|check           register the tt.v1 and common.v1 schemas (BACKWARD_TRANSITIVE) / dry run
 //	tksctl fixtures add|scrub            scrub a real answer into a golden fixture (M4) / scrub old fixtures again
 //	tksctl apikey create|revoke          make a tks-api client and print its key once / revoke a key (M6b)
+//	tksctl accounts import               register a list of accounts for a client, with a report (M10a)
+//	tksctl discovery keywords seed|import|list   discovery keywords (seed: the Iraq list; M10a)
 //
 // The copied Facebook pipeline keeps fbctl until M9 removes it.
 package main
@@ -32,7 +34,10 @@ commands:
   fixtures add --from <har|answer> --name <case> [--kind K] [--entry N] [--items N]
   fixtures scrub [--root testdata/tt]
   apikey create --name NAME [--scopes s1,s2] [--rate N]
-  apikey revoke --prefix PREFIX`)
+  apikey revoke --prefix PREFIX
+  accounts import FILE --client NAME [--label L]... [--dry-run] [--disable-missing [--confirm] [--force]]
+  accounts import --report BATCH --client NAME [--problems]
+  discovery keywords seed | discovery keywords import --file F | discovery keywords list [--language L] [--group G]`)
 	os.Exit(2)
 }
 
@@ -72,6 +77,13 @@ func main() {
 		out, err = apikeyCreate(ctx, cfg, rest)
 	case "apikey revoke":
 		out, err = apikeyRevoke(ctx, cfg, rest)
+	case "accounts import":
+		out, err = accountsImport(ctx, cfg, rest)
+	case "discovery keywords":
+		if len(rest) == 0 || strings.HasPrefix(rest[0], "-") {
+			usage()
+		}
+		out, err = discoveryKeywords(ctx, cfg, rest[0], rest[1:])
 	default:
 		usage()
 	}
