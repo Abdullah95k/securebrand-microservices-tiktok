@@ -501,12 +501,25 @@ func (s *Session) Thaw(ctx context.Context) error {
 // ErrSessionClosed is returned by calls on a closed Session.
 var ErrSessionClosed = errors.New("browser: session closed")
 
-// Close ends the browser. It is safe to call more than once.
+// closeWait bounds how long Close waits for the pump to finish the event
+// it is handling, before it stops the browser anyway.
+const closeWait = 5 * time.Second
+
+// Close ends the browser. It is safe to call more than once, and returns
+// within a few seconds whatever the page does: the pump's call in flight
+// is cancelled before Close waits for it (it used to wait first, and a
+// call Chromium never answered held Close, and the signer pool that
+// called it, for good: C6, 2026-11-05).
 func (s *Session) Close() {
 	s.closeOnce.Do(func() {
 		close(s.quit)
-		<-s.pumpDone
 		s.cancel()
+		t := time.NewTimer(closeWait)
+		select {
+		case <-s.pumpDone:
+		case <-t.C:
+		}
+		t.Stop()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		_ = s.r.c.call(ctx, "", "Browser.close", nil, nil)
 		cancel()
