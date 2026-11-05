@@ -7,20 +7,25 @@
 # two in step.
 replicas: 3
 topics:
-  # Internal work queues (securebrand.tks.task.v1.Task).
-  - {name: tks.task.account.p0, partitions: 24, retention: 72h}
-  - {name: tks.task.account.p1, partitions: 24, retention: 72h}
-  - {name: tks.task.account.p2, partitions: 24, retention: 72h}
-  - {name: tks.task.post.p0,    partitions: 48, retention: 72h}
-  - {name: tks.task.post.p1,    partitions: 48, retention: 72h}
-  - {name: tks.task.post.p2,    partitions: 48, retention: 72h}
-  - {name: tks.task.thread.p0,  partitions: 48, retention: 72h}
-  - {name: tks.task.thread.p1,  partitions: 48, retention: 72h}
-  - {name: tks.task.thread.p2,  partitions: 48, retention: 72h}
+  # Internal work queues (securebrand.tks.task.v1.Task). A crawl task older
+  # than a day belongs to a job the reaper has closed (it closes a stalled
+  # job past scheduler.reaper_max_age, 24h, and cancels it), and would be
+  # cancelled on arrival: keeping it longer only costs disk (fbs 8216c82).
+  - {name: tks.task.account.p0, partitions: 24, retention: 24h}
+  - {name: tks.task.account.p1, partitions: 24, retention: 24h}
+  - {name: tks.task.account.p2, partitions: 24, retention: 24h}
+  - {name: tks.task.post.p0,    partitions: 48, retention: 24h}
+  - {name: tks.task.post.p1,    partitions: 48, retention: 24h}
+  - {name: tks.task.post.p2,    partitions: 48, retention: 24h}
+  - {name: tks.task.thread.p0,  partitions: 48, retention: 24h}
+  - {name: tks.task.thread.p1,  partitions: 48, retention: 24h}
+  - {name: tks.task.thread.p2,  partitions: 48, retention: 24h}
   - {name: tks.task.media,      partitions: 24, retention: 72h}
-  - {name: tks.task.retry.30s,  partitions: 12, retention: 48h}
-  - {name: tks.task.retry.5m,   partitions: 12, retention: 48h}
-  - {name: tks.task.retry.1h,   partitions: 12, retention: 48h}
+  # A retry waits its delay in the relay, which forwards it within minutes:
+  # a short retention bounds the disk a burst of retries takes.
+  - {name: tks.task.retry.30s,  partitions: 12, retention: 6h}
+  - {name: tks.task.retry.5m,   partitions: 12, retention: 6h}
+  - {name: tks.task.retry.1h,   partitions: 12, retention: 12h}
   - {name: tks.task.dlq,        partitions: 6,  retention: 336h}
   # Records the persister set aside (undecodable, or refused by Postgres):
   # entity records, so personal data, kept no longer than their topics.

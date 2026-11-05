@@ -9,9 +9,12 @@ import (
 	"testing"
 	"time"
 
+	dto "github.com/prometheus/client_model/go"
+
 	"github.com/abdullah95k/securebrand-microservices-tiktok/configs"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/breaker"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/proxy"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/transport"
@@ -60,8 +63,8 @@ func TestBreakerRetiresIdleIdentitiesAndFeedsOutcomes(t *testing.T) {
 	if err != nil || c == a || c.Endpoint.Bucket != "isp|198.51.100.0/24" {
 		t.Fatalf("want a fresh identity on the other /24: %+v %v", c.Endpoint, err)
 	}
-	if pool.live["isp"] != 1 {
-		t.Fatalf("the identity on the open bucket must be retired: live=%d", pool.live["isp"])
+	if pool.live["isp"] != 1 || len(pool.all) != 1 {
+		t.Fatalf("the identity on the open bucket must be retired: live=%d tracked=%d", pool.live["isp"], len(pool.all))
 	}
 }
 
@@ -363,5 +366,239 @@ func TestSoftErrorsRefreshThenRetireAnIdentity(t *testing.T) {
 	}
 	if retire, reason := id.Record(detect.SoftError); !retire || reason != "soft_errors" {
 		t.Fatalf("after %d soft errors in a row: retire=%v reason=%q", MaxSoftErrors, retire, reason)
+	}
+}
+
+// When no exit can start a new identity (they pace their page loads) while
+// identities of the tier are at work, Acquire waits for one to be released
+// instead of failing at once, which sends the task round the retry topics:
+// up to PacedWait. With none at work there is nothing to wait for.
+func TestAcquireWaitsForAReleaseWhileExitsArePaced(t *testing.T) {
+	proxies, err := proxy.New(config.Proxy{
+		Tiers:     []config.ProxyTier{{Name: "isp", Kind: "static_list", Endpoints: []string{"http://203.0.113.10:8000"}}},
+		PageLoads: config.PageLoads{Interval: time.Hour, Backoff: time.Hour, MaxBackoff: time.Hour},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fpBytes, _ := configs.FS.ReadFile("fingerprints.yaml")
+	fps, _ := LoadFingerprints(fpBytes)
+	pool, err := NewPool(PoolConfig{BaseURL: "https://www.facebook.com", Profile: "chrome_146", IdentityRPS: 1, IdentityBurst: 1,
+		MaxPerTier: 4, PacedWait: 300 * time.Millisecond}, proxies,
+		fps, func(transport.Options) (transport.Doer, error) { return transport.NewStd(time.Second), nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	a, err := pool.Acquire(ctx, "isp") // takes the exit's page load
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { time.Sleep(50 * time.Millisecond); pool.Release(a) }()
+	start := time.Now()
+	b, err := pool.Acquire(ctx, "isp")
+	if err != nil || b != a {
+		t.Fatalf("got %v, %v: want the identity released while waiting", b, err)
+	}
+	if time.Since(start) > 250*time.Millisecond {
+		t.Fatalf("waited %s for a release 50ms away", time.Since(start))
+	}
+
+	// The same when the exit backs off after a walled page load.
+	proxies.ObservePageLoad(b.Endpoint, detect.LoginWall)
+	go func() { time.Sleep(50 * time.Millisecond); pool.Release(b) }()
+	start = time.Now()
+	if c, err := pool.Acquire(ctx, "isp"); err != nil || c != b || time.Since(start) > 250*time.Millisecond {
+		t.Fatalf("got %v, %v after %s: want the identity released while waiting", c, err, time.Since(start))
+	}
+
+	// b is held and never released: the wait gives up after PacedWait.
+	start = time.Now()
+	if _, err := pool.Acquire(ctx, "isp"); !errors.Is(err, proxy.ErrTierOpen) {
+		t.Fatalf("%v, want ErrTierOpen", err)
+	}
+	if d := time.Since(start); d < 300*time.Millisecond || d > 900*time.Millisecond {
+		t.Fatalf("gave up after %s, want PacedWait (300ms)", d)
+	}
+	if pool.live["isp"] != 1 {
+		t.Fatalf("live %d", pool.live["isp"])
+	}
+
+	// With no identity at work, there is nothing to wait for.
+	pool.Retire(b, "test")
+	start = time.Now()
+	if _, err := pool.Acquire(ctx, "isp"); !errors.Is(err, proxy.ErrTierOpen) || time.Since(start) > 100*time.Millisecond {
+		t.Fatalf("%v after %s, want ErrTierOpen at once", err, time.Since(start))
+	}
+}
+
+// With every breaker of the tier open, an identity released there would be
+// retired: Acquire does not wait for one.
+func TestAcquireDoesNotWaitWhenEveryBreakerIsOpen(t *testing.T) {
+	proxies, err := proxy.New(config.Proxy{
+		Tiers:   []config.ProxyTier{{Name: "isp", Kind: "static_list", Endpoints: []string{"http://203.0.113.10:8000"}}},
+		Breaker: breaker.Config{MinEvents: 1, OpenRate: 0.5, Cooldown: time.Hour},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fpBytes, _ := configs.FS.ReadFile("fingerprints.yaml")
+	fps, _ := LoadFingerprints(fpBytes)
+	pool, err := NewPool(PoolConfig{BaseURL: "https://www.facebook.com", Profile: "chrome_146", IdentityRPS: 1, IdentityBurst: 1,
+		MaxPerTier: 4, PacedWait: time.Minute}, proxies,
+		fps, func(transport.Options) (transport.Doer, error) { return transport.NewStd(time.Second), nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := pool.Acquire(context.Background(), "isp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxies.Observe(a.Endpoint, detect.LoginWall)
+	start := time.Now()
+	if _, err := pool.Acquire(context.Background(), "isp"); !errors.Is(err, proxy.ErrTierOpen) || time.Since(start) > time.Second {
+		t.Fatalf("%v after %s, want ErrTierOpen at once", err, time.Since(start))
+	}
+}
+
+// An idle identity retired because its bucket's breaker opened leaves
+// fbs_identity_active, even when no identity replaces it.
+func TestBreakerRetireUpdatesActiveGauge(t *testing.T) {
+	proxies, err := proxy.New(config.Proxy{
+		Tiers:   []config.ProxyTier{{Name: "gauge", Kind: "static_list", Endpoints: []string{"http://203.0.113.10:8000"}}},
+		Breaker: breaker.Config{MinEvents: 1, OpenRate: 0.5, Cooldown: time.Hour},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fpBytes, _ := configs.FS.ReadFile("fingerprints.yaml")
+	fps, _ := LoadFingerprints(fpBytes)
+	pool, err := NewPool(PoolConfig{BaseURL: "https://www.facebook.com", Profile: "chrome_146", IdentityRPS: 1, IdentityBurst: 1,
+		MaxPerTier: 4}, proxies,
+		fps, func(transport.Options) (transport.Doer, error) { return transport.NewStd(time.Second), nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	gauge := metrics.IdentityActive.WithLabelValues("gauge")
+	a, err := pool.Acquire(context.Background(), "gauge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Release(a)
+	if v := gaugeValue(t, gauge); v != 1 {
+		t.Fatalf("active = %v with one identity", v)
+	}
+	proxies.Observe(a.Endpoint, detect.LoginWall)
+	if _, err := pool.Acquire(context.Background(), "gauge"); !errors.Is(err, proxy.ErrTierOpen) {
+		t.Fatalf("%v, want ErrTierOpen", err)
+	}
+	if v := gaugeValue(t, gauge); v != 0 || pool.live["gauge"] != 0 {
+		t.Fatalf("active = %v, live = %d after the breaker retired the only identity", v, pool.live["gauge"])
+	}
+}
+
+func gaugeValue(t *testing.T, g interface{ Write(*dto.Metric) error }) float64 {
+	t.Helper()
+	var m dto.Metric
+	if err := g.Write(&m); err != nil {
+		t.Fatal(err)
+	}
+	return m.GetGauge().GetValue()
+}
+
+// A task whose first request is a page load gets an identity whose exit can
+// load a page now: not the idle identity on an exit that just loaded one
+// (which plain Acquire hands out first), but one on another exit; and when
+// no exit can, it waits, then says the exits are paced.
+func TestAcquireForPageLoadPicksAnExitThatCanLoad(t *testing.T) {
+	proxies, err := proxy.New(config.Proxy{
+		Tiers: []config.ProxyTier{{Name: "isp", Kind: "static_list",
+			Endpoints: []string{"http://203.0.113.10:8000", "http://198.51.100.10:8000"}}},
+		PageLoads: config.PageLoads{Interval: time.Hour, Backoff: time.Hour, MaxBackoff: time.Hour},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fpBytes, _ := configs.FS.ReadFile("fingerprints.yaml")
+	fps, _ := LoadFingerprints(fpBytes)
+	pool, err := NewPool(PoolConfig{BaseURL: "https://www.facebook.com", Profile: "chrome_146", IdentityRPS: 1, IdentityBurst: 1,
+		MaxPerTier: 4, PacedWait: 200 * time.Millisecond}, proxies,
+		fps, func(transport.Options) (transport.Doer, error) { return transport.NewStd(time.Second), nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	a, err := pool.AcquireForPageLoad(ctx, "isp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Release(a)
+	// Still holding the page load reserved at its creation: usable.
+	if again, err := pool.AcquireForPageLoad(ctx, "isp"); err != nil || again != a {
+		t.Fatalf("got %v, %v: want the identity holding its reservation", again, err)
+	}
+	if !a.TakeReservation() {
+		t.Fatal("no reservation")
+	}
+	pool.Release(a)
+	// Its exit loaded a page: plain Acquire would hand a out again; a page
+	// load gets a new identity on the other exit.
+	b, err := pool.AcquireForPageLoad(ctx, "isp")
+	if err != nil || b == a || b.Endpoint.Exit == a.Endpoint.Exit {
+		t.Fatalf("got %+v, %v: want a new identity on the other exit", b, err)
+	}
+	if !b.TakeReservation() {
+		t.Fatal("the new identity holds no page load")
+	}
+	pool.Release(b)
+	if c, _ := pool.Acquire(ctx, "isp"); c != b {
+		t.Fatal("plain Acquire no longer hands out the identity released last")
+	} else {
+		pool.Release(c)
+	}
+	// Both exits just loaded a page: it waits PacedWait, then gives up.
+	start := time.Now()
+	if _, err := pool.AcquireForPageLoad(ctx, "isp"); !errors.Is(err, proxy.ErrExitsPaced) {
+		t.Fatalf("%v, want ErrExitsPaced", err)
+	}
+	if d := time.Since(start); d < 200*time.Millisecond {
+		t.Fatalf("gave up after %s, want PacedWait", d)
+	}
+	if pool.live["isp"] != 2 {
+		t.Fatalf("live %d", pool.live["isp"])
+	}
+}
+
+// At the identity cap, with no idle identity whose exit can load a page, a
+// page load gives up after PacedWait instead of waiting for good.
+func TestAcquireForPageLoadAtTheCapGivesUp(t *testing.T) {
+	proxies, err := proxy.New(config.Proxy{
+		Tiers:     []config.ProxyTier{{Name: "isp", Kind: "static_list", Endpoints: []string{"http://203.0.113.10:8000"}}},
+		PageLoads: config.PageLoads{Interval: time.Hour, Backoff: time.Hour, MaxBackoff: time.Hour},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fpBytes, _ := configs.FS.ReadFile("fingerprints.yaml")
+	fps, _ := LoadFingerprints(fpBytes)
+	pool, err := NewPool(PoolConfig{BaseURL: "https://www.facebook.com", Profile: "chrome_146", IdentityRPS: 1, IdentityBurst: 1,
+		MaxPerTier: 1, PacedWait: 200 * time.Millisecond}, proxies,
+		fps, func(transport.Options) (transport.Doer, error) { return transport.NewStd(time.Second), nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := pool.Acquire(context.Background(), "isp")
+	if err != nil || !a.TakeReservation() {
+		t.Fatal(err)
+	}
+	pool.Release(a)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	start := time.Now()
+	if _, err := pool.AcquireForPageLoad(ctx, "isp"); !errors.Is(err, proxy.ErrExitsPaced) {
+		t.Fatalf("%v, want ErrExitsPaced", err)
+	}
+	if d := time.Since(start); d < 200*time.Millisecond || d > 2*time.Second {
+		t.Fatalf("gave up after %s, want PacedWait", d)
 	}
 }

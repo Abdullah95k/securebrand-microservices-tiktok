@@ -164,8 +164,15 @@ func TestReaper(t *testing.T) {
 	}
 	r := &Reaper{DB: e.db, Jobs: e.trk, Producer: e.prod, After: time.Millisecond, MaxAge: time.Hour}
 	time.Sleep(1100 * time.Millisecond) // activity is kept in seconds
+	if e.trk.Cancelled(ctx, id.String()) {
+		t.Fatal("a running job's tasks are stopped")
+	}
 	if err := r.Tick(ctx); err != nil {
 		t.Fatal(err)
+	}
+	// Its tasks still waiting stop when they come back (fbs 2198746).
+	if !e.trk.Cancelled(ctx, id.String()) {
+		t.Error("the closed job's tasks are not stopped")
 	}
 	var status string
 	var failures int

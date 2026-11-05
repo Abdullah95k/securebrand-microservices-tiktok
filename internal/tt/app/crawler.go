@@ -130,9 +130,20 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 		IdentityRPS: tc.IdentityRPS, IdentityBurst: tc.IdentityBurst,
 		MaxRequestsMin: tc.IdentityMaxRequestsMin, MaxRequestsMax: tc.IdentityMaxRequestsMax,
 		MaxPerTier: max(16, slots*len(stages)*13/10),
+		// Identities (their page values and cookies) and the exits' page-load
+		// pacing outlive a restart, so a new crawler does not load a page on
+		// every exit at once (fbs 2198746, 5d03830, 27d2062).
+		Store: &session.RedisStore{R: rdb, NS: cfg.Kafka.TopicPrefix},
 	}, proxies, fps, o.DoerFactory)
 	if err != nil {
 		return nil, err
+	}
+	// The identities the last crawler left (SaveSessions as it stopped, or
+	// its last checkpoint if it died): resuming them spares their page loads.
+	if n, err := pool.Resume(ctx); err != nil {
+		slog.Warn("saved sessions not resumed", "resumed", n, "err", err)
+	} else {
+		slog.Info("saved sessions resumed", "sessions", n)
 	}
 	rules, err := ttdetect.Rules().Apply(detect.Overrides(tc.Detect))
 	if err != nil {
@@ -188,6 +199,12 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 	c.Deps, c.Worker = deps, worker
 	c.Components = []run.Func{
 		func(ctx context.Context) error { return reg.Run(ctx, tc.RegistryRefresh) },
+		// Identities of crawlers that stop after this one started (a rolling
+		// update starts the new pod first).
+		func(ctx context.Context) error { return pool.RunResume(ctx, time.Minute) },
+		// This crawler's identities, for the next one even if this one dies
+		// without saving them.
+		func(ctx context.Context) error { return pool.RunCheckpoint(ctx, session.CheckpointEvery) },
 	}
 	if c.Signer != nil {
 		// The pages close with the process.
@@ -248,6 +265,17 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 // Facebook pipeline's (tks-crawler-<stage>-<lane>).
 func ConsumerGroup(stage string, lane tkstaskv1.Lane) string {
 	return "tks-tt-crawler-" + stage + "-" + topics.LaneName(lane)
+}
+
+// SaveSessions keeps the crawler's identities and its exits' page-load
+// pacing for the next crawler to resume at once. Call it once the crawler
+// stopped; a crawler that dies without it leaves its last checkpoint.
+func (c *Crawler) SaveSessions(ctx context.Context) {
+	if n, err := c.Deps.Pool.Save(ctx); err != nil {
+		slog.Warn("sessions not saved", "err", err)
+	} else {
+		slog.Info("sessions saved for the next start", "sessions", n)
+	}
 }
 
 func (c *Crawler) consumers(cfg *config.Config, kcfg kafka.ClientConfig, producer *kafka.Producer, stages []string, drain time.Duration) error {

@@ -144,6 +144,13 @@ func (r *Reaper) Tick(ctx context.Context) error {
 			}
 			continue
 		}
+		// Its tasks still waiting (on the retry topics, or behind a backlog)
+		// stop when they come back, as a cancelled job's do, instead of
+		// cycling for hours for a job that is over (fbs 2198746). The
+		// account's next job starts its own.
+		if err := r.Jobs.Cancel(ctx, j.id.String()); err != nil {
+			slog.Warn("reaper: closed job's tasks not stopped", "job", j.id, "err", err)
+		}
 		// The schedule counts it as a failed check, so a stuck account
 		// backs off.
 		if _, err := r.DB.Exec(ctx, `UPDATE account_schedule SET consecutive_failures = consecutive_failures + 1

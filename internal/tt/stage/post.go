@@ -42,6 +42,9 @@ type PostStage struct{ D *Deps }
 
 func (s *PostStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 	d := s.D
+	// yield_after counts from here: with the wait for an identity, the
+	// task stays well inside its lease (crawler.lease_ttl; fbs ad5ad88).
+	started := time.Now()
 	sc := t.GetPost()
 	c := map[string]int64{}
 	if sc == nil {
@@ -83,7 +86,6 @@ func (s *PostStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 	cc := parse.CommentContext{PostID: sc.PostId, UserID: sc.UserId, PostCreatedAt: sc.CreatedAt}
 	popt := parse.Options{AuthorKey: d.Emit.Key, Query: commentsQuery, Variant: q.DocID}
 
-	started := time.Now()
 	finished, exhausted, stuck := false, false, false
 	for !finished {
 		if kafka.IsDraining(ctx) || st.Pages >= d.Cfg.Crawler.YieldPages || time.Since(started) > d.Cfg.Crawler.YieldAfter {
@@ -326,6 +328,9 @@ type ThreadStage struct{ D *Deps }
 
 func (s *ThreadStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 	d := s.D
+	// yield_after counts from here: with the wait for an identity, the
+	// task stays well inside its lease (crawler.lease_ttl; fbs ad5ad88).
+	started := time.Now()
 	sc := t.GetThread()
 	c := map[string]int64{}
 	if sc == nil {
@@ -359,7 +364,6 @@ func (s *ThreadStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 	cc := parse.CommentContext{PostID: sc.PostId, UserID: sc.UserId, PostCreatedAt: sc.PostCreatedAt, Replies: true, ParentCommentID: sc.CommentId}
 	popt := parse.Options{AuthorKey: d.Emit.Key, Query: repliesQuery, Variant: q.DocID}
 
-	started := time.Now()
 	finished, exhausted := false, false
 	for !finished {
 		if kafka.IsDraining(ctx) || st.Pages >= d.Cfg.Crawler.YieldPages || time.Since(started) > d.Cfg.Crawler.YieldAfter {
