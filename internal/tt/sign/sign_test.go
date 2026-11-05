@@ -686,3 +686,17 @@ func TestStuckCloseDoesNotHoldTheSign(t *testing.T) {
 		t.Errorf("the sign took %v, want about CloseTimeout", d)
 	}
 }
+
+// An empty Binary (tt.browser.binary's default, as tks's chart leaves it)
+// is found as the bootstrap fallback finds it: the browser image sets
+// $TKS_BROWSER_BINARY. The opener used to start "" ("exec: no command"),
+// so no page opened in a deployed crawler and nothing was ever signed.
+func TestBrowserOpenerFindsTheBinary(t *testing.T) {
+	missing := t.TempDir() + "/chromium-from-env"
+	t.Setenv("TKS_BROWSER_BINARY", missing)
+	open := sign.BrowserOpener(sign.BrowserConfig{NoSandbox: true, CallTimeout: time.Second})
+	_, err := open(context.Background(), &session.Identity{}, "about:blank")
+	if err == nil || !strings.Contains(err.Error(), missing) {
+		t.Fatalf("open with tt.browser.binary empty: %v, want a start of %s", err, missing)
+	}
+}

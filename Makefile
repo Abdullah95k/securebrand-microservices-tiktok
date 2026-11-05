@@ -1,11 +1,12 @@
 SHELL := /bin/bash
 GO ?= go
-IMAGE ?= fbs:dev
-PG_DSN ?= postgres://fbs:fbs@localhost:5432/fbs?sslmode=disable
+IMAGE ?= tks:dev
+BROWSER_IMAGE ?= $(IMAGE)-browser
+PG_DSN ?= postgres://tks:tks@localhost:5432/tks?sslmode=disable
 TEST_ENV = TKS_TEST_PG_DSN="$(PG_DSN)" TKS_TEST_REDIS_ADDR=localhost:6379 TKS_TEST_KAFKA_BROKERS=localhost:19092 TKS_TEST_SCHEMA_REGISTRY=http://localhost:18081
 COMPOSE = docker compose -f deploy/compose/docker-compose.yml
 
-.PHONY: all build test lint vet generate golden fixtures infra-up infra-down test-integration e2e loadtest soak docker docker-prebuilt compose-up compose-down spike-report phase0 phase0-dryrun phase0-trim phase0-rate pilot-up pilot-register pilot-registry pilot-report pilot-down pilot-clean spike-bin tks-probe tks-probe-all tks-probe-dryrun tks-browser-check tks-phase0 tks-phase0-dryrun tks-signers tks-signers-dryrun tks-signers-browsers tks-discover tks-discover-dryrun tks-spike-bin chart-check chart-smoke clean
+.PHONY: all build test lint vet generate golden fixtures infra-up infra-down test-integration e2e loadtest soak docker docker-prebuilt compose-up compose-down spike-report phase0 phase0-dryrun phase0-trim phase0-rate spike-bin tks-probe tks-probe-all tks-probe-dryrun tks-browser-check tks-phase0 tks-phase0-dryrun tks-signers tks-signers-dryrun tks-signers-browsers tks-discover tks-discover-dryrun tks-spike-bin chart-check chart-smoke clean
 
 all: generate build test
 
@@ -38,7 +39,7 @@ fixtures:
 ## Start Postgres, Redpanda and Valkey for integration tests.
 infra-up:
 	$(COMPOSE) up -d postgres redpanda valkey
-	@until docker exec fbs-postgres-1 pg_isready -U fbs >/dev/null 2>&1; do sleep 1; done
+	@until docker exec tks-postgres-1 pg_isready -U tks >/dev/null 2>&1; do sleep 1; done
 
 infra-down:
 	$(COMPOSE) down -v
@@ -62,8 +63,11 @@ soak:
 e2e:
 	$(TEST_ENV) $(GO) test -count=1 -v ./internal/e2e/... ./internal/tt/e2e/...
 
+## The default image (static binaries) and the crawler's, with Chromium for
+## the browser signer (--target browser).
 docker:
 	docker build -f deploy/docker/Dockerfile -t $(IMAGE) .
+	docker build -f deploy/docker/Dockerfile --target browser -t $(BROWSER_IMAGE) .
 
 ## Build binaries on the host and package them (no Go builder image needed).
 docker-prebuilt:
@@ -78,20 +82,22 @@ KUBECONFORM_ARGS = -strict -summary -kubernetes-version 1.30.0 -schema-location 
 ## Lint the Helm chart and validate its renders (defaults, every optional
 ## object, the staging example) against the Kubernetes and CRD schemas.
 chart-check:
-	$(HELM) lint deploy/helm/fbs
-	$(HELM) lint deploy/helm/fbs -f deploy/helm/fbs/examples/fakefb.yaml
-	set -o pipefail; $(HELM) template fbs deploy/helm/fbs | $(KUBECONFORM) $(KUBECONFORM_ARGS)
-	set -o pipefail; $(HELM) template fbs deploy/helm/fbs --set keda.authSecret=fbs-keda-kafka,tlsFiles.existingSecret=fbs-tls,alerts.enabled=true,dashboards.enabled=true,serviceMonitor.enabled=true,api.ingress.enabled=true,networkPolicy.enabled=true,hooks.schemas=true \
+	$(HELM) lint deploy/helm/tks
+	$(HELM) lint deploy/helm/tks -f deploy/helm/tks/examples/fakett.yaml
+	set -o pipefail; $(HELM) template tks deploy/helm/tks | $(KUBECONFORM) $(KUBECONFORM_ARGS)
+	set -o pipefail; $(HELM) template tks deploy/helm/tks --set keda.authSecret=tks-keda-kafka,tlsFiles.existingSecret=tks-tls,alerts.enabled=true,dashboards.enabled=true,serviceMonitor.enabled=true,api.ingress.enabled=true,networkPolicy.enabled=true,hooks.schemas=true,image.browserTag=browser \
 	  | $(KUBECONFORM) $(KUBECONFORM_ARGS)
-	set -o pipefail; $(HELM) template fbs deploy/helm/fbs -f deploy/helm/fbs/examples/fakefb.yaml | $(KUBECONFORM) $(KUBECONFORM_ARGS)
+	set -o pipefail; $(HELM) template tks deploy/helm/tks -f deploy/helm/tks/examples/fakett.yaml | $(KUBECONFORM) $(KUBECONFORM_ARGS)
 
 ## Run the chart's hooks and Deployments in Docker exactly as rendered, then
-## real backfills against fakefb (make infra-up and make docker first).
+## real backfills against fakett, comments and replies signed by the
+## crawlers' Chromium pages (make infra-up and make docker first).
 chart-smoke:
-	python3 scripts/chart-smoke.py --image $(IMAGE) --helm $(HELM)
+	python3 scripts/chart-smoke.py --image $(IMAGE) --browser-image $(BROWSER_IMAGE) --helm $(HELM)
 
-compose-up:
-	$(COMPOSE) up -d
+## The local stack against fakett (deploy/compose/docker-compose.yml).
+compose-up: docker
+	TKS_IMAGE=$(IMAGE) TKS_BROWSER_IMAGE=$(BROWSER_IMAGE) $(COMPOSE) up -d
 
 compose-down:
 	$(COMPOSE) down -v
@@ -139,52 +145,6 @@ phase0-rate:
 	  $(GO) run ./cmd/fbs-spike report --in $(PHASE0_OUT)/rate-$$r.jsonl > $(PHASE0_OUT)/rate-$$r.txt; \
 	  grep -E 'block rate|bootstrap|VERDICT|requests' $(PHASE0_OUT)/rate-$$r.txt | head -n 8; \
 	done
-
-PILOT_COMPOSE = $(COMPOSE) -f deploy/compose/pilot.yml
-# deploy/compose/pilot.yml mounts these paths, whatever PHASE0_* say.
-PILOT_PROXIES = phase0/proxies.yaml
-PILOT_OUT = phase0/out
-PILOT_SINCE ?= 24h
-PILOT_PROJECT ?= 5000
-PILOT_COST_PER_GB ?= 4
-PILOT_FBCTL = $(PILOT_COMPOSE) run --rm --no-deps -T --entrypoint /usr/local/bin/fbctl api
-## Pilot: the real pipeline against real Facebook on this machine, to measure
-## the steady state (docs/runbooks/pilot.md). Needs Docker, phase0/proxies.yaml
-## and the Phase 0 registry. Start with the Phase 0 run finished.
-pilot-up:
-	@test -f $(PILOT_PROXIES) || { echo "missing $(PILOT_PROXIES)"; exit 2; }
-	@test -s $(PILOT_OUT)/registry.yaml || { echo "missing $(PILOT_OUT)/registry.yaml: finish Phase 0 first"; exit 2; }
-	@command -v docker >/dev/null || { echo "Docker is not installed: docs/runbooks/pilot.md, step 1"; exit 2; }
-	@printf 'registry_sync:\n  canary_pages: [%s]\n' \
-	  "$$(grep -v '^#' $(PHASE0_PAGES) | grep -v '^[[:space:]]*$$' \
-	    | awk -F, 'NR == 1 && tolower($$1) == "page" { next } c < 3 { print $$1; c++ }' | sed 's/.*/"&"/' | paste -sd, -)" \
-	  > $(PILOT_OUT)/pilot-canary.yaml
-	$(MAKE) docker
-	$(PILOT_COMPOSE) up -d
-	@echo "up; register the pages with: make pilot-register"
-
-## Registers every page of phase0/pages.csv; each is backfilled (a week), then crawled every 3 hours.
-pilot-register:
-	@key=$$($(PILOT_FBCTL) apikey create --name pilot --scopes pages:write,jobs:write,data:read \
-	  | sed -n 's/.*"api_key": *"\([^"]*\)".*/\1/p'); \
-	test -n "$$key" || { echo "could not create an API key"; exit 1; }; \
-	$(PILOT_COMPOSE) run --rm --no-deps -T -v $(CURDIR)/$(PHASE0_PAGES):/pages.csv:ro --entrypoint /usr/local/bin/fbctl api \
-	  pages import --api http://api:8080 --key "$$key" /pages.csv
-
-## Makes every query of phase0/out/registry.yaml active, over what registry-sync promoted.
-pilot-registry:
-	$(PILOT_COMPOSE) run --rm --no-deps -T -v $(CURDIR)/$(PILOT_OUT)/registry.yaml:/etc/fbs/registry.yaml:ro \
-	  --entrypoint /usr/local/bin/fbctl api registry import --file /etc/fbs/registry.yaml
-
-## Requests, bytes and blocks per page per day over the last PILOT_SINCE, projected to PILOT_PROJECT pages.
-pilot-report:
-	@$(PILOT_FBCTL) report load --since $(PILOT_SINCE) --pages $(PILOT_PROJECT) --cost-per-gb $(PILOT_COST_PER_GB)
-
-## Stops the pilot and keeps its database; pilot-clean also deletes it.
-pilot-down:
-	$(PILOT_COMPOSE) down
-pilot-clean:
-	$(PILOT_COMPOSE) down -v
 
 ## Rehearse Phase 0 against a local fakefb (no proxies, no Facebook, about a minute).
 phase0-dryrun:

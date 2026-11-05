@@ -95,7 +95,7 @@ The REST API serves the same data (`/v1/pages/{page}/posts`, `/v1/posts/{post}/c
 ## 6. Deploy and ramp up
 
 1. **Staging.**
-   - Install the chart against fakefb with the [staging values](../../deploy/helm/fbs/examples/fakefb.yaml). The file lists the Services and the Secret it expects.
+   - Install the chart against fakefb with the staging values (fbs's `deploy/helm/fbs/examples/fakefb.yaml`; tks's chart is [`deploy/helm/tks`](../../deploy/helm/tks/examples/fakett.yaml): [tks-deploy.md](tks-deploy.md)). The file lists the Services and the Secret it expects.
    - Register a few fakefb pages (`brand0`, `brand1`, …) with `fbctl pages import` and check that their backfills complete.
    - `make chart-smoke` rehearses exactly this without a cluster. It runs the chart's hooks and Deployments in Docker, with the rendered config, user, read-only root filesystem and dropped capabilities, and CI runs it on every change.
 2. **Production install.** The hooks run `fbctl migrate up` and `fbctl kafka apply`, and `fbctl schemas apply` when enabled.

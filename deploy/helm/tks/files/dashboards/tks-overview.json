@@ -2,7 +2,7 @@
   "uid": "tks-overview",
   "title": "tks / Overview",
   "tags": [
-    "fbs"
+    "tks"
   ],
   "timezone": "utc",
   "schemaVersion": 39,
@@ -14,7 +14,7 @@
     "to": "now"
   },
   "graphTooltip": 1,
-  "description": "Facebook scraper: traffic and blocks, AIMD, breakers, registry and parsers, pipeline, coverage, budget, media.",
+  "description": "TikTok scraper: traffic and blocks, AIMD, breakers, operations and parsers, pipeline, coverage, budget, media.",
   "templating": {
     "list": [
       {
@@ -53,7 +53,7 @@
   "panels": [
     {
       "type": "row",
-      "title": "Facebook traffic",
+      "title": "TikTok traffic",
       "id": 1,
       "collapsed": false,
       "gridPos": {
@@ -286,7 +286,7 @@
     },
     {
       "type": "stat",
-      "title": "Failing registry queries",
+      "title": "Failing operations",
       "id": 6,
       "datasource": {
         "type": "prometheus",
@@ -1124,7 +1124,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Promotions and sync runs",
+      "title": "Variant promotions",
       "id": 23,
       "datasource": {
         "type": "prometheus",
@@ -1168,24 +1168,6 @@
           "expr": "sum by (query) (increase(tks_registry_promotions_total[1h]))",
           "legendFormat": "promoted {{query}}",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum by (status) (increase(tks_registry_sync_runs_total[1h]))",
-          "legendFormat": "runs {{status}}",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "time() - max(tks_registry_sync_last_success_timestamp_seconds) > 0 and on () count(tks_registry_sync_runs_total) > 0",
-          "legendFormat": "seconds since last success",
-          "refId": "C"
         }
       ]
     },
@@ -1743,7 +1725,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Timelines truncated",
+      "title": "Lists truncated",
       "id": 36,
       "datasource": {
         "type": "prometheus",
@@ -1792,7 +1774,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Scheduled pages by tier",
+      "title": "Scheduled accounts by tier",
       "id": 37,
       "datasource": {
         "type": "prometheus",
@@ -2000,7 +1982,7 @@
         "x": 8,
         "y": 88
       },
-      "description": "Full reads of known posts compared with the store, per hour. skipped_partial: the read did not account for Facebook's comment count, so nothing was marked.",
+      "description": "Full reads of known posts compared with the store, per hour. skipped_partial: the read did not account for TikTok's comment count, so nothing was marked.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -2298,55 +2280,6 @@
           },
           "expr": "sum by (kind, outcome) (rate(tks_media_download_total[$__rate_interval]))",
           "legendFormat": "{{kind}} {{outcome}}",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Media deleted",
-      "id": 48,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 106
-      },
-      "description": "Per hour; ttl_expired should stay at 0.",
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "fillOpacity": 5,
-            "stacking": {
-              "mode": "none"
-            },
-            "lineWidth": 1
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum by (reason) (increase(tks_media_deleted_total[1h]))",
-          "legendFormat": "{{reason}}",
           "refId": "A"
         }
       ]
