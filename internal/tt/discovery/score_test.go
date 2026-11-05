@@ -32,7 +32,7 @@ func TestMatcher(t *testing.T) {
 		{"Iraqi chef", []string{"iraqi"}},     // Iraq is not inside Iraqi as a word
 		{"وبغداد الجميلة", []string{"بغداد"}}, // an Arabic prefix attached
 		{"أهل العراق", []string{"العراق"}},
-		{"هه‌ولێر", []string{Normalize("هەولێر")}}, // a ZWNJ and the older spelling fold
+		{"هه\u200cولێر", []string{Normalize("هەولێر")}}, // a ZWNJ and the older spelling fold
 		{"nothing here", nil},
 	} {
 		if got := m.Match(c.text); !slices.Equal(got, c.want) {
