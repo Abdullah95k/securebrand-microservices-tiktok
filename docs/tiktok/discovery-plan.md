@@ -2,7 +2,7 @@
 
 **Status: approved by the owner on 2026-11-04, with the decisions in §1.**
 - The build starts when M8 merges. Building it alongside M8 would change the same files: migrations, config, the scheduler, the API and `build-status.md`.
-- Nothing here is built yet.
+- **Built so far:** §17 (M8b); M10a (2026-11-05): sources, labels, blocks, paced admission, the lighter checks, the keyword list loaded, and bulk import (part A), in [ADR 0007 §18](adr/0007-tks-data-model-and-contracts.md#18-settled-in-m10a-sources-labels-admission-and-bulk-import) and [`tks-import.md`](../runbooks/tks-import.md). M10 was split in two: M10a, then **M10c** (the entry check, the dormant list and the Iraq score).
 
 **What tks does today** (checked in the code, 2026-11-04; see [`build-brief.md`](build-brief.md) and [`build-status.md`](build-status.md)):
 - It follows only the accounts it is given, one at a time, through `POST /v1/accounts`.
@@ -431,7 +431,7 @@ Discovery adds its own reads on top:
 | # | What | Needs from the owner |
 |---|---|---|
 | M8 | (running) Canary and signer operations, plus posts no longer public (§17) | — |
-| **M10** | Foundations (§5), the entry check and dormant list (§4), the Iraq score with the text, place and contact signals (§3), bulk import (§6), and `iraq.yaml` loaded | — |
+| **M10** | Foundations (§5), the entry check and dormant list (§4), the Iraq score with the text, place and contact signals (§3), bulk import (§6), and `iraq.yaml` loaded. Split: **M10a** (§5, §6, `iraq.yaml`; done) and **M10c** (§3, §4) | — |
 | **M10b** | The C6 probe tool: search (both tabs), hashtag, sound, feed, related, user lists, following and followers, short links, from tks's exits, capped. Plus the runbook. | — |
 | M9 | Deploy and operations (as planned), with the load test at the larger size (§12) | — |
 | **M11** | Part B, ported from fbs's mentions | — |

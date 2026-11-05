@@ -158,6 +158,13 @@ tt:
       - {max_age: 48h, interval: 6h}
       - {max_age: 168h, interval: 24h}
       - {max_age: 720h, interval: 168h}
+    # The owner's accounts that went quiet (discovery-plan §5.4): a private
+    # one daily for 7 days, then weekly; a banned or missing one weekly for
+    # 30 days, then monthly. A check that finds one active puts it back on
+    # list_interval. Discovered accounts move to the dormant list instead.
+    inactive:
+      private: {first: 24h, for: 168h, then: 168h}
+      gone: {first: 168h, for: 720h, then: 720h}
   comments:
     # TikTok serves top-level comments in its ranking order (T13), so a
     # refresh re-reads them to the cap: ranked. newest reads until the
@@ -219,3 +226,28 @@ tt:
     jobs_days: 0              # finished jobs and canary runs
     media_rows_days: 0        # media rows never handed over
     raw_payload_days: 0       # raw answers sampled to the raw bucket
+  # Paced admission of new accounts (discovery-plan §5.3): their first read
+  # (365 days of posts and comments) waits in a queue, the owner's own first,
+  # then discovered ones by Iraq score; checks never wait.
+  admission:
+    # New accounts admitted an hour; 0 derives it from the request budget
+    # (scheduler.budget.requests_per_day), or admits all at once without one.
+    per_hour: 0
+    # A new account's first read in requests (C3: ~380 posts a year at the
+    # median, their comments signed page by page). After C4's prices.
+    requests_per_account: 1500
+    # Phase 0 (C4): 678,256 calls a day per 1,000 accounts through 2 IPs
+    # and 2 signer pages, 95 % signed.
+    ip_requests_per_day: 339000
+    page_signs_per_day: 322000
+    signed_share: 0.95
+  # Account discovery (discovery-plan.md): off until each source is built
+  # and C6 and counsel (G2) allow it. Bulk import needs none of it.
+  discovery:
+    enabled: false
+    sources: {}
+    # Accounts discovery adds a day, for testing; 0 = no cap (production).
+    max_new_per_day: 0
+    # The API client discovered accounts are registered to (created by tks
+    # with no usable key).
+    client: discovery

@@ -106,6 +106,11 @@ var (
 	ErrUnknownAccount = errors.New("dispatch: unknown account (an id: reference needs a stored account)")
 )
 
+// Querier is a pool or a transaction.
+type Querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // Account is what the store knows of an account, for a task's scope.
 type Account struct {
 	UserID        int64
@@ -120,7 +125,7 @@ type Account struct {
 // Resolve returns the stored account behind a normalised reference: by user
 // id, secUid, or the username (current or former: account_usernames, the
 // latest holder first), and last the schedule's user id for the reference.
-func Resolve(ctx context.Context, db *pgxpool.Pool, ref string) (*Account, bool, error) {
+func Resolve(ctx context.Context, db Querier, ref string) (*Account, bool, error) {
 	sc := task.ScopeFromRef(ref)
 	const cols = `SELECT a.user_id, a.sec_uid, coalesce(a.username, ''), a.status, a.profile_refreshed_at, a.page_read_at,
 		(SELECT max(updated_at) FROM crawl_cursors c WHERE c.scope_type = 'account_list' AND c.scope_id = a.user_id)

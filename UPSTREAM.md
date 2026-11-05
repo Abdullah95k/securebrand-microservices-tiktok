@@ -83,6 +83,17 @@ M7 added tks's Phase 0 kit (`internal/tt/phase0`, `tks-spike phase0`). igs's M8 
 
 M8 added `tks-canary` (`internal/tt/canary`, `cmd/tks-canary`; docs/tiktok ADR 0007 §16), tks's own code in the shape of `internal/registrysync` (the run lock, run records, check columns, promotion, fallbacks and retirement), on schema tt's `operations` and `canary_runs`. igs's registry sync (`internal/ig/registrysync`, igs main `359c135`, 2026-11-04) is fbs's doc_id discovery for Instagram and has no TikTok equivalent, so there is nothing to port: the canary checks each variant and its signed or unsigned twin instead. Shared code: the metrics `tks_canary_*`, `tks_signed_calls_total`, `tks_signer_pages_max` and `tks_signer_page_closes_total`; `fakett.Server.SetFaults` and `Faults.MovedPaths`; `ttclient.Twin` (used by the Phase 0 kit too).
 
+M10a (2026-11-05) copied fbs's keyword discovery basics from fbs main `4816736` (2026-11-05), read only from fbs's public repository:
+
+| tks file | Copied from fbs | What changed |
+|---|---|---|
+| `internal/tt/discovery/normalize.go`, `normalize_test.go` | `internal/discovery/normalize.go`, `normalize_test.go` | Unchanged but the package comment |
+| `internal/tt/discovery/seed.go`, `seed_test.go` | `internal/discovery/seed.go`, `seed_test.go` | The seed embedded from `configs/tt/discovery/iraq.yaml`; `ParseKeywordCSV` moved here from `cmd/fbctl/discovery.go` |
+| `internal/tt/discovery/store.go` | `internal/discovery/store.go` (the keyword part) | Mentions left out (tks's sources are `account_sources`, M10a; part C's hits come in M12) |
+| `configs/tt/discovery/iraq.yaml` | `configs/discovery/iraq.yaml` | fbs's newer list (more spellings, `Kurdistan` and هولير added); the header names tks's command |
+| `cmd/tksctl/discovery.go` | `cmd/fbctl/discovery.go` | tksctl's shape (returns its result), schema tt |
+| `migrations/tt/00006_discovery_foundations.sql` (`discovery_keywords`) | `migrations/00008_discovery.sql` | Only the keyword table; tks records where accounts came from in `account_sources` instead of `page_schedule.source` |
+
 ## tks fixes igs or fbs may want
 
 Fixes made in tks's copy of shared code that igs or fbs still lack. Their own sessions decide whether to port them.

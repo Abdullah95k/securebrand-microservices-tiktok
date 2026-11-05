@@ -22,6 +22,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/ratelimit"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/accounts"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/task"
 )
@@ -58,20 +59,33 @@ type due struct {
 	walks    []byte
 }
 
-// Tick claims the accounts that are due, moves their next check on by
-// their interval (doubled per consecutive failure, at most 30 days; with
-// jitter) and dispatches a job for each.
+// Tick admits the new accounts paced admission lets start (tt.admission:
+// the owner's first, then discovered ones by score), then claims the
+// admitted accounts that are due, moves their next check on by their
+// interval (doubled per consecutive failure, at most 30 days; with jitter)
+// and dispatches a job for each. A new account waiting for admission is
+// never claimed; an admitted one's checks never wait.
 func (p *Planner) Tick(ctx context.Context) error {
 	stretch, stretchTiers := 1.0, []string{}
+	var budget *ratelimit.BudgetState
 	if p.Budget != nil {
-		if st := p.Budget(ctx); st.Stretch > 1 {
+		st := p.Budget(ctx)
+		budget = &st
+		if st.Stretch > 1 {
 			stretch, stretchTiers = st.Stretch, st.StretchTiers
 		}
+	}
+	admitted, err := accounts.Admit(ctx, p.DB, p.Cfg, budget, p.now(), p.Cfg.Scheduler.PlannerBatch)
+	if err != nil {
+		return err
+	}
+	if admitted > 0 {
+		metrics.AdmittedAccounts.Add(float64(admitted))
 	}
 	rows, err := p.DB.Query(ctx, `
 		WITH d AS (
 			SELECT account_ref FROM account_schedule s
-			WHERE enabled AND next_run_at <= $5 AND (paused_until IS NULL OR paused_until < $5)
+			WHERE enabled AND admitted_at IS NOT NULL AND next_run_at <= $5 AND (paused_until IS NULL OR paused_until < $5)
 			ORDER BY next_run_at LIMIT $1 FOR UPDATE SKIP LOCKED
 		)
 		UPDATE account_schedule s SET
@@ -117,7 +131,7 @@ func (p *Planner) Tick(ctx context.Context) error {
 	}
 	var lag float64
 	_ = p.DB.QueryRow(ctx, `SELECT coalesce(extract(epoch FROM $1::timestamptz - min(next_run_at)), 0) FROM account_schedule
-		WHERE enabled AND next_run_at <= $1`, p.now()).Scan(&lag)
+		WHERE enabled AND admitted_at IS NOT NULL AND next_run_at <= $1`, p.now()).Scan(&lag)
 	metrics.ScheduleLag.WithLabelValues("all").Set(math.Max(lag, 0))
 	return nil
 }
@@ -265,6 +279,11 @@ func (p *Planner) TierGauges(ctx context.Context) error {
 		return err
 	}
 	metrics.RefreshOverdue.Set(float64(overdue))
+	var queued int64
+	if err := p.DB.QueryRow(ctx, `SELECT count(*) FROM account_schedule WHERE enabled AND admitted_at IS NULL`).Scan(&queued); err != nil {
+		return err
+	}
+	metrics.AdmissionQueue.Set(float64(queued))
 	return nil
 }
 

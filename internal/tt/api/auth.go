@@ -29,10 +29,14 @@ const (
 	ScopeDataRead      = "data:read"
 	ScopePIIRead       = "pii:read"
 	ScopeAdmin         = "admin"
+	// Discovery's keywords and, from M14, its review (docs/tiktok/
+	// discovery-plan.md §5.6).
+	ScopeDiscoveryRead  = "discovery:read"
+	ScopeDiscoveryWrite = "discovery:write"
 )
 
 // Scopes lists every scope, for validating new keys.
-var Scopes = []string{ScopeJobsWrite, ScopeAccountsWrite, ScopeDataRead, ScopePIIRead, ScopeAdmin}
+var Scopes = []string{ScopeJobsWrite, ScopeAccountsWrite, ScopeDataRead, ScopePIIRead, ScopeAdmin, ScopeDiscoveryRead, ScopeDiscoveryWrite}
 
 // Client is an authenticated API client.
 type Client struct {

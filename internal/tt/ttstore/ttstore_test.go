@@ -23,6 +23,7 @@ var tables = []string{
 	"accounts", "account_usernames", "account_snapshots", "posts", "post_index", "post_mentions",
 	"post_metrics", "music", "comments", "people", "media", "media_acks",
 	"api_clients", "jobs", "crawl_cursors", "account_schedule", "account_registrations", "post_refresh",
+	"discovery_keywords", "account_sources", "account_labels", "account_blocks", "import_batches", "import_lines",
 	"operations", "client_params", "canary_runs", "post_status_changes",
 }
 
@@ -181,6 +182,12 @@ func TestSchemaHoldsData(t *testing.T) {
 	exec(`INSERT INTO account_registrations (api_client_id, account_ref) VALUES ('00000000-0000-0000-0000-0000000000a1', 'u:someone')`)
 	exec(`INSERT INTO post_refresh (post_id, user_id, post_created_at, next_refresh_at) VALUES (7400000000000000001, 7, $1, now())`, created)
 	exec(`INSERT INTO canary_runs (started_at, finished_at, status, report) VALUES (now(), now(), 'ok', '{}')`)
+	exec(`INSERT INTO discovery_keywords (term, normalized, language, grp) VALUES ('Erbil', 'erbil', 'en', 'erbil')`)
+	exec(`INSERT INTO account_sources (account_ref, how, via, user_id, first_at, last_at) VALUES ('u:someone', 'import', 'b', 7, now(), now())`)
+	exec(`INSERT INTO account_labels (api_client_id, account_ref, label) VALUES ('00000000-0000-0000-0000-0000000000a1', 'u:someone', 'list:x')`)
+	exec(`INSERT INTO account_blocks (api_client_id, account_ref, user_id) VALUES ('00000000-0000-0000-0000-0000000000a1', 'u:other', 8)`)
+	exec(`INSERT INTO import_batches (id, api_client_id, dry_run) VALUES ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000a1', false)`)
+	exec(`INSERT INTO import_lines (batch_id, line, input, account_ref, outcome) VALUES ('00000000-0000-0000-0000-0000000000c1', 1, 'someone', 'u:someone', 'added')`)
 	exec(`INSERT INTO post_status_changes (post_id, changed_at, status, previous, status_code, region)
 		VALUES (7400000000000000001, now(), 'unavailable', 'visible', 10216, 'US')`)
 	for _, tb := range tables {

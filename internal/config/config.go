@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -221,7 +222,61 @@ type TT struct {
 	// collects (owner, 2026-11-01; docs/tiktok ADR 0007 §14). A positive
 	// value turns that retention step back on.
 	Retention Retention `koanf:"retention"`
+	// Admission paces the first reads of new accounts (docs/tiktok/
+	// discovery-plan.md §5.3); Discovery switches account discovery.
+	Admission Admission `koanf:"admission"`
+	Discovery Discovery `koanf:"discovery"`
 }
+
+// Admission paces new accounts' first reads (their 365-day backfills) so
+// that thousands registered at once do not spend the day's proxy data in
+// hours (docs/tiktok/discovery-plan.md §5.3). Checks of accounts already
+// read never wait. New accounts wait in a queue: the owner's own (API,
+// import) first, then discovered ones by Iraq score.
+type Admission struct {
+	// PerHour admits at most this many new accounts an hour. 0 derives the
+	// rate from the traffic budget (scheduler.budget.requests_per_day less
+	// the day's projected traffic, over the hours left, at
+	// RequestsPerAccount each), or admits every new account at once when
+	// no request budget is set (as before M10a).
+	PerHour int `koanf:"per_hour"`
+	// RequestsPerAccount is a new account's first read in requests: its
+	// year of posts and their comments (C3: about 380 posts a year at the
+	// median account, a few signed comment pages each). It sizes the
+	// derived rate and the capacity the queue needs.
+	RequestsPerAccount int `koanf:"requests_per_account"`
+	// Capacity per IP and per signer page a day, and the share of signed
+	// calls, from Phase 0 (C4: per 1,000 accounts 678,256 calls a day
+	// through 2 IPs and 2 signer pages, 95 % signed): what draining the
+	// queue in a day would take.
+	IPRequestsPerDay int     `koanf:"ip_requests_per_day"`
+	PageSignsPerDay  int     `koanf:"page_signs_per_day"`
+	SignedShare      float64 `koanf:"signed_share"`
+}
+
+// Discovery switches account discovery (docs/tiktok/discovery-plan.md
+// §5.6). Bulk import (part A) is not discovery and needs none of it.
+type Discovery struct {
+	// Enabled turns every source off when false.
+	Enabled bool `koanf:"enabled"`
+	// Sources switches each source by name (mention, reply, commenter,
+	// search, hashtag, sound, feed, related, following, follower); a source
+	// not listed is off.
+	Sources map[string]bool `koanf:"sources"`
+	// MaxNewPerDay caps accounts discovery adds a day, for testing; 0 is no
+	// cap (the owner's decision for production: the budget paces them).
+	MaxNewPerDay int `koanf:"max_new_per_day"`
+	// Client names the API client that holds discovered accounts'
+	// registrations; tks creates it (with no usable key) when it is missing.
+	Client string `koanf:"client"`
+}
+
+// DiscoverySources are the ways discovery finds accounts (account_sources.how
+// beyond api and import).
+var DiscoverySources = []string{"mention", "reply", "commenter", "search", "hashtag", "sound", "feed", "related", "following", "follower"}
+
+// SourceOn says whether discovery runs source.
+func (d Discovery) SourceOn(source string) bool { return d.Enabled && d.Sources[source] }
 
 // TTMedia is tks's media download switch (build brief D5). tks's tasks
 // read it instead of the shared limits.include_media, which the copied
@@ -330,6 +385,33 @@ type Freshness struct {
 	MetricsWalks []MetricsWalk `koanf:"metrics_walks"`
 	// CommentWindows bound comment re-reads by post age (ascending MaxAge).
 	CommentWindows []CommentWindow `koanf:"comment_windows"`
+	// Inactive spaces the checks of the owner's accounts that went private,
+	// banned or missing (docs/tiktok/discovery-plan.md §5.4).
+	Inactive InactiveChecks `koanf:"inactive"`
+}
+
+// InactiveChecks: a private account is checked every Private.First for
+// Private.For after it was found private, then every Private.Then; a
+// banned or missing one likewise by Gone. A check that finds it active
+// puts it back on its interval.
+type InactiveChecks struct {
+	Private InactiveStep `koanf:"private"`
+	Gone    InactiveStep `koanf:"gone"`
+}
+
+// InactiveStep is a check interval that lengthens after a while.
+type InactiveStep struct {
+	First time.Duration `koanf:"first"`
+	For   time.Duration `koanf:"for"`
+	Then  time.Duration `koanf:"then"`
+}
+
+// Interval is the time to the next check of an account inactive for d.
+func (s InactiveStep) Interval(d time.Duration) time.Duration {
+	if d < s.For {
+		return s.First
+	}
+	return s.Then
 }
 
 // MetricsWalk walks an account's list every Every, back Back.
@@ -813,6 +895,23 @@ func (t TT) validate() []error {
 		if w.Interval <= 0 || w.MaxAge <= 0 || (i > 0 && w.MaxAge <= f.CommentWindows[i-1].MaxAge) {
 			errs = append(errs, errors.New("tt.freshness.comment_windows need intervals and ascending max_age"))
 			break
+		}
+	}
+	for name, st := range map[string]InactiveStep{"private": f.Inactive.Private, "gone": f.Inactive.Gone} {
+		if st.First <= 0 || st.Then < st.First || st.For < 0 {
+			errs = append(errs, fmt.Errorf("tt.freshness.inactive.%s needs first > 0, then >= first and for >= 0", name))
+		}
+	}
+	if a := t.Admission; a.PerHour < 0 || a.RequestsPerAccount <= 0 || a.IPRequestsPerDay <= 0 || a.PageSignsPerDay <= 0 ||
+		a.SignedShare < 0 || a.SignedShare > 1 {
+		errs = append(errs, errors.New("tt.admission: per_hour >= 0; requests_per_account, ip_requests_per_day and page_signs_per_day > 0; signed_share in [0, 1]"))
+	}
+	if t.Discovery.MaxNewPerDay < 0 || t.Discovery.Client == "" {
+		errs = append(errs, errors.New("tt.discovery: max_new_per_day >= 0 (0: no cap) and client set"))
+	}
+	for name := range t.Discovery.Sources {
+		if !slices.Contains(DiscoverySources, name) {
+			errs = append(errs, fmt.Errorf("tt.discovery.sources: unknown source %q (%s)", name, strings.Join(DiscoverySources, ", ")))
 		}
 	}
 	switch t.Comments.Order {

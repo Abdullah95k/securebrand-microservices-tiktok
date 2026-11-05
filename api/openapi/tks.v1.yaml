@@ -6,7 +6,8 @@ info:
     Scheduled and on-demand reads of public TikTok accounts (logged out): accounts with their
     username history, posts (videos and photo posts) with their metrics, comments and replies.
     All endpoints require `Authorization: Bearer tks_<prefix>_<secret>` (`tksctl apikey create`).
-    Scopes: `jobs:write`, `accounts:write`, `data:read`, `pii:read`, `admin` (implies all).
+    Scopes: `jobs:write`, `accounts:write`, `data:read`, `pii:read`, `discovery:read`,
+    `discovery:write`, `admin` (implies all).
     tks deletes nothing it collects and erases no one (owner, 2026-11-01; ADR 0007 §14).
     Errors use RFC 9457 problem documents (`application/problem+json`).
 
@@ -109,12 +110,15 @@ paths:
     post:
       summary: Register an account for scheduled checks
       description: >-
-        Requires `accounts:write`. The account is due at once: its first scheduled job is its
-        backfill (365 days or to its first post), every later one a check every `interval_minutes`
-        (2 h 45 min by default, so new posts are stored within 3 hours), with daily and weekly
-        metrics walks. Registering again is safe: the schedule is kept (enabled if it was not, an
-        explicit interval only shortens it) and nothing is read twice. An account tks has read is one
-        schedule however it is named. The options of the first registration stay.
+        Requires `accounts:write`. A new account waits for paced admission (`tt.admission`, the
+        owner's accounts first; `GET /admission`), then its first scheduled job is its backfill (365
+        days or to its first post), every later one a check every `interval_minutes` (2 h 45 min by
+        default, so new posts are stored within 3 hours), with daily and weekly metrics walks. An
+        account whose posts tks has read already is admitted at once. Registering again is safe: the
+        schedule is kept (enabled if it was not, an explicit interval only shortens it), new labels
+        are added and nothing is read twice. An account tks has read is one schedule however it is
+        named. The options of the first registration stay. Registering lifts the caller's own block
+        (see DELETE).
       requestBody:
         required: true
         content:
@@ -130,12 +134,19 @@ paths:
                 properties:
                   account_ref: {type: string, description: The schedule's reference}
                   created: {type: boolean, description: The account was not registered before}
+                  outcome: {type: string, enum: [added, joined, already], description: "added: a new schedule; joined: another client's schedule, the caller's registration added; already: the caller was registered"}
+                  queued: {type: boolean, description: The first read waits for paced admission}
                   schedule: {$ref: '#/components/schemas/Schedule'}
         "400": {$ref: '#/components/responses/Problem'}
         "422": {description: "An id: reference to an account tks has not read"}
     get:
       summary: List registered accounts (the caller's; every account with admin), by reference
-      parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {in: query, name: label, schema: {type: string}, description: The caller's own label}
+        - {in: query, name: source, schema: {type: string, enum: [api, import, mention, reply, commenter, search, hashtag, sound, feed, related, following, follower]}, description: A way the account came to tks}
+        - {in: query, name: queued, schema: {type: boolean}, description: Only accounts waiting for paced admission}
       responses:
         "200":
           description: Accounts
@@ -154,6 +165,49 @@ paths:
                             status: {type: string, description: The stored account's status, once read}
                             username: {type: string, description: "pii:read"}
                   next_cursor: {type: string}
+  /accounts/import:
+    post:
+      summary: Register a list of accounts (bulk import), with a report
+      description: >-
+        Requires `accounts:write`. At most 1000 accounts a call (`tksctl accounts import` sends a file
+        of any size). Each line is a username, `@username`, a profile or video link, a secUid,
+        `u:`/`sec:`/`id:` reference, or `text` is a CSV with an `account` column and optional
+        `labels` (separated by `|` or `;`), `interval` (minutes), `max_age_days` and `include_media`.
+        Blank lines and `#` comments are skipped; zero-width and direction marks, byte-order marks,
+        Windows line ends and full-width characters are removed; usernames are lowercased. Short
+        links are not supported yet. Running it again is safe (lines done come back already
+        monitored). `disable_missing` needs the whole list, so here it only runs dry.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                lines: {type: array, items: {type: string}, maxItems: 1000}
+                text: {type: string, description: A whole file instead of lines}
+                labels: {type: array, items: {type: string}}
+                dry_run: {type: boolean}
+                disable_missing: {type: boolean, description: "Report (dry) the caller's registrations not in the list"}
+                force: {type: boolean}
+      responses:
+        "200": {description: Report, content: {application/json: {schema: {$ref: '#/components/schemas/ImportReport'}}}}
+        "400": {$ref: '#/components/responses/Problem'}
+        "413": {$ref: '#/components/responses/Problem'}
+  /accounts/imports/{batch}:
+    parameters:
+      - {in: path, name: batch, required: true, schema: {type: string, format: uuid}}
+    get:
+      summary: An import's accounts and what tks found since
+      description: >-
+        Requires `accounts:write` (the import's client, or admin). Each account's status: queued
+        (waiting for admission), unread, active, inactive (no post for 90 days), private,
+        unavailable or banned.
+      parameters:
+        - {in: query, name: problems, schema: {type: boolean}, description: Only accounts that turned out private, inactive or missing}
+      responses:
+        "200": {description: Accounts}
+        "404": {$ref: '#/components/responses/Problem'}
   /accounts/{account}:
     parameters: [{$ref: '#/components/parameters/Account'}]
     get:
@@ -170,6 +224,8 @@ paths:
                   account_ref: {type: string}
                   account: {$ref: '#/components/schemas/Account'}
                   schedule: {$ref: '#/components/schemas/Schedule'}
+                  sources: {type: array, items: {$ref: '#/components/schemas/Source'}, description: Where the account came from, oldest first}
+                  labels: {type: array, items: {type: string}, description: The caller's labels on its registration}
         "404": {$ref: '#/components/responses/Problem'}
     patch:
       summary: Change the account's schedule
@@ -194,7 +250,10 @@ paths:
         "409": {$ref: '#/components/responses/Problem'}
     delete:
       summary: Unregister the caller
-      description: The schedule is disabled once no client is registered. The account's data stays.
+      description: >-
+        The removal is recorded as a block, so discovery never adds the account back; the caller's
+        next registration of it lifts the block. The schedule is disabled once no client is
+        registered. The account's data stays.
       responses:
         "204": {description: Unregistered}
   /accounts/{account}/usernames:
@@ -358,6 +417,64 @@ paths:
       responses:
         "200": {description: Media, content: {application/json: {schema: {$ref: '#/components/schemas/Media'}}}}
         "404": {$ref: '#/components/responses/Problem'}
+  /admission:
+    get:
+      summary: The admission queue of new accounts
+      description: >-
+        Accounts registered and waiting for their first read, the admission rate (`tt.admission`, or
+        derived from the request budget), the estimated finish, and what draining the queue within a
+        day would take (IPs and signer pages, from Phase 0's measurements).
+      responses:
+        "200": {description: Queue}
+  /discovery/keywords:
+    get:
+      summary: The discovery keywords (discovery:read)
+      parameters:
+        - {in: query, name: language, schema: {type: string, enum: [en, ar, ckb, kmr]}}
+        - {in: query, name: group, schema: {type: string}}
+        - {in: query, name: enabled, schema: {type: boolean}}
+        - {in: query, name: after, schema: {type: integer}, description: The last id of the previous page}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        "200": {description: Keywords}
+    post:
+      summary: Add a keyword (discovery:write)
+      description: A spelling that folds to a keyword already listed in the language returns that one (200).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [term, language]
+              properties:
+                term: {type: string}
+                language: {type: string, enum: [en, ar, ckb, kmr]}
+                group: {type: string}
+                enabled: {type: boolean, default: true}
+      responses:
+        "201": {description: Added}
+        "200": {description: Already listed}
+        "400": {$ref: '#/components/responses/Problem'}
+  /discovery/keywords/{id}:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: integer}}
+    patch:
+      summary: Turn a keyword on or off, or correct it (discovery:write)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                term: {type: string}
+                group: {type: string}
+                enabled: {type: boolean}
+      responses:
+        "200": {description: Keyword}
+        "404": {$ref: '#/components/responses/Problem'}
+        "409": {$ref: '#/components/responses/Problem'}
   /admin/operations:
     get:
       summary: TikTok's operations in the registry (admin)
@@ -456,6 +573,38 @@ components:
         account: {type: string, description: An account reference}
         schedule: {$ref: '#/components/schemas/ScheduleRequest'}
         options: {$ref: '#/components/schemas/CrawlOptions'}
+        labels: {type: array, items: {type: string}, description: "The caller's labels (1 to 64 characters, no spaces or commas)"}
+    Source:
+      type: object
+      properties:
+        how: {type: string, enum: [api, import, mention, reply, commenter, search, hashtag, sound, feed, related, following, follower]}
+        via: {type: string, description: "What led to it: an import batch, a keyword, an account"}
+        first_at: {type: string, format: date-time}
+        last_at: {type: string, format: date-time}
+        seen: {type: integer}
+        evidence: {type: object}
+        score: {type: number}
+    ImportReport:
+      type: object
+      properties:
+        batch: {type: string, format: uuid}
+        dry_run: {type: boolean}
+        lines: {type: integer}
+        added: {type: integer}
+        joined: {type: integer, description: Monitored by another client; the caller's registration added}
+        already_monitored: {type: integer}
+        duplicates: {type: integer}
+        not_accepted:
+          type: array
+          items:
+            type: object
+            properties:
+              line: {type: integer}
+              input: {type: string}
+              reason: {type: string}
+        queued: {type: integer}
+        queue: {type: object, description: "The admission queue (GET /admission)"}
+        disable_missing: {type: object}
     Schedule:
       type: object
       properties:
@@ -472,6 +621,10 @@ components:
         last_post_at: {type: string, format: date-time}
         walks: {type: object, description: "Metrics walks done: depth in seconds to the time it ended"}
         last_job_id: {type: string, format: uuid}
+        origin: {type: string, enum: [owner, discovery]}
+        queued: {type: boolean, description: The first read waits for paced admission}
+        admitted_at: {type: string, format: date-time}
+        inactive_since: {type: string, format: date-time, description: "Found private, banned or gone since (lighter checks: tt.freshness.inactive)"}
     JobStatus:
       type: string
       enum: [running, cancelling, finalizing, completed, partial, failed, cancelled]

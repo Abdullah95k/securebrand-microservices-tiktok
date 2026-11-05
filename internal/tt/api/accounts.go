@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/accounts"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/task"
 )
@@ -113,18 +114,10 @@ func (s *Server) resolveAccount(w http.ResponseWriter, r *http.Request) (int64, 
 	return a.UserID, ref, true
 }
 
-// scheduleRef returns the schedule row an account is registered under: the
-// reference itself, or, for an account tks has read, any row of its user
-// id (an account registered by username and asked for by secUid or id is
-// one schedule).
+// scheduleRef returns the schedule row an account is registered under
+// (accounts.ScheduleRef).
 func (s *Server) scheduleRef(ctx context.Context, ref string, userID int64) (string, bool, error) {
-	var got string
-	err := s.DB.QueryRow(ctx, `SELECT account_ref FROM account_schedule WHERE account_ref = $1
-		OR ($2::bigint IS NOT NULL AND user_id = $2) ORDER BY account_ref = $1 DESC, created_at LIMIT 1`, ref, nilIfZero(userID)).Scan(&got)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ref, false, nil
-	}
-	return got, err == nil, err
+	return accounts.ScheduleRef(ctx, s.DB, ref, userID)
 }
 
 func nilIfZero(v int64) *int64 {
@@ -143,8 +136,8 @@ type scheduleReq struct {
 
 // Interval bounds: no faster than every 30 minutes, no slower than monthly.
 const (
-	minIntervalMinutes = 30
-	maxIntervalMinutes = 30 * 24 * 60
+	minIntervalMinutes = accounts.MinIntervalMinutes
+	maxIntervalMinutes = accounts.MaxIntervalMinutes
 )
 
 func (q *scheduleReq) interval() (*int, error) {
@@ -164,20 +157,23 @@ type registerReq struct {
 	// Options apply to every scheduled job of the account; the first
 	// registration's stay.
 	Options *CrawlOptions `json:"options,omitempty"`
+	// Labels are the client's own (list:banks): added, never removed here.
+	Labels []string `json:"labels,omitempty"`
 }
 
-// registerAccount puts an account on the schedule, due now: the planner's
-// first job for an account never read is its backfill (365 days or to its
-// first post), every later one a check every interval. Registering again is
-// safe: the schedule is kept (enabled if it was not, an explicit interval
-// only shortens it) and no second backfill starts.
+// registerAccount puts an account on the schedule (accounts.Register). A
+// new account waits for paced admission (tt.admission), then its first job
+// is its backfill (365 days or to its first post), every later one a check
+// every interval. Registering again is safe: the schedule is kept (enabled
+// if it was not, an explicit interval only shortens it), new labels are
+// added and no second backfill starts.
 func (s *Server) registerAccount(w http.ResponseWriter, r *http.Request) {
 	var req registerReq
 	if err := decode(r, &req); err != nil {
 		problem(w, http.StatusBadRequest, "invalid body", err.Error())
 		return
 	}
-	ref, err := task.NormalizeRef(req.Account)
+	ref, err := task.NormalizeRef(accounts.Clean(req.Account))
 	if err != nil {
 		problem(w, http.StatusBadRequest, "invalid account", err.Error())
 		return
@@ -187,6 +183,12 @@ func (s *Server) registerAccount(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusBadRequest, "invalid schedule", err.Error())
 		return
 	}
+	for _, l := range req.Labels {
+		if err := accounts.CheckLabel(l); err != nil {
+			problem(w, http.StatusBadRequest, "invalid label", err.Error())
+			return
+		}
+	}
 	var opts CrawlOptions
 	if req.Options != nil {
 		opts = *req.Options
@@ -195,59 +197,33 @@ func (s *Server) registerAccount(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusBadRequest, "invalid options", err.Error())
 		return
 	}
-	ctx := r.Context()
-	acc, known, err := dispatch.Resolve(ctx, s.DB, ref)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	var uid int64
-	if known {
-		uid = acc.UserID
-	}
-	if !known && task.ScopeFromRef(ref).UserId != 0 {
-		problem(w, http.StatusUnprocessableEntity, "unknown account",
-			"an id: reference needs an account tks has read; register it by username or secUid")
-		return
-	}
-	schedRef, _, err := s.scheduleRef(ctx, ref, uid)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	interval := int(s.Cfg.TT.Freshness.ListInterval.Seconds())
+	var iv *time.Duration
 	if explicit != nil {
-		interval = *explicit
+		d := time.Duration(*explicit) * time.Second
+		iv = &d
 	}
-	enabled := req.Schedule == nil || req.Schedule.Enabled == nil || *req.Schedule.Enabled
 	optsJSON, _ := json.Marshal(opts)
-	c := clientFrom(r.Context())
-	var created bool
-	var v scheduleView
-	err = pgx.BeginFunc(ctx, s.DB, func(tx pgx.Tx) error {
-		err := tx.QueryRow(ctx, `INSERT INTO account_schedule AS s (account_ref, user_id, enabled, interval_seconds, next_run_at,
-				options, max_age_days, max_posts)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-			ON CONFLICT (account_ref) DO UPDATE SET enabled = s.enabled OR EXCLUDED.enabled,
-				interval_seconds = CASE WHEN $9 THEN least(s.interval_seconds, EXCLUDED.interval_seconds) ELSE s.interval_seconds END,
-				user_id = coalesce(s.user_id, EXCLUDED.user_id)
-			RETURNING old.account_ref IS NULL`,
-			schedRef, nilIfZero(uid), enabled, interval, s.now(), optsJSON, opts.MaxAgeDays, opts.MaxPosts, explicit != nil).Scan(&created)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO account_registrations (api_client_id, account_ref) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
-			c.ID, schedRef); err != nil {
-			return err
-		}
-		v, err = scanSchedule(tx.QueryRow(ctx, `SELECT `+scheduleColumns+` FROM account_schedule s WHERE s.account_ref = $1`, schedRef))
-		return err
-	})
+	ctx := r.Context()
+	c := clientFrom(ctx)
+	res, err := accounts.Register(ctx, s.DB, accounts.Registration{ClientID: c.ID, Ref: ref, How: accounts.HowAPI,
+		Origin: accounts.OriginOwner, Priority: accounts.PriorityOwner, Interval: iv,
+		DefaultInterval: s.Cfg.TT.Freshness.ListInterval, Enabled: req.Schedule == nil || req.Schedule.Enabled == nil || *req.Schedule.Enabled,
+		Options: optsJSON, MaxAgeDays: opts.MaxAgeDays, MaxPosts: opts.MaxPosts, Labels: req.Labels, Now: s.now()})
+	if errors.Is(err, accounts.ErrUnknownID) {
+		problem(w, http.StatusUnprocessableEntity, "unknown account", err.Error())
+		return
+	}
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"account_ref": schedRef, "created": created, "schedule": v})
+	v, err := scanSchedule(s.DB.QueryRow(ctx, `SELECT `+scheduleColumns+` FROM account_schedule s WHERE s.account_ref = $1`, res.ScheduleRef))
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"account_ref": res.ScheduleRef, "created": res.Outcome == accounts.OutcomeAdded,
+		"outcome": res.Outcome, "queued": res.Queued, "schedule": v})
 }
 
 type scheduleView struct {
@@ -264,15 +240,27 @@ type scheduleView struct {
 	LastPostAt      *time.Time      `json:"last_post_at,omitempty"`
 	Walks           json.RawMessage `json:"walks,omitempty"`
 	LastJobID       *string         `json:"last_job_id,omitempty"`
+	// Origin is owner (registered through the API or an import) or
+	// discovery; Queued: the first read waits for paced admission.
+	Origin        string     `json:"origin"`
+	Queued        bool       `json:"queued"`
+	AdmittedAt    *time.Time `json:"admitted_at,omitempty"`
+	InactiveSince *time.Time `json:"inactive_since,omitempty"`
 }
 
 const scheduleColumns = `s.account_ref, s.user_id, s.enabled, s.interval_seconds, s.next_run_at, s.last_run_at, s.last_success_at,
-	s.options, s.consecutive_failures, s.posts_per_day, s.last_post_at, s.walks, s.last_job_id::text`
+	s.options, s.consecutive_failures, s.posts_per_day, s.last_post_at, s.walks, s.last_job_id::text, s.origin,
+	s.admitted_at IS NULL AND s.enabled, s.admitted_at, s.inactive_since`
+
+func (v *scheduleView) dest() []any {
+	return []any{&v.AccountRef, &v.UserID, &v.Enabled, &v.IntervalSeconds, &v.NextRunAt, &v.LastRunAt, &v.LastSuccessAt,
+		&v.Options, &v.Failures, &v.PostsPerDay, &v.LastPostAt, &v.Walks, &v.LastJobID, &v.Origin, &v.Queued, &v.AdmittedAt,
+		&v.InactiveSince}
+}
 
 func scanSchedule(row pgx.Row) (scheduleView, error) {
 	var v scheduleView
-	err := row.Scan(&v.AccountRef, &v.UserID, &v.Enabled, &v.IntervalSeconds, &v.NextRunAt, &v.LastRunAt, &v.LastSuccessAt,
-		&v.Options, &v.Failures, &v.PostsPerDay, &v.LastPostAt, &v.Walks, &v.LastJobID)
+	err := row.Scan(v.dest()...)
 	return v, err
 }
 
@@ -305,6 +293,21 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 		args = append(args, c.ID)
 		q += ` JOIN account_registrations g ON g.account_ref = s.account_ref AND g.api_client_id = $2`
 	}
+	// ?label= is the caller's own label; ?source= a way the account came
+	// (api, import, or a discovery source); ?queued=true the accounts
+	// waiting for admission.
+	if l := r.URL.Query().Get("label"); l != "" {
+		args = append(args, c.ID, l)
+		where += ` AND EXISTS (SELECT 1 FROM account_labels l WHERE l.account_ref = s.account_ref AND l.api_client_id = $` +
+			strconv.Itoa(len(args)-1) + ` AND l.label = $` + strconv.Itoa(len(args)) + `)`
+	}
+	if src := r.URL.Query().Get("source"); src != "" {
+		args = append(args, src)
+		where += ` AND EXISTS (SELECT 1 FROM account_sources x WHERE x.account_ref = s.account_ref AND x.how = $` + strconv.Itoa(len(args)) + `)`
+	}
+	if r.URL.Query().Get("queued") == "true" {
+		where += ` AND s.admitted_at IS NULL AND s.enabled`
+	}
 	limit := limitParam(r)
 	args = append(args, limit)
 	q += where + ` ORDER BY s.account_ref LIMIT $` + strconv.Itoa(len(args))
@@ -315,9 +318,7 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (accountItem, error) {
 		var it accountItem
-		v := &it.scheduleView
-		err := row.Scan(&v.AccountRef, &v.UserID, &v.Enabled, &v.IntervalSeconds, &v.NextRunAt, &v.LastRunAt, &v.LastSuccessAt,
-			&v.Options, &v.Failures, &v.PostsPerDay, &v.LastPostAt, &v.Walks, &v.LastJobID, &it.Status, &it.Username)
+		err := row.Scan(append(it.dest(), &it.Status, &it.Username)...)
 		if !pii {
 			it.Username = nil
 		}
@@ -373,6 +374,19 @@ func (s *Server) getAccount(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out["schedule"] = v
+		if out["sources"], err = s.sources(ctx, schedRef, uid); err != nil {
+			serverError(w, err)
+			return
+		}
+		if out["labels"], err = s.labels(ctx, clientFrom(ctx).ID, schedRef); err != nil {
+			serverError(w, err)
+			return
+		}
+	} else if found {
+		if out["sources"], err = s.sources(ctx, ref, uid); err != nil {
+			serverError(w, err)
+			return
+		}
 	}
 	if !found && !registered {
 		problem(w, http.StatusNotFound, "unknown account", "tks has not read this account and it is not registered")
@@ -470,9 +484,10 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// deleteAccount unregisters the caller; the schedule is disabled once no
-// client is registered. The account's data stays (tks deletes nothing:
-// ADR 0007 §14).
+// deleteAccount unregisters the caller and records the removal as a block,
+// so discovery never adds the account back (discovery-plan §5.5); the
+// schedule is disabled once no client is registered. The account's data
+// stays (tks deletes nothing: ADR 0007 §14).
 func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	ref, ok := accountRef(w, r)
 	if !ok {
@@ -494,9 +509,16 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if err := accounts.Block(ctx, s.DB, c.ID, schedRef, uid, s.now()); err != nil {
+		serverError(w, err)
+		return
+	}
 	if registered {
 		err := pgx.BeginFunc(ctx, s.DB, func(tx pgx.Tx) error {
 			if _, err := tx.Exec(ctx, `DELETE FROM account_registrations WHERE api_client_id = $1 AND account_ref = $2`, c.ID, schedRef); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `DELETE FROM account_labels WHERE api_client_id = $1 AND account_ref = $2`, c.ID, schedRef); err != nil {
 				return err
 			}
 			_, err := tx.Exec(ctx, `UPDATE account_schedule SET enabled = false WHERE account_ref = $1

@@ -291,9 +291,11 @@ func checkKind(kind, mode string) string {
 // last job this was): its user id once known, the failure count that
 // stretches its interval, the last successful check, the metrics walks
 // the job covered, and its posting rate. An account that is not active
-// (private, banned, gone) is checked again only after
-// tt.freshness.account_refresh, until a check finds it active. Walks count
-// from when they ended; the last success from when the check started.
+// (private, banned, gone) gets the lighter checks of
+// tt.freshness.inactive, spaced by how long it has been so
+// (inactive_since), until a check finds it active (docs/tiktok/
+// discovery-plan.md §5.4). Walks count from when they ended; the last
+// success from when the check started.
 func (f *Finalizer) schedule(ctx context.Context, jid uuid.UUID, final, mode string, params []byte, created time.Time, acc *dispatch.Account) error {
 	ok := final == "completed" || final == "partial"
 	var p struct {
@@ -306,26 +308,33 @@ func (f *Finalizer) schedule(ctx context.Context, jid uuid.UUID, final, mode str
 	}
 	wb, _ := json.Marshal(walks)
 	var uid *int64
-	inactive := false
+	inactive, status := false, ""
 	if acc != nil {
 		uid = &acc.UserID
-		inactive = acc.Status != "active"
+		inactive, status = acc.Status != "active", acc.Status
 	}
 	if final == "cancelled" {
 		return nil
+	}
+	step := f.Cfg.TT.Freshness.Inactive.Gone
+	if status == "private" {
+		step = f.Cfg.TT.Freshness.Inactive.Private
 	}
 	window := f.Cfg.Limits.MaxAgeCapDays
 	_, err := f.DB.Exec(ctx, `UPDATE account_schedule s SET user_id = coalesce(s.user_id, $2),
 			consecutive_failures = CASE WHEN $3 THEN 0 ELSE s.consecutive_failures + 1 END,
 			last_success_at = CASE WHEN $3 THEN greatest(s.last_success_at, $4) ELSE s.last_success_at END,
 			walks = s.walks || $5::jsonb,
-			next_run_at = CASE WHEN $6 THEN greatest(s.next_run_at, $7::timestamptz + make_interval(secs => $8)) ELSE s.next_run_at END,
+			inactive_since = CASE WHEN $6 THEN coalesce(s.inactive_since, $7) ELSE NULL END,
+			next_run_at = CASE WHEN $6 THEN greatest(s.next_run_at, $7::timestamptz + make_interval(secs =>
+				CASE WHEN $7::timestamptz - coalesce(s.inactive_since, $7) < make_interval(secs => $10::float8) THEN $8::float8 ELSE $11::float8 END))
+				ELSE s.next_run_at END,
 			posts_per_day = r.per_day, last_post_at = coalesce(r.last_post, s.last_post_at)
 		FROM (SELECT count(*) FILTER (WHERE created_at > $7::timestamptz - interval '30 days') / 30.0 AS per_day,
 				max(created_at) AS last_post
 			FROM posts WHERE user_id = $2 AND created_at > $7::timestamptz - make_interval(days => $9)) r
 		WHERE s.last_job_id = $1`,
-		jid, uid, ok, created, wb, inactive, f.now(), f.Cfg.TT.Freshness.AccountRefresh.Seconds(), max(window, 30))
+		jid, uid, ok, created, wb, inactive, f.now(), step.First.Seconds(), max(window, 30), step.For.Seconds(), step.Then.Seconds())
 	return err
 }
 
