@@ -17,11 +17,18 @@ import (
 // budget (scheduler.budget.requests_per_day), what the day's budget leaves
 // after the projected traffic, spread over the hours left in the day (UTC,
 // the budget's day) at tt.admission.requests_per_account each, none while
-// the budget pauses backfills; else unlimited. st is the budget
+// the budget pauses backfills; else unlimited. None at all while backfills
+// are paused, whichever budget paused them. st is the budget
 // controller's last state; nil when it is not known, which then admits
 // the budget's whole day evenly (requests_per_day / 24 / per account).
 func Rate(cfg *config.Config, st *ratelimit.BudgetState, now time.Time) (perHour int, unlimited bool) {
 	a, b := cfg.TT.Admission, cfg.Scheduler.Budget
+	if st != nil && st.PauseP2 {
+		// Backfills are paused (the request budget or tks's dollar budget,
+		// tt.cost): an account admitted now would wait in the paused lane
+		// until the reaper closed its first read.
+		return 0, false
+	}
 	if a.PerHour > 0 {
 		return a.PerHour, false
 	}
@@ -31,9 +38,6 @@ func Rate(cfg *config.Config, st *ratelimit.BudgetState, now time.Time) (perHour
 	per := float64(max(a.RequestsPerAccount, 1))
 	if st == nil || st.UpdatedAt.IsZero() {
 		return int(float64(b.RequestsPerDay) / 24 / per), false
-	}
-	if st.PauseP2 {
-		return 0, false
 	}
 	now = now.UTC()
 	end := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)

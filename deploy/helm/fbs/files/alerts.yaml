@@ -374,6 +374,14 @@ groups:
         expr: max(tks_account_check_oldest_seconds * on (instance) (tks_scheduler_leader == 1))
       - record: tks:leader:account_refresh_overdue
         expr: max(tks_account_refresh_overdue * on (instance) (tks_scheduler_leader == 1))
+      - record: tks:leader:cost_per_account_usd
+        expr: max(tks_cost_per_account_usd * on (instance) (tks_scheduler_leader == 1))
+      - record: tks:leader:cost_budget_per_account_usd
+        expr: max(tks_cost_budget_per_account_usd * on (instance) (tks_scheduler_leader == 1))
+      - record: tks:leader:cost_budget_alert_share
+        expr: max(tks_cost_budget_alert_share * on (instance) (tks_scheduler_leader == 1))
+      - record: tks:leader:cost_over_budget
+        expr: max(tks_cost_over_budget * on (instance) (tks_scheduler_leader == 1))
       - record: tks:leader:admission_queue
         expr: max(tks_admission_queue * on (instance) (tks_scheduler_leader == 1))
       - record: tks:leader:scheduled_accounts_active
@@ -449,6 +457,34 @@ groups:
           summary: "The median new post is stored {{ $value | humanizeDuration }} after it was posted (A2: 1.5 h)"
           description: Checks run later than every 2 h 45 min, or the persister lags.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-objectives.md#a2-new-posts-stored-within-3-h
+      # A5: tks's cost per account a day (tks-scheduler prices the last 24 h
+      # from tt.cost; the gauges are the leader's).
+      - alert: TksCostNearBudget
+        expr: |
+          tks:leader:cost_per_account_usd > tks:leader:cost_budget_per_account_usd * tks:leader:cost_budget_alert_share
+          and tks:leader:cost_budget_per_account_usd > 0
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: "tks costs {{ $value }} USD per account a day, past the alert share of the budget (A5)"
+          description: Over the budget itself, backfills pause (TksCostOverBudget); checks go on. See the cost parts on the dashboard.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-objectives.md#a5-cost-per-account-per-day
+      - alert: TksCostOverBudget
+        expr: tks:leader:cost_over_budget == 1
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: tks is over its budget per account a day; backfills and new accounts' admission are paused (A5)
+          description: Checks go on. Raise tt.cost.budget_per_account_usd, or lower the cost (the parts in tks_cost_usd_day).
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-objectives.md#a5-cost-per-account-per-day
+      - alert: TksCostNotPriced
+        expr: absent(tks:leader:cost_per_account_usd)
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: tks's cost has not been priced for an hour (A5)
+          description: The leader's cost loop fails (Postgres or Redis), or no scheduler leads; its logs say which.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-objectives.md#a5-cost-per-account-per-day
       - alert: TksMediaRefused
         expr: |
           sum(increase(tks_media_download_total{outcome="refused"}[1h]))

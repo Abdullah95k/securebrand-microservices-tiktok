@@ -150,11 +150,11 @@ func TestObjectiveMetrics(t *testing.T) {
 // backfill lanes) wire it, against fakett:
 //  1. with room in the budget, a backfill runs;
 //  2. once the day's traffic exceeds the budget, backfills pause: a new
-//     account's backfill is queued but reads nothing, while the other
-//     account's check (p1) still runs, and the planner stretches the
-//     checks' interval;
-//  3. with the budget raised, the backfill resumes and the store equals
-//     the world.
+//     account is not admitted (not even at an explicit pace) and nothing
+//     reads it, while the other account's check (p1) still runs, and the
+//     planner stretches the checks' interval;
+//  3. with the budget raised, the account is admitted and backfilled and
+//     the store equals the world.
 func TestBudgetPause(t *testing.T) {
 	s := Start(t, Options{Spec: fakett.Spec{Seed: 41, Accounts: 2, PostsPerAccount: 6, MaxComments: 2, MaxReplies: 1,
 		PostSpacing: 30 * time.Hour}, Config: func(c *config.Config) {
@@ -232,17 +232,18 @@ func TestBudgetPause(t *testing.T) {
 		"u:"+accs[1].Username).Scan(&queued); err != nil || !queued {
 		t.Fatalf("a new account started while the budget pauses backfills (%v)", err)
 	}
-	// With an explicit pace it is admitted, and the crawler's budget gate
-	// holds its backfill.
+	// An explicit pace does not admit it either: its first read would wait
+	// in the paused lane until the reaper closed it (M9b1).
 	s.Cfg.TT.Admission.PerHour = 10
 	if err := sc.pl.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	var backfill, check uuid.UUID
-	var next time.Time
-	if err := s.DB.QueryRow(ctx, `SELECT last_job_id FROM account_schedule WHERE account_ref = $1`, "u:"+accs[1].Username).Scan(&backfill); err != nil {
-		t.Fatal(err)
+	if err := s.DB.QueryRow(ctx, `SELECT admitted_at IS NULL AND last_job_id IS NULL FROM account_schedule WHERE account_ref = $1`,
+		"u:"+accs[1].Username).Scan(&queued); err != nil || !queued {
+		t.Fatalf("a new account started at an explicit pace while the budget pauses backfills (%v)", err)
 	}
+	var check uuid.UUID
+	var next time.Time
 	if err := s.DB.QueryRow(ctx, `SELECT last_job_id, next_run_at FROM account_schedule WHERE account_ref = $1`, "u:"+accs[0].Username).
 		Scan(&check, &next); err != nil {
 		t.Fatal(err)
@@ -251,17 +252,20 @@ func TestBudgetPause(t *testing.T) {
 		t.Errorf("next check at %v, want the interval stretched twice (after %v)", next, earliest)
 	}
 	s.Wait(t, 3*time.Minute, check.String()) // p1 is not held back
-	time.Sleep(3 * time.Second)              // time for a backfill that was not held back
 	if n := count(t, s, `SELECT count(*) FROM accounts WHERE username = $1`, accs[1].Username); n != 0 {
-		t.Fatal("the paused backfill read the account")
-	}
-	if st, err := s.Tracker.Status(ctx, backfill.String()); err != nil || st.Pending == 0 || st.Counters["requests"] != 0 {
-		t.Fatalf("paused backfill: %+v (%v), want queued with no request", st, err)
+		t.Fatal("an account waiting for admission was read")
 	}
 
-	// 3. The budget raised: the backfill resumes.
+	// 3. The budget raised: the account is admitted and backfilled.
 	if st := budget(1 << 40); st.PauseP2 || st.Stretch != 1 {
 		t.Fatalf("budget state with room again: %+v", st)
+	}
+	if err := sc.pl.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var backfill uuid.UUID
+	if err := s.DB.QueryRow(ctx, `SELECT last_job_id FROM account_schedule WHERE account_ref = $1`, "u:"+accs[1].Username).Scan(&backfill); err != nil {
+		t.Fatal(err)
 	}
 	s.Wait(t, 3*time.Minute, backfill.String())
 	for _, a := range accs {

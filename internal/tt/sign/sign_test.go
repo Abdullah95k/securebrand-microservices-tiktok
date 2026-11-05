@@ -605,3 +605,38 @@ func TestClientRetriesRefusedSignedCalls(t *testing.T) {
 	}
 	t.Logf("9 of 9 answered, %d after a retry on another page", retried)
 }
+
+// BrowserSeconds is the time pages were open (tks's cost, A5): each page
+// from its opening to its close, read once.
+func TestPoolBrowserSeconds(t *testing.T) {
+	ctx := context.Background()
+	o := &opener{}
+	p := sign.New(cfg(), o.open)
+	now := time.Unix(1_800_000_000, 0)
+	p.Now = func() time.Time { return now }
+	ref := "https://www.example.com/@someone/video/1"
+	if got := p.BrowserSeconds(); got != 0 {
+		t.Fatalf("no page yet: %v", got)
+	}
+	if _, err := p.SignURL(ctx, identity("UA-a"), "comments", "/api/x?q=1", ref); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Minute)
+	if _, err := p.SignURL(ctx, identity("UA-b"), "comments", "/api/x?q=2", ref); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Minute)
+	if got := p.BrowserSeconds(); got != 60+2*120 {
+		t.Fatalf("one page 3 min, one 2 min: %v s", got)
+	}
+	now = now.Add(30 * time.Second)
+	if got := p.BrowserSeconds(); got != 60 {
+		t.Fatalf("read once, then two pages 30 s: %v s", got)
+	}
+	now = now.Add(10 * time.Second)
+	p.Close()
+	now = now.Add(time.Hour)
+	if got := p.BrowserSeconds(); got != 20 {
+		t.Fatalf("closed pages cost nothing: %v s", got)
+	}
+}

@@ -241,6 +241,27 @@ tt:
     ip_requests_per_day: 339000
     page_signs_per_day: 322000
     signed_share: 0.95
+  # A day's cost (build brief §8 A5): the leader prices the last 24 hours
+  # every interval (tks_cost_per_account_usd): IPs a month, the signer
+  # pages' browser time, compute per account and storage, over the accounts
+  # with a schedule. The owner's prices of 2026-11-05: an ISP IP $3 a month
+  # with unlimited data; the rest are the owner's assumptions until real
+  # prices replace them ($48 a month for 4 signer pages on an 8 GB / 4 vCPU
+  # server, $0.0002 compute per account a day, $0.10 per GB-month). 0
+  # leaves a part unpriced.
+  cost:
+    interval: 5m
+    ip_month_usd: 3
+    ips: 0                       # 0: the endpoints of tt.proxy.tiers' static lists
+    browser_hour_usd: 0.017
+    compute_usd_per_account_day: 0.0002
+    storage_gb_month_usd: 0.10
+    # The owner's budget (D9, 2026-11-05): C4's estimate plus 50 %
+    # (about $0.00126 + 50 %). Over it only backfills pause (and with them
+    # the admission of new accounts); checks never wait or stretch. The
+    # alert fires at alert_share of it. 0 turns the pause off.
+    budget_per_account_usd: 0.0019
+    alert_share: 0.9
   # Account discovery (discovery-plan.md): off until each source is built
   # and C6 and counsel (G2) allow it. Bulk import needs none of it.
   discovery:
