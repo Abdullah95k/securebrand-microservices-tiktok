@@ -85,6 +85,9 @@ type walk struct {
 
 func (s *AccountStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 	d := s.D
+	// yield_after counts from here: with the wait for an identity, the
+	// task stays well inside its lease (crawler.lease_ttl; fbs ad5ad88).
+	started := time.Now()
 	sc := t.GetAccount()
 	c := map[string]int64{}
 	if sc == nil {
@@ -132,7 +135,6 @@ func (s *AccountStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 	q, _ := d.Client.Registry.Get(listQuery)
 	src := emit.Source{JobID: t.JobId, Query: listQuery, Variant: q.DocID, ParserVersion: parse.Version, Mode: w.mode}
 	popt := parse.Options{AuthorKey: d.Emit.Key, Query: listQuery, Variant: q.DocID}
-	started := time.Now()
 	finished := false
 	softRetried := false
 	v := &vanish{seen: map[int64]bool{}}

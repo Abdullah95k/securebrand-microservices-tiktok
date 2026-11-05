@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 
@@ -74,5 +75,10 @@ func runCrawler(ctx context.Context, cfg *config.Config, stages []string) error 
 	ops.AddCheck("kafka", producer.Ping)
 	ops.AddCheck("redis", func(ctx context.Context) error { return rdb.Ping(ctx).Err() })
 	ops.AddCheck("postgres", db.Ping)
-	return run.Group(ctx, append([]run.Func{ops.Run}, c.Components...)...)
+	err = run.Group(ctx, append([]run.Func{ops.Run}, c.Components...)...)
+	// The tasks have finished: the next crawler resumes these identities.
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	c.SaveSessions(sctx)
+	return err
 }

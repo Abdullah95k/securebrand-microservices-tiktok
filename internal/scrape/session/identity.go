@@ -5,7 +5,6 @@ package session
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"math/big"
@@ -78,6 +77,14 @@ func (id *Identity) TakeReservation() bool {
 	r := id.reserved && time.Since(id.born) < reservationTTL
 	id.reserved = false
 	return r
+}
+
+// holdsReservation reports whether id still holds its creation's page
+// load, without using it.
+func (id *Identity) holdsReservation() bool {
+	id.mu.Lock()
+	defer id.mu.Unlock()
+	return id.reserved && time.Since(id.born) < reservationTTL
 }
 
 // markRetired marks id for retirement when it is released.
@@ -253,25 +260,19 @@ func (id *Identity) coolingDown() bool {
 	return time.Now().Before(id.cooldown)
 }
 
-// Snapshot serialises the identity so another pod can rebuild it on the
-// same sticky exit (used if cursors turn out to be session-bound).
-type Snapshot struct {
-	ID        string            `json:"id"`
-	Tier      string            `json:"tier"`
-	ProxyURL  string            `json:"proxy_url"`
-	SessionID string            `json:"session_id"`
-	Expires   time.Time         `json:"expires"`
-	Profile   string            `json:"profile"`
-	Cookies   map[string]string `json:"cookies"`
-	Tokens    Tokens            `json:"tokens"`
-}
-
-func (id *Identity) Snapshot() ([]byte, error) {
-	s := Snapshot{
-		ID: id.ID, Tier: id.Endpoint.Tier, ProxyURL: id.Endpoint.URL, SessionID: id.Endpoint.SessionID,
-		Expires: id.Endpoint.ExpiresAt, Profile: id.FP.Profile, Cookies: id.Doer.Cookies(id.Base), Tokens: id.Tokens(),
+// saved returns id's session to keep across a restart: false when it is
+// retired, has no tokens, or is on a gateway (whose sticky session expires).
+func (id *Identity) saved() (Saved, bool) {
+	id.mu.Lock()
+	defer id.mu.Unlock()
+	if id.retired != "" || len(id.tokens) == 0 || (id.Endpoint.Exit == "" && id.Endpoint.URL != "") {
+		return Saved{}, false
 	}
-	return json.Marshal(s)
+	return Saved{
+		ID: id.ID, Tier: id.Endpoint.Tier, Exit: id.Endpoint.Exit, Profile: id.FP.Profile,
+		SessionID: id.sessionID, Req: id.req.Load(), Requests: id.requests, MaxRequests: id.maxRequests,
+		Tokens: id.tokens, Bootstrapped: id.bootstrapped, Cookies: id.Doer.Cookies(id.Base), SavedAt: time.Now(),
+	}, true
 }
 
 func randAlnum(n int) string {
