@@ -128,8 +128,9 @@ func TestSoak(t *testing.T) {
 				mutations["replies"]++
 			}
 		case n < 12:
-			// A deletion, then more comments: the count still goes up,
-			// so the post is read whole and the deletion is seen.
+			// A deletion (with its replies), then more comments than went:
+			// the count still goes up, so the post is read whole and the
+			// deletion is seen (a count that falls is not re-read, D2).
 			p := recent(a)
 			var c *fakett.Comment
 			w.Mutate(func() {
@@ -138,8 +139,9 @@ func TestSoak(t *testing.T) {
 				}
 			})
 			if c != nil {
+				gone := 1 + len(c.Replies)
 				w.DeleteComment(p, c)
-				w.AddComments(p, 2+rng.IntN(3))
+				w.AddComments(p, gone+1+rng.IntN(3))
 				mutations["comment deletions"]++
 			}
 		case n < 16:
