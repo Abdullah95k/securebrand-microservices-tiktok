@@ -224,6 +224,20 @@ func TestBudgetPause(t *testing.T) {
 	if err := sc.pl.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// Paced admission takes its rate from the budget (tt.admission.per_hour
+	// 0): with backfills paused it lets no new account start, so accs[1]
+	// waits in the queue with no job.
+	var queued bool
+	if err := s.DB.QueryRow(ctx, `SELECT admitted_at IS NULL AND last_job_id IS NULL FROM account_schedule WHERE account_ref = $1`,
+		"u:"+accs[1].Username).Scan(&queued); err != nil || !queued {
+		t.Fatalf("a new account started while the budget pauses backfills (%v)", err)
+	}
+	// With an explicit pace it is admitted, and the crawler's budget gate
+	// holds its backfill.
+	s.Cfg.TT.Admission.PerHour = 10
+	if err := sc.pl.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
 	var backfill, check uuid.UUID
 	var next time.Time
 	if err := s.DB.QueryRow(ctx, `SELECT last_job_id FROM account_schedule WHERE account_ref = $1`, "u:"+accs[1].Username).Scan(&backfill); err != nil {
