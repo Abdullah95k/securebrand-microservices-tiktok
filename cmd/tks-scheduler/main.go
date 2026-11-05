@@ -25,6 +25,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/run"
 	sharedsched "github.com/abdullah95k/securebrand-microservices-tiktok/internal/scheduler"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/ratelimit"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/discovery"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/scheduler"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/ttstore"
@@ -78,6 +79,8 @@ func runScheduler(ctx context.Context, cfg *config.Config) error {
 			return scheduler.TaskBacklog(ctx, admin, cfg.Kafka.TopicPrefix)
 		}}
 	maint := &scheduler.Maintenance{DB: db, Cfg: cfg}
+	disc := &scheduler.Discovery{D: &discovery.Discoverer{DB: db, Cfg: cfg}, Dispatch: disp}
+	fin.Entry = disc.Entry
 
 	ops := httpserver.NewOps(cfg.HTTP.OpsAddr)
 	ops.AddCheck("postgres", db.Ping)
@@ -97,6 +100,11 @@ func runScheduler(ctx context.Context, cfg *config.Config) error {
 			return sharedsched.Every(ctx, "finalizer", cfg.Scheduler.FinalizerInterval, fin.Tick)
 		},
 		func(ctx context.Context) error { return sharedsched.Every(ctx, "reaper", time.Minute, reaper.Tick) },
+		// Discovery's entry checks and dormant list; idle while
+		// tt.discovery.enabled is off.
+		func(ctx context.Context) error {
+			return sharedsched.Every(ctx, "discovery", cfg.Scheduler.PlannerInterval, disc.Tick)
+		},
 	}
 	if b := cfg.Scheduler.Budget; b.Enabled && (b.RequestsPerDay > 0 || b.BytesPerDay > 0) {
 		budget := ratelimit.NewBudgetController(rdb, cfg.Kafka.TopicPrefix, b)

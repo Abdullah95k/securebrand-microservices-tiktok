@@ -32,6 +32,10 @@ const (
 	KindOnDemand  = "on_demand"
 	KindScheduled = "scheduled"
 	KindBackfill  = "backfill"
+	// KindEntry is discovery's entry check of a found account: one read of
+	// its post list (task.NewEntry), decided by the finalizer
+	// (docs/tiktok/discovery-plan.md §4).
+	KindEntry = "entry"
 )
 
 // Modes a job may ask for. auto reads a never-checked account in full (the
@@ -42,6 +46,8 @@ const (
 	ModeFull        = "full"
 	ModeIncremental = "incremental"
 	ModeRefresh     = "refresh"
+	// ModeEntry is an entry check's: one list page, no watermark.
+	ModeEntry = "entry"
 )
 
 // Request describes a job to create.
@@ -56,6 +62,14 @@ type Request struct {
 	Params         map[string]any
 	// MaxRunningInLane caps jobs running in Lane fleet-wide (0 = no cap).
 	MaxRunningInLane int
+	// JobID is the job's id when the caller must record it before the job
+	// can end (discovery's entry checks); a new UUIDv7 when zero.
+	JobID uuid.UUID
+	// UserID and Username are what the caller knows of an account tks has
+	// not stored (a found account: its source named them), for the task's
+	// scope: its page is loaded by the username.
+	UserID   int64
+	Username string
 }
 
 // Job is a job row.
@@ -220,9 +234,14 @@ func (d *Dispatcher) Create(ctx context.Context, r Request, maxRunning int) (*Jo
 		return nil, false, ErrUnknownAccount
 	}
 	mode, cm := CrawlMode(r.Mode, acc)
-	id, err := uuid.NewV7()
-	if err != nil {
-		return nil, false, err
+	if r.Kind == KindEntry {
+		mode = ModeEntry
+	}
+	id := r.JobID
+	if id == uuid.Nil {
+		if id, err = uuid.NewV7(); err != nil {
+			return nil, false, err
+		}
 	}
 	params := r.Params
 	if params == nil {
@@ -281,7 +300,19 @@ func (d *Dispatcher) Create(ctx context.Context, r Request, maxRunning int) (*Jo
 		}
 		return nil, false, fmt.Errorf("dispatch: insert job: %w", err)
 	}
-	root := task.NewAccount(id.String(), r.Lane, cm, Scope(r.AccountRef, acc), r.Limits)
+	sc := Scope(r.AccountRef, acc)
+	if acc == nil {
+		if sc.UserId == 0 {
+			sc.UserId = r.UserID
+		}
+		if sc.Username == "" {
+			sc.Username = r.Username
+		}
+	}
+	root := task.NewAccount(id.String(), r.Lane, cm, sc, r.Limits)
+	if r.Kind == KindEntry {
+		root = task.NewEntry(id.String(), sc)
+	}
 	rec, err := d.Producer.Record(topics.Task(root.Kind, root.Lane), task.ScopeKey(root), root)
 	if err != nil {
 		d.fail(ctx, id, err)

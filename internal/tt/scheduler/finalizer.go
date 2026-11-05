@@ -42,7 +42,11 @@ type Finalizer struct {
 	Timeout time.Duration
 	// PersisterGroup defaults to tks's persister group (persist.Group).
 	PersisterGroup string
-	Now            func() time.Time
+	// Entry decides the found account an entry check read, once its records
+	// are stored (docs/tiktok/discovery-plan.md §4); nil leaves entry jobs
+	// undecided (the discovery leader's Recover queues them again).
+	Entry func(ctx context.Context, job uuid.UUID, final string, counters map[string]int64) error
+	Now   func() time.Time
 
 	pending []finalBatch
 	held    map[string]bool // jobs in pending
@@ -232,7 +236,14 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 	if err := b.Wait(ctx); err != nil {
 		return err
 	}
-	if err := f.schedule(ctx, jid, final, mode, params, created, acc); err != nil {
+	if kind == dispatch.KindEntry {
+		// An entry check moves no schedule: discovery decides the account.
+		if f.Entry != nil {
+			if err := f.Entry(ctx, jid, final, st.Counters); err != nil {
+				return fmt.Errorf("entry: %w", err)
+			}
+		}
+	} else if err := f.schedule(ctx, jid, final, mode, params, created, acc); err != nil {
 		return err
 	}
 	cb, _ := json.Marshal(st.Counters)
@@ -244,7 +255,7 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 		return err
 	}
 	metrics.Jobs.WithLabelValues(final, laneName).Inc()
-	if kind != dispatch.KindOnDemand {
+	if kind != dispatch.KindOnDemand && kind != dispatch.KindEntry {
 		metrics.Checks.WithLabelValues(checkKind(kind, mode), final, f.window(ctx, jid, kind, mode, created, now)).Inc()
 	}
 	_ = f.Jobs.Expire(ctx, id, 24*time.Hour)

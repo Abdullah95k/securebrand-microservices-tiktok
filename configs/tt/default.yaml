@@ -251,3 +251,27 @@ tt:
     # The API client discovered accounts are registered to (created by tks
     # with no usable key).
     client: discovery
+    # The entry check (discovery-plan §4): one read of a found account's
+    # post list. Public, a post within active_for and the Iraq score passes:
+    # added (at the admission pace). Private, quiet or gone: the dormant
+    # list, read again only when found again after recheck_after.
+    entry:
+      active_for: 2160h       # 90 days (owner, 2026-11-04)
+      recheck_after: 4320h    # 180 days (owner, 2026-11-04)
+      batch: 200              # found accounts sent to their check per tick
+      max_running: 500        # entry checks running fleet-wide (lane p2)
+      max_attempts: 3         # failed reads before the account is dormant as unreadable
+      posts: 15               # newest stored posts the score reads (one list page)
+    # The Iraq score (discovery-plan §3): each kind of signal counts once.
+    # One strong signal passes, so do two different medium ones; weak ones
+    # add at most weak_max. The owner tunes these from samples in testing.
+    score:
+      strong: 1.0     # posts made in Iraq; Iraq or an Iraqi place in the bio or name; +964 phone; .iq link
+      medium: 0.5     # Iraqi places in a caption; followed, mentioned or replied to by monitored accounts; shown in Iraq
+      weak: 0.1       # writes in Arabic or Kurdish; comments on or follows monitored accounts
+      weak_max: 0.3
+      pass: 1.0
+      regions: [IQ]
+      caption_posts_strong: 3   # captions naming Iraqi places in 3 of the posts read: strong
+      audience_strong: 10       # an audience signal from 10 accounts or searches: strong
+      languages: [ar, ckb, ku]

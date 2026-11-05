@@ -90,7 +90,9 @@ func Task(kind tkstaskv1.Kind, lane tkstaskv1.Lane) string {
 	switch kind {
 	case tkstaskv1.Kind_KIND_MEDIA:
 		return TaskMedia
-	case tkstaskv1.Kind_KIND_ACCOUNT:
+	case tkstaskv1.Kind_KIND_ACCOUNT, tkstaskv1.Kind_KIND_ENTRY:
+		// Entry checks share the account stage's topics and consumers: the
+		// worker runs each by its kind.
 		stage = "account"
 	case tkstaskv1.Kind_KIND_POST:
 		stage = "post"

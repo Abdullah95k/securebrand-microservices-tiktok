@@ -34,6 +34,11 @@ enum Kind {
   KIND_MEDIA = 202;
   // One comment's replies.
   KIND_THREAD = 203;
+  // Discovery's entry check of an account a source found: one read of its
+  // post list's first page (and its profile page when the list's key is not
+  // known), on the account scope; nothing else is read and no list
+  // watermark is kept (docs/tiktok/discovery-plan.md §4, ADR 0007 §19).
+  KIND_ENTRY = 204;
 }
 
 enum VideoPolicy {

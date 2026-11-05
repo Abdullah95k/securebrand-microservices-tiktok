@@ -133,6 +133,12 @@ var (
 	// Paced admission of new accounts (docs/tiktok/discovery-plan.md §5.3).
 	AdmissionQueue   = gauge("admission_queue", "tks accounts registered and waiting for paced admission before their first read (leader scheduler).")
 	AdmittedAccounts = counter("admitted_accounts_total", "tks new accounts paced admission let start their first read.")
+	// Discovery's entry check and dormant list (docs/tiktok/discovery-plan.md §3, §4).
+	DiscoveryFindings   = counterVec("discovery_findings_total", "tks accounts discovery sources found, by source and the state the finding left the account in (added for one already monitored).", "source", "state")
+	EntryChecks         = counterVec("entry_checks_total", "tks entry checks decided, by the account's new state (qualified, not_iraqi, dormant, pending for a retry).", "state")
+	DiscoveredAccounts  = counter("discovered_accounts_total", "tks accounts discovery registered for monitoring.")
+	DormantMoves        = counterVec("dormant_moves_total", "tks discovered accounts moved from monitoring to the dormant list, by reason (private, inactive, never_posted, banned, gone).", "reason")
+	DiscoveryCandidates = gaugeVec("discovery_candidates", "tks accounts discovery found and does not monitor, by state (pending, checking, qualified, not_iraqi, dormant, blocked; added counts those it registered) (leader scheduler).", "state")
 	// tks's delay before a new post is stored (build brief §8 A2): the
 	// buckets hold the targets (median 1.5 h, 99 % in 3 h, 99.9 % in 6 h).
 	PostStoreDelay = histVec("post_store_delay_seconds", "Time from a new tks post's createTime to its row in Postgres, for posts first read by a scheduled check (mode incremental) or a metrics walk in its place (refresh); backfills are not counted.",

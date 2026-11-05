@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -261,4 +262,44 @@ func (s *Server) updateKeyword(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusOK, k)
 	}
+}
+
+// listFound lists the accounts discovery found and does not monitor (or
+// added), with their state, entry check, Iraq score and evidence
+// (docs/tiktok/discovery-plan.md §3, §4): ?state=dormant is the dormant
+// list, ?state=not_iraqi the accounts close to the threshold; the latest
+// found first, cursor-paged with ?after=. Usernames need pii:read.
+func (s *Server) listFound(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	state := q.Get("state")
+	if state != "" && !slices.Contains(discovery.States, state) {
+		problem(w, http.StatusBadRequest, "invalid state", "state must be one of "+strings.Join(discovery.States, ", "))
+		return
+	}
+	var after int64
+	if v := q.Get("after"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n <= 0 {
+			problem(w, http.StatusBadRequest, "invalid after", "after must be the next cursor of a previous page")
+			return
+		}
+		after = n
+	}
+	ctx := r.Context()
+	limit := limitParam(r)
+	out, err := discovery.List(ctx, s.ReadDB, state, after, limit, clientFrom(ctx).Has(ScopePIIRead))
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	counts, err := discovery.Counts(ctx, s.ReadDB)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	resp := map[string]any{"accounts": out, "counts": counts}
+	if len(out) == limit {
+		resp["next"] = strconv.FormatInt(out[len(out)-1].Cursor, 10)
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

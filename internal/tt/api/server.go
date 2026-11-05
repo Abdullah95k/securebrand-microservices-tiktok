@@ -109,6 +109,7 @@ func (s *Server) routes(r chi.Router) {
 
 	r.Get("/admission", require(ScopeDataRead, s.admission))
 	r.Get("/discovery/keywords", require(ScopeDiscoveryRead, s.listKeywords))
+	r.Get("/discovery/accounts", require(ScopeDiscoveryRead, s.listFound))
 	r.Post("/discovery/keywords", require(ScopeDiscoveryWrite, s.addKeyword))
 	r.Patch("/discovery/keywords/{id}", require(ScopeDiscoveryWrite, s.updateKeyword))
 
