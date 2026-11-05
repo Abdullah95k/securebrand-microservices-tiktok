@@ -294,6 +294,9 @@ def main():
                     print(f"== {name}: warnings and errors")
                     for k, n in sorted(counts.items(), key=lambda kv: -kv[1])[:12]:
                         print(f"  {n:5d}  {k}")
+                print(f"== {name}: last lines")
+                for l in (r.stdout + r.stderr).splitlines()[-8:]:
+                    print("  " + l[:400])
     finally:
         if not args.keep:
             cleanup()
