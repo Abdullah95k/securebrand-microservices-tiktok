@@ -47,6 +47,7 @@ igs has not generalised the crawl pipeline (igs main `670a762`, 2026-11-01), so 
 | `internal/tt/task` | `internal/crawl/task` | TikTok's scopes (account, post, thread, media) and references (`u:`, `sec:`, `id:`); `DefaultLimits` reads `tt.media.include` (off: D5), `tt.freshness.backfill_days` and `tt.comments` |
 | `internal/tt/emit` | `internal/crawl/emit` | `tt.v1` records, `common.v1` observations with `platform`; author keys on `"tt:user:" + id`; signed links' queries, link expiries and capture times left out of the content hash |
 | `internal/tt/stage` (`worker.go`, `deps.go`) | `internal/crawl/stage` (`worker.go`, `deps.go`) | The worker's lifecycle (leases, retries, stalls and waits, dead letters, job accounting, the retry relay with its own group `tks-tt-retry-relay`) unchanged on tks's envelope; the account replaces the page in suppression checks; watermarks in `tt.crawl_cursors` (`account_list`) |
+| `internal/tt/stage` (`replay.go`), `internal/tt/dlq` | `internal/crawl/stage/replay.go`; fbs's `fbctl dlq replay` (`cmd/fbctl/commands.go`) | **M9c.** The `Replayer` on tks's envelope (jobs reopened in schema `tt`); the replay loop moved from the CLI into a package so tks's e2e test runs it (`TestDeadLetterReplay`); `tksctl dlq replay` reports JSON and commits in its own group `tks-tt-dlq-replay` |
 
 Additions to shared code for them (no change for the copied pipeline): `gdpr.Suppression.ForAccounts` (tks's `account` subjects where fbs has `page`), `checkpoint.State.Stuck`, `checkpoint.PostCache.ReadAt`, the metric `tks_list_stops_total`.
 
