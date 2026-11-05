@@ -355,8 +355,10 @@ func TestPoolClosesIdleAndBigPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	o.pages[3].mb.Store(5000)
+	// The pool counts the page gone when it takes it out, before the close
+	// (bounded by CloseTimeout) has run: wait for both.
 	deadline := time.Now().Add(2 * time.Second)
-	for q.Pages() != 0 && time.Now().Before(deadline) {
+	for (q.Pages() != 0 || !o.pages[3].closed.Load()) && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if q.Pages() != 0 || !o.pages[3].closed.Load() {
