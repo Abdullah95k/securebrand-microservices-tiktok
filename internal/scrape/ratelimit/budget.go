@@ -61,6 +61,15 @@ func usageOf(h map[string]string) Usage {
 	return u
 }
 
+// LoadDayUsage returns the traffic counted on day (UTC) across the fleet.
+func LoadDayUsage(ctx context.Context, rdb *redis.Client, ns string, day time.Time) (Usage, error) {
+	h, err := rdb.HGetAll(ctx, budgetDayKey(ns, day)).Result()
+	if err != nil {
+		return Usage{}, err
+	}
+	return usageOf(h), nil
+}
+
 // BudgetState is what the controller publishes.
 type BudgetState struct {
 	PauseP2 bool    `json:"pause_p2"`
@@ -112,7 +121,11 @@ type BudgetController struct {
 	rdb *redis.Client
 	ns  string
 	cfg config.Budget
-	now func() time.Time
+	// Extra, when set, is a further budget (tks's dollars per account a
+	// day): it is told whether backfill was paused and says whether to
+	// pause it now, and why. It never stretches the tiers.
+	Extra func(ctx context.Context, paused bool) (pause bool, why string)
+	now   func() time.Time
 }
 
 // NewBudgetController returns a controller for cfg.
@@ -208,6 +221,14 @@ func (b *BudgetController) Tick(ctx context.Context) error {
 		st.Explanation = "on-demand and scheduled traffic alone would exceed the daily budget: backfill paused, slow tiers stretched"
 	case st.PauseP2:
 		st.Explanation = "the day's projected traffic exceeds the budget: backfill paused"
+	}
+	if b.Extra != nil {
+		if pause, why := b.Extra(ctx, prev.PauseP2); pause {
+			if !st.PauseP2 {
+				st.Explanation = why
+			}
+			st.PauseP2 = true
+		}
 	}
 	if st.PauseP2 != prev.PauseP2 || st.Stretch != prev.Stretch {
 		slog.Warn("budget: state changed", "pause_p2", st.PauseP2, "stretch", st.Stretch,

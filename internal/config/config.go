@@ -226,6 +226,30 @@ type TT struct {
 	// discovery-plan.md §5.3); Discovery switches account discovery.
 	Admission Admission `koanf:"admission"`
 	Discovery Discovery `koanf:"discovery"`
+	// Cost prices tks's day (build brief §8 A5) and holds the owner's
+	// budget per account (D9).
+	Cost TTCost `koanf:"cost"`
+}
+
+// TTCost prices tks's day (build brief §8 A5): proxy IPs and data, browser
+// time of the signer pages, compute per account and storage, over the
+// accounts it checks; tks_cost_per_account_usd. The prices are the owner's
+// (2026-11-05: an ISP IP a month; the rest assumptions to replace with real
+// prices); 0 leaves a part unpriced. BudgetPerAccountUSD is the owner's
+// budget per account a day: over it, backfills pause and checks go on
+// (owner, 2026-11-05).
+type TTCost struct {
+	// Interval is how often the leader prices the last 24 hours.
+	Interval   time.Duration `koanf:"interval"`
+	IPMonthUSD float64       `koanf:"ip_month_usd"`
+	// IPs paid for; 0 counts the endpoints of tt.proxy.tiers' static lists.
+	IPs                  int     `koanf:"ips"`
+	BrowserHourUSD       float64 `koanf:"browser_hour_usd"`
+	ComputeUSDPerAccount float64 `koanf:"compute_usd_per_account_day"`
+	StorageGBMonthUSD    float64 `koanf:"storage_gb_month_usd"`
+	BudgetPerAccountUSD  float64 `koanf:"budget_per_account_usd"`
+	// AlertShare is the share of the budget the alert fires at (0.9).
+	AlertShare float64 `koanf:"alert_share"`
 }
 
 // Admission paces new accounts' first reads (their 365-day backfills) so
@@ -970,6 +994,10 @@ func (t TT) validate() []error {
 	if a := t.Admission; a.PerHour < 0 || a.RequestsPerAccount <= 0 || a.IPRequestsPerDay <= 0 || a.PageSignsPerDay <= 0 ||
 		a.SignedShare < 0 || a.SignedShare > 1 {
 		errs = append(errs, errors.New("tt.admission: per_hour >= 0; requests_per_account, ip_requests_per_day and page_signs_per_day > 0; signed_share in [0, 1]"))
+	}
+	if k := t.Cost; k.Interval < time.Minute || k.IPMonthUSD < 0 || k.IPs < 0 || k.BrowserHourUSD < 0 || k.ComputeUSDPerAccount < 0 ||
+		k.StorageGBMonthUSD < 0 || k.BudgetPerAccountUSD < 0 || k.AlertShare <= 0 || k.AlertShare > 1 {
+		errs = append(errs, errors.New("tt.cost: interval >= 1m; prices, ips and budget_per_account_usd >= 0; alert_share in (0, 1]"))
 	}
 	if t.Discovery.MaxNewPerDay < 0 || t.Discovery.Client == "" {
 		errs = append(errs, errors.New("tt.discovery: max_new_per_day >= 0 (0: no cap) and client set"))

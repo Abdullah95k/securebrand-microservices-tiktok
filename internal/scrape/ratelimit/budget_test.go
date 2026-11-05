@@ -152,3 +152,42 @@ func TestBudgetStateExpiresWithoutController(t *testing.T) {
 		t.Fatalf("a stale pause must lift: %+v", gate.State())
 	}
 }
+
+// A further budget (tks's dollars per account a day) pauses backfill alone,
+// never stretches, and is told whether backfill was paused.
+func TestBudgetExtraPausesBackfillOnly(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	ctx := context.Background()
+	noon := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	clk := &clock{t: noon}
+	rep := NewReporter(rdb, "x.")
+	rep.now = clk.now
+	fill(t, rep, clk, noon, map[string]int{"p1": 10, "p2": 10})
+	ctl := NewBudgetController(rdb, "x.", config.Budget{Enabled: true, Stretch: 2, StretchTiers: []string{"T2"}, ProjectionSpan: time.Hour})
+	ctl.now = clk.now
+	over, seen := true, []bool{}
+	ctl.Extra = func(_ context.Context, paused bool) (bool, string) {
+		seen = append(seen, paused)
+		return over, "cost over budget"
+	}
+	if err := ctl.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := LoadBudgetState(ctx, rdb, "x.")
+	if !st.PauseP2 || st.Stretch != 1 || st.Explanation != "cost over budget" {
+		t.Fatalf("over the further budget: %+v", st)
+	}
+	over = false
+	if err := ctl.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st, _ = LoadBudgetState(ctx, rdb, "x.")
+	if st.PauseP2 || len(seen) != 2 || seen[0] || !seen[1] {
+		t.Fatalf("under it again: %+v, told paused %v", st, seen)
+	}
+	u, err := LoadDayUsage(ctx, rdb, "x.", noon)
+	if err != nil || u.Requests[1] != 120 || u.Bytes[2] != 120_000 {
+		t.Fatalf("day usage: %+v %v", u, err)
+	}
+}

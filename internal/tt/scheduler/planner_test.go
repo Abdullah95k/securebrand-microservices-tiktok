@@ -1,13 +1,16 @@
 package scheduler
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	tkstaskv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tks/task/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/jobs"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/testenv"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/ttstore"
 )
 
 var walks = []config.MetricsWalk{{Every: 24 * time.Hour, Back: 720 * time.Hour}, {Every: 168 * time.Hour, Back: 8760 * time.Hour}}
@@ -130,5 +133,44 @@ func TestApplyOptions(t *testing.T) {
 	applyOptions(l, []byte(`not json`))
 	if l.MaxAgeSeconds != 30*86400 {
 		t.Error("bad options changed the limits")
+	}
+}
+
+// While the budget pauses the backfill lane, a due metrics walk waits and
+// the account's check runs in its place, in the checks' lane: a walk stands
+// in for the check, so a paused walk would leave the account unchecked.
+func TestPausedBackfillKeepsChecks(t *testing.T) {
+	ctx := context.Background()
+	db, err := ttstore.Open(ctx, testenv.EmptyPostgres(t), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(db.Close)
+	if err := ttstore.MigrateUp(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO accounts (user_id, sec_uid, username, author_key, status, profile_refreshed_at, page_read_at)
+			VALUES (9, 'SEC9', 'nine', '\x01', 'active', now(), now())`,
+		`INSERT INTO account_usernames (user_id, username, first_seen_at, last_seen_at) VALUES (9, 'nine', now(), now())`,
+		`INSERT INTO crawl_cursors (scope_type, scope_id, state) VALUES ('account_list', 9, 'complete')`,
+	} {
+		if _, err := db.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := &Planner{DB: db, Cfg: cfg}
+	d := due{ref: "u:nine"} // no walk recorded: the deepest is due
+	r, err := p.request(ctx, d, false)
+	if err != nil || r.Lane != tkstaskv1.Lane_LANE_P2 || r.Mode != dispatch.ModeRefresh {
+		t.Fatalf("a due walk: %+v %v", r, err)
+	}
+	r, err = p.request(ctx, d, true)
+	if err != nil || r.Lane != tkstaskv1.Lane_LANE_P1 || r.Mode != dispatch.ModeIncremental || r.Params != nil {
+		t.Fatalf("backfill paused: want the check, got %+v %v", r, err)
 	}
 }

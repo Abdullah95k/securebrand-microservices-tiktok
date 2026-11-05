@@ -304,8 +304,17 @@ func TestRate(t *testing.T) {
 		t.Errorf("backfills paused: %d, want 0", n)
 	}
 	cfg.TT.Admission.PerHour = 7
+	if n, unl := Rate(cfg, st, now); n != 0 || unl {
+		t.Errorf("per_hour, backfills paused: %d %v, want 0", n, unl)
+	}
+	st.PauseP2 = false
 	if n, unl := Rate(cfg, st, now); n != 7 || unl {
 		t.Errorf("per_hour: %d %v", n, unl)
+	}
+	// Paused by the dollar budget alone (no request budget): none either.
+	cfg.TT.Admission.PerHour, cfg.Scheduler.Budget.RequestsPerDay = 0, 0
+	if n, unl := Rate(cfg, &ratelimit.BudgetState{UpdatedAt: now, PauseP2: true}, now); n != 0 || unl {
+		t.Errorf("dollar budget paused: %d %v, want 0", n, unl)
 	}
 	c := Needs(cfg.TT.Admission, 10_000)
 	if c.PerHour != 417 || c.Requests != 10_000_000 || c.IPs != 30 || c.SignerPages != 30 {

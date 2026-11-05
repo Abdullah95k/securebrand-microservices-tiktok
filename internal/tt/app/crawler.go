@@ -37,6 +37,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 	ttclient "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/client"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/cost"
 	ttdetect "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/detect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/emit"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/sign"
@@ -212,6 +213,9 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 			<-ctx.Done()
 			c.Signer.Close()
 			return nil
+		}, func(ctx context.Context) error {
+			// Their browser time, priced by tks's cost (A5).
+			return cost.RunBrowserTime(ctx, rdb, cfg.Kafka.TopicPrefix, c.Signer, time.Minute)
 		})
 	}
 	// The reporter feeds both AIMD (block rate) and the traffic budget.

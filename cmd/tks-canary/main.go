@@ -19,11 +19,13 @@ import (
 	"time"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/connect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/httpserver"
 	plog "github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/log"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/run"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/app"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/canary"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/cost"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/ttstore"
 )
 
@@ -80,7 +82,19 @@ func runCanary(ctx context.Context, cfg *config.Config, once bool) (int, error) 
 	}
 	ops := httpserver.NewOps(cfg.HTTP.OpsAddr)
 	ops.AddCheck("postgres", db.Ping)
-	return 0, run.Group(ctx, ops.Run, func(ctx context.Context) error {
+	loops := []run.Func{ops.Run}
+	if c.Signer != nil {
+		// The signer pages' browser time, priced by tks's cost (A5).
+		rdb, err := connect.Redis(ctx, cfg)
+		if err != nil {
+			return 0, err
+		}
+		defer func() { _ = rdb.Close() }()
+		loops = append(loops, func(ctx context.Context) error {
+			return cost.RunBrowserTime(ctx, rdb, cfg.Kafka.TopicPrefix, c.Signer, time.Minute)
+		})
+	}
+	return 0, run.Group(ctx, append(loops, func(ctx context.Context) error {
 		t := time.NewTicker(cfg.TT.Canary.Interval)
 		defer t.Stop()
 		for {
@@ -95,5 +109,5 @@ func runCanary(ctx context.Context, cfg *config.Config, once bool) (int, error) 
 			case <-t.C:
 			}
 		}
-	})
+	})...)
 }

@@ -115,7 +115,7 @@ func (p *Planner) Tick(ctx context.Context) error {
 				continue // the previous check is still going; skip this slot
 			}
 		}
-		req, err := p.request(ctx, d)
+		req, err := p.request(ctx, d, budget != nil && budget.PauseP2)
 		if err != nil {
 			slog.Warn("planner: account", "account", d.ref, "err", err)
 			continue
@@ -138,7 +138,11 @@ func (p *Planner) Tick(ctx context.Context) error {
 
 // request builds a due account's job: a backfill when the account was never
 // read, the deepest metrics walk that is due, or an incremental check.
-func (p *Planner) request(ctx context.Context, d due) (dispatch.Request, error) {
+// While the budget pauses the backfill lane (p2), a due walk waits and the
+// check runs in its place: a walk stands in for the check, so a paused walk
+// would leave the account unchecked (the 3-hour target holds; owner,
+// 2026-11-05).
+func (p *Planner) request(ctx context.Context, d due, backfillPaused bool) (dispatch.Request, error) {
 	acc, _, err := dispatch.Resolve(ctx, p.DB, d.ref)
 	if err != nil {
 		return dispatch.Request{}, err
@@ -160,7 +164,7 @@ func (p *Planner) request(ctx context.Context, d due) (dispatch.Request, error) 
 		// the backfill lane, so it cannot hold up the 2 h 45 min checks.
 		r.Kind, r.Lane, r.Mode = dispatch.KindBackfill, tkstaskv1.Lane_LANE_P2, dispatch.ModeFull
 	default:
-		if w, ok := DueWalk(p.Cfg.TT.Freshness.MetricsWalks, Walks(d.walks), p.now()); ok {
+		if w, ok := DueWalk(p.Cfg.TT.Freshness.MetricsWalks, Walks(d.walks), p.now()); ok && !backfillPaused {
 			// A walk reads the list from the top, so it stands in for the
 			// check. It goes in the backfill lane too: it is long, and the
 			// delay target is met by the checks.

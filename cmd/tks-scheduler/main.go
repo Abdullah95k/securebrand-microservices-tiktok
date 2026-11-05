@@ -2,7 +2,8 @@
 // ADR 0007 §12): the planner (each registered account's check every
 // tt.freshness.list_interval, backfills and metrics walks), the finalizer,
 // the reaper, partitions (and retention, off by default: ADR 0007 §14), the
-// traffic budget and AIMD.
+// day's cost (build brief §8 A5) with the owner's budget, the traffic budget
+// and AIMD.
 package main
 
 import (
@@ -25,6 +26,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/run"
 	sharedsched "github.com/abdullah95k/securebrand-microservices-tiktok/internal/scheduler"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/ratelimit"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/cost"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/discovery"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/scheduler"
@@ -106,8 +108,18 @@ func runScheduler(ctx context.Context, cfg *config.Config) error {
 			return sharedsched.Every(ctx, "discovery", cfg.Scheduler.PlannerInterval, disc.Tick)
 		},
 	}
-	if b := cfg.Scheduler.Budget; b.Enabled && (b.RequestsPerDay > 0 || b.BytesPerDay > 0) {
+	// A5: the last 24 hours priced (tks_cost_per_account_usd); over the
+	// owner's budget per account, backfills pause and checks go on.
+	meter := &cost.Meter{DB: db, RDB: rdb, NS: cfg.Kafka.TopicPrefix, Cfg: cfg}
+	loops = append(loops, func(ctx context.Context) error {
+		return sharedsched.Every(ctx, "cost", cfg.TT.Cost.Interval, meter.Tick)
+	})
+	dollars := cfg.TT.Cost.BudgetPerAccountUSD > 0
+	if b := cfg.Scheduler.Budget; b.Enabled && (b.RequestsPerDay > 0 || b.BytesPerDay > 0 || dollars) {
 		budget := ratelimit.NewBudgetController(rdb, cfg.Kafka.TopicPrefix, b)
+		if dollars {
+			budget.Extra = meter.Over
+		}
 		planner.Budget = func(ctx context.Context) ratelimit.BudgetState {
 			st, err := ratelimit.LoadBudgetState(ctx, rdb, cfg.Kafka.TopicPrefix)
 			if err != nil {

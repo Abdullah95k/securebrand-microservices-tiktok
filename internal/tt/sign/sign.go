@@ -61,6 +61,11 @@ type Pool struct {
 	idle   []*page
 	total  int // idle and in use
 	closed bool
+	// pageSeconds integrates total over time since BrowserSeconds last
+	// read it (from since): the pool's browser time, which tks's cost
+	// prices (build brief §8 A5).
+	pageSeconds float64
+	since       time.Time
 	// signedBy remembers which page signed each recent call (by path and
 	// query), until TikTok's answer is reported (SignOutcome).
 	signedBy map[string]*page
@@ -140,7 +145,7 @@ func (p *Pool) Sweep() {
 		}
 	}
 	p.idle = keep
-	p.total -= len(stale)
+	p.addTotal(-len(stale))
 	p.mu.Unlock()
 	for _, c := range stale {
 		closePage(c.pg, c.why)
@@ -178,6 +183,33 @@ func (p *Pool) idleTooLong(pg *page) bool {
 func (p *Pool) tooBig(pg *page) bool {
 	m, ok := pg.Page.(interface{ MemoryMB() float64 })
 	return ok && p.cfg.MaxPageMB > 0 && m.MemoryMB() > p.cfg.MaxPageMB
+}
+
+// addTotal changes the page count (under p.mu), first adding the time the
+// pages were open at the old count to the pool's browser time.
+func (p *Pool) addTotal(n int) {
+	p.integrate()
+	p.total += n
+}
+
+func (p *Pool) integrate() {
+	now := p.now()
+	if !p.since.IsZero() && now.After(p.since) {
+		p.pageSeconds += float64(p.total) * now.Sub(p.since).Seconds()
+	}
+	p.since = now
+}
+
+// BrowserSeconds returns the seconds the pool's pages were open (a page
+// counts from the moment its opening starts to its close) since the last
+// call: browser time, priced by tks's cost (tt.cost.browser_hour_usd).
+func (p *Pool) BrowserSeconds() float64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.integrate()
+	s := p.pageSeconds
+	p.pageSeconds = 0
+	return s
 }
 
 func (p *Pool) now() time.Time {
@@ -266,7 +298,7 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 		}
 	}
 	p.idle = keep
-	p.total -= len(stale)
+	p.addTotal(-len(stale))
 	if got == nil && p.total >= cap(p.slots) && len(p.idle) > 0 {
 		// Room for a page with this user agent: close the oldest idle one,
 		// or the one a retry avoids.
@@ -278,10 +310,10 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 		}
 		stale = append(stale, closing{p.idle[i], CloseRoom})
 		p.idle = append(p.idle[:i], p.idle[i+1:]...)
-		p.total--
+		p.addTotal(-1)
 	}
 	if got == nil {
-		p.total++ // reserved for the page about to open
+		p.addTotal(1) // reserved for the page about to open
 	}
 	p.mu.Unlock()
 	for _, c := range stale {
@@ -293,7 +325,7 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 	pg, err := p.openPage(ctx, id, p.pageURL(id, referer))
 	if err != nil {
 		p.mu.Lock()
-		p.total--
+		p.addTotal(-1)
 		p.mu.Unlock()
 		metrics.SignerPageOpens.WithLabelValues("error").Inc()
 		return nil, fmt.Errorf("sign: open page: %w", err)
@@ -360,7 +392,7 @@ func (p *Pool) give(pg *page) {
 		why = CloseMemory
 	}
 	if why != "" {
-		p.total--
+		p.addTotal(-1)
 		p.mu.Unlock()
 		closePage(pg, why)
 		return
@@ -371,7 +403,7 @@ func (p *Pool) give(pg *page) {
 
 func (p *Pool) discard(pg *page) {
 	p.mu.Lock()
-	p.total--
+	p.addTotal(-1)
 	p.mu.Unlock()
 	closePage(pg, CloseError)
 }
@@ -440,7 +472,7 @@ func (p *Pool) Close() {
 	}
 	idle := p.idle
 	p.idle, p.closed = nil, true
-	p.total -= len(idle)
+	p.addTotal(-len(idle))
 	p.mu.Unlock()
 	for _, pg := range idle {
 		closePage(pg, CloseShutdown)
