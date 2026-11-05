@@ -24,7 +24,7 @@ var tables = []string{
 	"post_metrics", "music", "comments", "people", "media", "media_acks",
 	"api_clients", "jobs", "crawl_cursors", "account_schedule", "account_registrations", "post_refresh",
 	"discovery_keywords", "account_sources", "account_labels", "account_blocks", "import_batches", "import_lines",
-	"operations", "client_params", "canary_runs", "post_status_changes",
+	"operations", "client_params", "canary_runs", "post_status_changes", "discovery_candidates",
 }
 
 func tablesIn(t *testing.T, db interface {
@@ -190,6 +190,8 @@ func TestSchemaHoldsData(t *testing.T) {
 	exec(`INSERT INTO import_lines (batch_id, line, input, account_ref, outcome) VALUES ('00000000-0000-0000-0000-0000000000c1', 1, 'someone', 'u:someone', 'added')`)
 	exec(`INSERT INTO post_status_changes (post_id, changed_at, status, previous, status_code, region)
 		VALUES (7400000000000000001, now(), 'unavailable', 'visible', 10216, 'US')`)
+	exec(`INSERT INTO discovery_candidates (account_ref, user_id, state, reason, first_seen_at, last_seen_at, next_check_at)
+		VALUES ('sec:MS4wother', 8, 'dormant', 'private', now(), now(), now() + interval '180 days')`)
 	for _, tb := range tables {
 		var rows int
 		if err := db.QueryRow(ctx, "SELECT count(*) FROM "+pgx.Identifier{tb}.Sanitize()).Scan(&rows); err != nil {
