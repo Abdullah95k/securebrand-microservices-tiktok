@@ -299,6 +299,10 @@ def main():
             if errors:
                 failures.append(f"{name} logged {len(errors)} errors, e.g. {errors[0][:300]}")
         if failures:
+            # The canary's last verdict per operation variant, with its
+            # reason (a signer error says why there).
+            print("== tt.operations (canary verdicts)")
+            print(psql("SELECT string_agg(name || ' ' || doc_id || ': ' || coalesce(last_check, '-'), E'\\n' ORDER BY name) FROM tt.operations"))
             # What each component warned about, to diagnose without --keep
             # (CI): distinct messages, most frequent first.
             for d in deployments:
