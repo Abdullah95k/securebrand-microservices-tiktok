@@ -275,6 +275,25 @@ def main():
             errors = [l for l in (r.stdout + r.stderr).splitlines() if '"level":"ERROR"' in l]
             if errors:
                 failures.append(f"{name} logged {len(errors)} errors, e.g. {errors[0][:300]}")
+        if failures:
+            # What each component warned about, to diagnose without --keep
+            # (CI): distinct messages, most frequent first.
+            for d in deployments:
+                name = d["metadata"]["name"]
+                r = sh("docker", "logs", PREFIX + name, check=False)
+                counts = {}
+                for l in (r.stdout + r.stderr).splitlines():
+                    if '"level":"WARN"' in l or '"level":"ERROR"' in l or not l.startswith("{"):
+                        try:
+                            e = json.loads(l)
+                            key = " ".join(f"{k}={e[k]}" for k in ("level", "msg", "err", "reason", "error") if k in e)
+                        except ValueError:
+                            key = l
+                        counts[key[:400]] = counts.get(key[:400], 0) + 1
+                if counts:
+                    print(f"== {name}: warnings and errors")
+                    for k, n in sorted(counts.items(), key=lambda kv: -kv[1])[:12]:
+                        print(f"  {n:5d}  {k}")
     finally:
         if not args.keep:
             cleanup()
