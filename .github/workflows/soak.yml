@@ -1,16 +1,17 @@
 name: soak
 
-# The soak test (make soak, internal/e2e/soak_test.go) on a GitHub runner:
-# scheduled crawls of a changing fakefb world with component restarts, then
-# a full check of the store against the world. Run it from the Actions tab.
+# tks's soak test (make soak, internal/tt/e2e/soak_test.go) on a GitHub
+# runner: scheduled checks of a changing fakett world with component
+# restarts, then a walk of every account and a full check of the store
+# against the world. Run it from the Actions tab.
 on:
   workflow_dispatch:
     inputs:
       duration:
         description: How long the world changes (TKS_SOAK_DURATION)
         default: 90m
-      pages:
-        description: Pages crawled (TKS_SOAK_PAGES)
+      accounts:
+        description: Accounts checked (TKS_SOAK_ACCOUNTS)
         default: "20"
       restart_every:
         description: A component restart this often; 0 = never (TKS_SOAK_RESTART_EVERY)
@@ -35,7 +36,7 @@ jobs:
       - name: Soak
         env:
           TKS_SOAK_DURATION: ${{ inputs.duration }}
-          TKS_SOAK_PAGES: ${{ inputs.pages }}
+          TKS_SOAK_ACCOUNTS: ${{ inputs.accounts }}
           TKS_SOAK_RESTART_EVERY: ${{ inputs.restart_every }}
           TKS_SOAK_OUT: ${{ github.workspace }}/soak.md
           TKS_SOAK_HEAPPROFILE: ${{ github.workspace }}/heap

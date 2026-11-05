@@ -94,11 +94,11 @@ The dashboard `tks / Overview` (`files/dashboards/tks-overview.json`): traffic a
 
 ## Persister quarantine
 
-`TksPersisterQuarantine`: records the persister could not write are in `tks.persist.dlq` (kept 7 days). Its log lines give each record's SQLSTATE; fix the cause (a migration, a constraint). tks has no replay command yet (planned with M9c); the next check of the account reads it again.
+`TksPersisterQuarantine`: records the persister could not write are in `tks.persist.dlq` (kept 7 days). Its log lines give each record's SQLSTATE; fix the cause (a migration, a constraint), then send them back with `tksctl dlq replay --topic tks.persist.dlq` ([`tks-operations.md`](tks-operations.md#replaying-dead-letters)); otherwise the next check of the account reads it again.
 
 ## Stuck jobs
 
-`TksSchedulerNoLeader`: no `tks-scheduler` holds the leader lock, so nothing plans checks, admits accounts, finalises jobs or prices the day; look at the scheduler pods and their Postgres connection. `TksJobsFailing`: read the failed jobs' `error` (`GET /v1/jobs/{id}`) and the request classes. `TksDLQGrowing`: tasks that used up their attempts are in `tks.task.dlq` (kept 14 days); fix the cause, and the next scheduled check reads the account again.
+`TksSchedulerNoLeader`: no `tks-scheduler` holds the leader lock, so nothing plans checks, admits accounts, finalises jobs or prices the day; look at the scheduler pods and their Postgres connection. `TksJobsFailing`: read the failed jobs' `error` (`GET /v1/jobs/{id}`) and the request classes. `TksDLQGrowing`: tasks that used up their attempts are in `tks.task.dlq` (kept 14 days); fix the cause and deploy, then `tksctl dlq replay` ([`tks-operations.md`](tks-operations.md#replaying-dead-letters)); otherwise the next scheduled check reads the account again.
 
 ## Schedule lag
 

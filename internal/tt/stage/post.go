@@ -206,6 +206,9 @@ func (d *Deps) ensurePage(ctx context.Context, t *tkstaskv1.Task, id *session.Id
 		c["wire_bytes"] += pl.Bytes
 	}
 	if err != nil {
+		if pl != nil && pl.Class == detect.ContentUnavailable {
+			return d.pageGone(ctx, t, pl.Reason, c), true
+		}
 		if pl != nil && pl.Class != detect.OK {
 			return classOutcome(t, pl.Class, pl.Reason, t.Cursor, c), true
 		}
@@ -213,6 +216,30 @@ func (d *Deps) ensurePage(ctx context.Context, t *tkstaskv1.Task, id *session.Id
 		return retry(t, t.Cursor, "30s", "bootstrap: "+err.Error(), c), true
 	}
 	return Outcome{}, false
+}
+
+// pageGone ends a comment or reply read whose post page is not served
+// under the account's name the task carries: the post was deleted or made
+// private, or the account was renamed after its list was read (the soak
+// found it: fakett answers an old name's post page 404; TikTok's answer is
+// T37). The same page again cannot help, so the read stops at once instead
+// of retrying into the dead letter queue: the post is marked for a whole
+// read by the next check, which carries the account's name then and finds
+// the post's status, and the job is not failed for it. A post read records
+// its comments as skipped.
+func (d *Deps) pageGone(ctx context.Context, t *tkstaskv1.Task, reason string, c map[string]int64) Outcome {
+	kind, post := "thread", t.GetThread().GetPostId()
+	if t.Kind == tkstaskv1.Kind_KIND_POST {
+		kind, post = "post", t.GetPost().GetPostId()
+		_ = d.Jobs.UpdatePostState(ctx, t.JobId, post, jobs.PostSkipped)
+	}
+	c["comment_pages_gone"]++
+	if err := d.Ckpt.MarkIncomplete(ctx, post); err != nil {
+		return retry(t, t.Cursor, "30s", "incomplete mark: "+err.Error(), c)
+	}
+	metrics.CommentReads.WithLabelValues(kind, "page_gone").Inc()
+	slog.Info("comments: post page not served; read again by the next check", "kind", kind, "job", t.JobId, "post", post, "reason", reason)
+	return done(c)
 }
 
 // requestFailed retries a call that got no answer: the signer had no page
