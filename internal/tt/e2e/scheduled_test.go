@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"testing"
@@ -32,6 +33,8 @@ type sched struct {
 	// beforeFinal, when set, runs once a tick's jobs have finished and
 	// before they are finalised (a test moving the clock past a window).
 	beforeFinal func()
+	// timeout is how long a tick's jobs may run (0: 3 minutes).
+	timeout time.Duration
 }
 
 func newSched(s *Stack) *sched {
@@ -102,7 +105,7 @@ func (sc *sched) tick(t *testing.T) map[string]job {
 	for _, id := range started {
 		ids = append(ids, id.String())
 	}
-	sc.s.Wait(t, 3*time.Minute, ids...)
+	sc.s.Wait(t, cmp.Or(sc.timeout, 3*time.Minute), ids...)
 	if sc.beforeFinal != nil {
 		sc.beforeFinal()
 	}

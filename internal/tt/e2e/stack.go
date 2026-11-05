@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -60,6 +61,8 @@ type Stack struct {
 	Crawler  *app.Crawler
 	Signer   *Signer
 	Tracker  *jobs.Tracker
+	// Requests counts the HTTP requests fakett answered.
+	Requests atomic.Int64
 
 	mu     sync.Mutex
 	groups map[string]*group
@@ -81,15 +84,25 @@ type Options struct {
 	// CrawlerDrain overrides how long a stopping crawler lets in-flight
 	// tasks run before abandoning them (a short one is a crash).
 	CrawlerDrain time.Duration
+	// Latency delays every fakett answer, as a proxy's round trip does.
+	Latency time.Duration
 }
 
 // Signer stands in for the browser signer's pages (internal/tt/sign has its
 // own tests with Chromium): it adds the parameter fakett checks, as
-// TikTok's script adds its signature, and counts what it signed.
-type Signer struct{ Calls atomic.Int64 }
+// TikTok's script adds its signature, and counts what it signed. With
+// Refuse set it leaves URLs unsigned, as a signer whose pages TikTok
+// stopped honouring, so fakett refuses the calls.
+type Signer struct {
+	Calls  atomic.Int64
+	Refuse atomic.Bool
+}
 
 func (s *Signer) SignURL(_ context.Context, _ *session.Identity, _, raw, _ string) (string, error) {
 	s.Calls.Add(1)
+	if s.Refuse.Load() {
+		return raw, nil
+	}
 	u, err := url.Parse(raw)
 	if err != nil {
 		return "", err
@@ -149,7 +162,14 @@ func Start(t *testing.T, o Options) *Stack {
 	faults.SignedPaths = []string{"/api/comment/list/", "/api/comment/list/reply/"}
 	w := fakett.NewWorld(spec)
 	fake := fakett.NewServer(w, fakett.Options{Faults: faults})
-	hs := httptest.NewServer(fake)
+	s := &Stack{Cfg: cfg, Redis: rdb, World: w, Fake: fake, Signer: &Signer{}, Tracker: jobs.New(rdb), groups: map[string]*group{}}
+	hs := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		s.Requests.Add(1)
+		if o.Latency > 0 {
+			time.Sleep(o.Latency)
+		}
+		fake.ServeHTTP(rw, r)
+	}))
 	t.Cleanup(hs.Close)
 	cfg.TT.BaseURL = hs.URL
 
@@ -193,8 +213,7 @@ func Start(t *testing.T, o Options) *Stack {
 		_, _ = kadm.NewClient(producer.Client()).DeleteTopics(cctx, names...)
 	})
 
-	s := &Stack{Cfg: cfg, DB: db, Redis: rdb, Producer: producer, World: w, Fake: fake, Signer: &Signer{},
-		Tracker: jobs.New(rdb), groups: map[string]*group{}}
+	s.DB, s.Producer = db, producer
 	s.copts = app.CrawlerOptions{Signer: s.Signer, DrainTimeout: o.CrawlerDrain,
 		DoerFactory: func(transport.Options) (transport.Doer, error) { return transport.NewStd(10 * time.Second), nil }}
 	t.Cleanup(s.Stop)

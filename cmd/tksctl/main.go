@@ -8,6 +8,7 @@
 //	tksctl apikey create|revoke          make a tks-api client and print its key once / revoke a key (M6b)
 //	tksctl accounts import               register a list of accounts for a client, with a report (M10a)
 //	tksctl discovery keywords seed|import|list   discovery keywords (seed: the Iraq list; M10a)
+//	tksctl dlq replay                    send dead letters back: tasks to run again, set-aside records as they were (M9c)
 //
 // The copied Facebook pipeline keeps fbctl until M9 removes it.
 package main
@@ -37,7 +38,8 @@ commands:
   apikey revoke --prefix PREFIX
   accounts import FILE --client NAME [--label L]... [--dry-run] [--disable-missing [--confirm] [--force]]
   accounts import --report BATCH --client NAME [--problems]
-  discovery keywords seed | discovery keywords import --file F | discovery keywords list [--language L] [--group G]`)
+  discovery keywords seed | discovery keywords import --file F | discovery keywords list [--language L] [--group G]
+  dlq replay [--topic tks.task.dlq|tks.persist.dlq] [--reason R] [--max N] [--idle D]`)
 	os.Exit(2)
 }
 
@@ -84,6 +86,8 @@ func main() {
 			usage()
 		}
 		out, err = discoveryKeywords(ctx, cfg, rest[0], rest[1:])
+	case "dlq replay":
+		out, err = dlqReplay(ctx, cfg, rest)
 	default:
 		usage()
 	}

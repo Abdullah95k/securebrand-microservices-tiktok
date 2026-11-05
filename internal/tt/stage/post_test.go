@@ -386,3 +386,41 @@ func keys[V any](m map[int64]V) []int64 {
 	}
 	return out
 }
+
+// A post's page not served under the name the task carries (here the
+// account was renamed after its list was read; a deleted post's page is
+// another case) ends the read at once: no retries into the dead letter
+// queue, no failed job; the post is marked for a whole read by the next
+// check and its comments recorded as skipped.
+func TestCommentsPageGone(t *testing.T) {
+	h := commentHarness(t, tttest.Options{Faults: signedComments, Spec: fakett.Spec{Seed: 6, Accounts: 1, PostsPerAccount: 2,
+		MaxComments: 8, PostSpacing: 20 * time.Hour}}, &testSigner{})
+	ctx := context.Background()
+	w := h.env.World
+	acc := w.Accounts()[0]
+	p := acc.Posts[0]
+	w.AddComments(p, 3)
+	old := acc.Username
+	w.Rename(acc, old+"_new")
+	incr := commonv1.CrawlMode_CRAWL_MODE_INCREMENTAL
+	root := task.NewAccount("gone", tkstaskv1.Lane_LANE_P1, incr, task.ScopeFromRef("u:"+old), task.DefaultLimits(h.d.Cfg.Limits, h.d.Cfg.TT, false))
+	pt := task.NewPost(root, incr, &tkstaskv1.PostScope{PostId: p.ID, UserId: acc.UID, Username: old, CreatedAt: nowTS(p.Created),
+		CommentCountSeen: p.CommentCount()})
+	if err := h.d.spawn(ctx, pt); err != nil {
+		t.Fatal(err)
+	}
+	st := h.drain("gone")
+	if st.Counters["tasks_failed"] != 0 || st.Counters["comment_pages_gone"] != 1 {
+		t.Fatalf("counters %v", st.Counters)
+	}
+	if h.d.Ckpt.Incomplete(ctx, p.ID) == "" {
+		t.Error("post not marked for a whole read")
+	}
+	if n := len(records(h, topics.DLQ, "gone", func() *tkstaskv1.Task { return &tkstaskv1.Task{} })); n != 0 {
+		t.Errorf("%d dead letters", n)
+	}
+	states, _ := h.d.Jobs.Posts(ctx, "gone")
+	if len(states) != 1 || states[0].State != jobs.PostSkipped {
+		t.Errorf("post states %+v, want skipped", states)
+	}
+}

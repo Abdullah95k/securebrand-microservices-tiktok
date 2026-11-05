@@ -48,16 +48,18 @@ infra-down:
 test-integration:
 	$(TEST_ENV) $(GO) test -count=1 -timeout 25m ./...
 
-## Load tests against fakefb (opt-in; prints a report). Size with
-## TKS_LOADTEST_PAGES, _POSTS, _COMMENTS, _ROWS, _LATENCY; TKS_LOADTEST_OUT=file.
+## Load tests of tks's pipeline against fakett (opt-in; prints a report).
+## Size with TKS_LOADTEST_ACCOUNTS, _POSTS, _COMMENTS, _REPLIES, _ROWS,
+## _LATENCY; TKS_LOADTEST_OUT=file.
 loadtest:
-	$(TEST_ENV) TKS_LOADTEST=1 $(GO) test -count=1 -v -timeout 45m -run 'TestLoad' ./internal/e2e/
+	$(TEST_ENV) TKS_LOADTEST=1 $(GO) test -count=1 -v -timeout 45m -run 'TestLoad' ./internal/tt/e2e/
 
-## Soak test (opt-in): scheduled crawls of a changing fakefb world with
-## component restarts. TKS_SOAK_DURATION (20m), TKS_SOAK_PAGES (6),
-## TKS_SOAK_RESTART_EVERY (90s, 0 = none), TKS_SOAK_OUT=file for the report.
+## Soak test (opt-in): scheduled checks of a changing fakett world with
+## component restarts. TKS_SOAK_DURATION (20m), TKS_SOAK_ACCOUNTS (6),
+## TKS_SOAK_SPEED (240× clock), TKS_SOAK_RESTART_EVERY (90s, 0 = none),
+## TKS_SOAK_OUT=file for the report.
 soak:
-	$(TEST_ENV) TKS_SOAK=1 $(GO) test -count=1 -v -timeout 6h -run 'TestSoak' ./internal/e2e/
+	$(TEST_ENV) TKS_SOAK=1 $(GO) test -count=1 -v -timeout 6h -run 'TestSoak' ./internal/tt/e2e/
 
 ## Full pipeline end-to-end test only.
 e2e:

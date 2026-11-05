@@ -130,7 +130,11 @@ func sameStore(t *testing.T, s *Stack, acc *fakett.Account, tr truth) {
 		want++
 		r, ok := comments[c.ID]
 		if !ok {
-			t.Errorf("post %d: comment %d (parent %d) missing", p.ID, c.ID, parent)
+			var status string
+			if err := db.QueryRow(ctx, `SELECT status FROM comments WHERE comment_id = $1`, c.ID).Scan(&status); err != nil {
+				status = "never stored"
+			}
+			t.Errorf("post %d: comment %d (parent %d) missing (%s)", p.ID, c.ID, parent, status)
 			return
 		}
 		if r.status != "visible" || r.authorKeyHex != hex.EncodeToString(emit.AuthorKey(key, c.Author.UID)) {

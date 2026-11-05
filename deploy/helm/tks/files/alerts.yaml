@@ -238,7 +238,8 @@ groups:
           summary: "The persister set aside {{ $value }} {{ $labels.entity }} records in an hour ({{ $labels.reason }})"
           description: >-
             Records it could not write are in tks.persist.dlq (kept 7 days).
-            Read the log lines for their SQLSTATE and fix the cause.
+            Read the log lines for their SQLSTATE, fix the cause, then
+            tksctl dlq replay --topic tks.persist.dlq.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#persister-quarantine
       - alert: TksHandlerPanics
         expr: sum by (group) (increase(tks_kafka_handler_panics_total[10m])) > 0
@@ -258,7 +259,7 @@ groups:
         labels: {severity: warning}
         annotations:
           summary: "{{ $value }} {{ $labels.stage }} tasks dead-lettered in an hour ({{ $labels.reason }})"
-          description: The tasks are in tks.task.dlq (kept 14 days). Fix the cause; the next scheduled check reads the account again.
+          description: The tasks are in tks.task.dlq (kept 14 days). Fix the cause and deploy, then tksctl dlq replay; otherwise the next scheduled check reads the account again.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#stuck-jobs
       - alert: TksJobsFailing
         expr: |
