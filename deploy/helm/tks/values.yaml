@@ -1,0 +1,253 @@
+image:
+  repository: ghcr.io/abdullah95k/tks
+  # Defaults to the chart's appVersion (the release workflow publishes both).
+  tag: ""
+  # Image built with `--target browser` (Chromium included). The components
+  # marked `browser: true` use it: the crawlers whose calls the browser
+  # signer signs (comments and replies) and tks-canary. Without it they run
+  # the default image, which has no Chromium: set config.tt.signer.mode
+  # none then, and comments and replies are not read (build brief D11).
+  browserTag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Rendered into a ConfigMap and mounted as /etc/tks/config.yaml, over
+# configs/default.yaml and configs/tt/default.yaml (every key of either can
+# be set here). Secrets go in secretEnv / secretFiles.
+config:
+  service: {env: prod}
+  log: {level: info, format: json}
+  kafka:
+    brokers: ["kafka-bootstrap.kafka:9092"]
+    client_id: tks
+  redis:
+    addr: "valkey-master.tks:6379"
+  s3:
+    endpoint: "s3.amazonaws.com"
+    use_ssl: true
+    region: "eu-west-1"
+    media_bucket: "securebrand-tks-media"
+    raw_bucket: "securebrand-tks-raw"
+  tt:
+    base_url: "https://www.tiktok.com"
+    capture_raw: failures
+    proxy:
+      # The owner's rotating ISP proxies (build brief D12); the tiers
+      # themselves (endpoints and credentials) are in secretFiles. The
+      # services refuse to start on a tier the file does not define.
+      routing:
+        default: [isp]
+    # Pods drop every capability, which leaves Chromium's sandbox unusable:
+    # the signer's pages and the bootstrap fallback run without it.
+    browser:
+      no_sandbox: true
+    # Comments and replies are signed by TikTok's own script in a few
+    # browser pages per crawler (D11, G1): needs image.browserTag.
+    signer:
+      mode: browser
+    # Public canary accounts with posts, comments and replies: set them in
+    # the secretEnv Secret (TKS_TT__CANARY__ACCOUNTS, comma separated),
+    # never in values that reach git. tks-canary refuses to start without.
+    media:
+      include: false   # D5: downloads off until the analysis service exists
+  scheduler:
+    budget:
+      # Over the owner's budget only backfills pause; checks keep their
+      # 2 h 45 min (owner, 2026-11-05): no tier is ever stretched.
+      stretch_tiers: []
+
+# Existing Secret whose keys become environment variables, e.g.
+#   TKS_POSTGRES__DSN, TKS_POSTGRES__READ_DSN, TKS_REDIS__PASSWORD,
+#   TKS_S3__ACCESS_KEY, TKS_S3__SECRET_KEY, TKS_PRIVACY__AUTHOR_HMAC_KEY,
+#   TKS_TT__CANARY__ACCOUNTS
+secretEnv:
+  existingSecret: tks-env
+# Existing Secret with a "proxies.yaml" key holding tt.proxy.tiers (proxy
+# endpoints and credentials). Mounted and layered over config.yaml.
+secretFiles:
+  existingSecret: tks-proxies
+  key: proxies.yaml
+# Existing Secret with certificate files (CA, client certificate and key)
+# for config.kafka.tls / config.redis.tls, mounted at mountPath: point
+# ca_file, cert_file and key_file at e.g. /etc/tks-tls/ca.pem.
+tlsFiles:
+  existingSecret: ""
+  mountPath: /etc/tks-tls
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  fsGroup: 65532
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: {drop: ["ALL"]}
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+
+# Alerting and recording rules (files/alerts.yaml) as a PrometheusRule.
+# Requires the Prometheus Operator CRDs. Labels let the Prometheus
+# ruleSelector pick the rule up.
+alerts:
+  enabled: false
+  labels: {}
+
+# Grafana dashboards (files/dashboards/*.json) as ConfigMaps, for the
+# Grafana sidecar that loads ConfigMaps labelled grafana_dashboard.
+dashboards:
+  enabled: false
+  labels:
+    grafana_dashboard: "1"
+  annotations: {}
+
+# KEDA scales Kafka consumers on consumer-group lag. Requires KEDA installed.
+keda:
+  enabled: true
+  kafkaBootstrap: "kafka-bootstrap.kafka:9092"
+  pollingInterval: 15
+  cooldownPeriod: 120
+  # When the brokers need SASL and/or TLS: an existing Secret (in the
+  # release namespace) whose keys are KEDA's Kafka authentication parameters
+  # (sasl: plaintext|scram_sha256|scram_sha512, username, password,
+  # tls: enable, ca, cert, key). authParams must list exactly the keys it
+  # holds: KEDA rejects an empty tls. For TLS brokers add tls and ca.
+  authSecret: ""
+  authParams: [sasl, username, password]
+
+# Hooks run `tksctl migrate up`, `tksctl kafka apply` and, when enabled,
+# `tksctl schemas apply` before installs and upgrades.
+hooks:
+  migrate: true
+  topics: true
+  topicReplicas: 3
+  # Caps every topic's partition count (0: configs/tt/topics.yaml's counts,
+  # sized for production). A small rehearsal broker needs a cap: a 1 GB
+  # Redpanda holds 256 partitions, Kafka's own topics included.
+  topicPartitionsCap: 0
+  # `tksctl schemas apply`: registers the tt.v1 schemas with
+  # config.kafka.schema_registry.url (BACKWARD_TRANSITIVE). An incompatible
+  # contract change fails the hook, and with it the upgrade.
+  schemas: false
+
+api:
+  service:
+    type: ClusterIP
+    port: 80
+  ingress:
+    enabled: false
+    className: ""
+    host: tks.example.com
+    tls: []
+
+# One Deployment per component. "lag" lists consumer groups/topics KEDA
+# watches (group and topic names get config.kafka.topic_prefix prepended).
+# Sizes are C4's (Phase 0, 2026-11-04): 2 IPs and 2 signer pages served
+# 1,000 accounts; each signer page holds up to tt.signer.max_page_mb.
+components:
+  api:
+    enabled: true
+    command: ["/usr/local/bin/tks-api"]
+    replicas: 2
+    port: 8080
+    resources: {requests: {cpu: 250m, memory: 256Mi}, limits: {memory: 512Mi}}
+    pdb: {minAvailable: 1}
+  scheduler:
+    enabled: true
+    command: ["/usr/local/bin/tks-scheduler"]
+    replicas: 2 # leader-elected; one active
+    resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 256Mi}}
+    pdb: {minAvailable: 1}
+  # Post lists, metrics and the daily account refresh: plain HTTP, unsigned.
+  crawler-account:
+    enabled: true
+    command: ["/usr/local/bin/tks-crawler", "--stages", "account"]
+    replicas: 2
+    terminationGracePeriodSeconds: 90
+    resources: {requests: {cpu: 500m, memory: 512Mi}, limits: {memory: 1Gi}}
+    pdb: {maxUnavailable: 1}
+    autoscale:
+      min: 2
+      max: 8
+      lag:
+        - {group: tks-tt-crawler-account-p0, topic: tks.task.account.p0, threshold: 20}
+        - {group: tks-tt-crawler-account-p1, topic: tks.task.account.p1, threshold: 200}
+        - {group: tks-tt-crawler-account-p2, topic: tks.task.account.p2, threshold: 500}
+  # Comments: each call signed by one of the process's tt.signer.pages.
+  crawler-post:
+    enabled: true
+    browser: true
+    command: ["/usr/local/bin/tks-crawler", "--stages", "post"]
+    replicas: 2
+    terminationGracePeriodSeconds: 90
+    resources: {requests: {cpu: "1", memory: 1536Mi}, limits: {memory: 3Gi}}
+    pdb: {maxUnavailable: 1}
+    autoscale:
+      min: 2
+      max: 8
+      lag:
+        - {group: tks-tt-crawler-post-p0, topic: tks.task.post.p0, threshold: 50}
+        - {group: tks-tt-crawler-post-p1, topic: tks.task.post.p1, threshold: 500}
+        - {group: tks-tt-crawler-post-p2, topic: tks.task.post.p2, threshold: 1000}
+  # Replies: signed as comments are.
+  crawler-thread:
+    enabled: true
+    browser: true
+    command: ["/usr/local/bin/tks-crawler", "--stages", "thread"]
+    replicas: 2
+    terminationGracePeriodSeconds: 90
+    resources: {requests: {cpu: "1", memory: 1536Mi}, limits: {memory: 3Gi}}
+    pdb: {maxUnavailable: 1}
+    autoscale:
+      min: 2
+      max: 8
+      lag:
+        - {group: tks-tt-crawler-thread-p0, topic: tks.task.thread.p0, threshold: 100}
+        - {group: tks-tt-crawler-thread-p1, topic: tks.task.thread.p1, threshold: 1000}
+        - {group: tks-tt-crawler-thread-p2, topic: tks.task.thread.p2, threshold: 2000}
+  crawler-retry:
+    enabled: true
+    command: ["/usr/local/bin/tks-crawler", "--stages", "retry"]
+    replicas: 1
+    resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 256Mi}}
+  persister:
+    enabled: true
+    command: ["/usr/local/bin/tks-persister"]
+    replicas: 2
+    resources: {requests: {cpu: 500m, memory: 512Mi}, limits: {memory: 1Gi}}
+    pdb: {maxUnavailable: 1}
+    autoscale:
+      min: 2
+      max: 6
+      lag:
+        - {group: tks-tt-persister, topic: tt.comment.v1, threshold: 20000}
+        - {group: tks-tt-persister, topic: tt.post.v1, threshold: 5000}
+  # Idle while config.tt.media.include is false (D5). It stores files and
+  # keeps them: another service deletes them, so tks has no janitor.
+  media-downloader:
+    enabled: true
+    command: ["/usr/local/bin/tks-media-downloader"]
+    replicas: 1
+    resources: {requests: {cpu: 250m, memory: 256Mi}, limits: {memory: 1Gi}}
+    autoscale:
+      min: 1
+      max: 8
+      lag:
+        - {group: tks-tt-media-downloader, topic: tks.task.media, threshold: 1000}
+  # Follows TikTok's changes to the calls tks makes (M8; runbook
+  # docs/runbooks/tks-canary.md). One replica; runs are serialised by a
+  # Postgres advisory lock anyway. Needs TKS_TT__CANARY__ACCOUNTS.
+  canary:
+    enabled: true
+    browser: true
+    command: ["/usr/local/bin/tks-canary"]
+    replicas: 1
+    resources: {requests: {cpu: 250m, memory: 512Mi}, limits: {memory: 2Gi}}
+
+networkPolicy:
+  # Restricts ingress to the API port and the metrics port. Egress rules are
+  # environment specific (proxy endpoints for crawlers and the canary,
+  # TikTok's CDN for the downloader) and are left to the cluster operator.
+  enabled: false
+  metricsFromNamespace: monitoring

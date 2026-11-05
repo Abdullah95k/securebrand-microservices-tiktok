@@ -2,9 +2,9 @@
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
-  name: {{ include "fbs.fullname" . }}
+  name: {{ include "tks.fullname" . }}
   labels:
-    {{- include "fbs.labels" . | nindent 4 }}
+    {{- include "tks.labels" . | nindent 4 }}
     {{- with .Values.alerts.labels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

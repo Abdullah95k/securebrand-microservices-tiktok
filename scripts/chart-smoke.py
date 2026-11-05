@@ -2,21 +2,24 @@
 """Run the Helm chart's workloads in Docker, as the chart defines them.
 
 Without a Kubernetes cluster, this checks what a cluster would run: it
-renders the chart (deploy/helm/fbs/examples/fakefb.yaml by default) and
+renders the chart (deploy/helm/tks/examples/fakett.yaml by default) and
 starts every hook Job and Deployment container with the rendered command,
 environment, ConfigMap and Secret mounts, user, read-only root filesystem,
 dropped capabilities and memory limit, on the network of `make infra-up`
-(Postgres, Redpanda, Valkey), next to fakefb and an in-memory S3. Then it
-registers fakefb's pages through the API (`fbctl pages import`) and waits
-for their backfills: every job must complete, with comments and media
-stored, and no component may log an error.
+(Postgres, Redpanda, Valkey), next to fakett and an in-memory S3. fakett
+refuses unsigned comment and reply calls when --browser-image is given,
+so the crawlers' signer pages (Chromium in the hardened container) must
+sign them; without it the signer is off and fakett serves them unsigned. Then it imports fakett's accounts through the API
+(`POST /v1/accounts/import`) and waits for their backfills: every job must
+complete, with posts, comments, replies and media stored, and no component
+may log an error.
 
 It does not exercise what only Kubernetes does: Services, probes, KEDA,
 PodDisruptionBudgets. `kubeconform` checks those objects' schemas.
 
-    python3 scripts/chart-smoke.py --image fbs:dev [--values FILE] [--keep]
+    python3 scripts/chart-smoke.py --image tks:dev --browser-image tks:dev-browser [--values FILE] [--keep]
 
-It uses its own database (fbs_smoke), Redis DB 15 and topic prefix
+It uses its own database (tks_smoke), Redis DB 15 and topic prefix
 (chartsmoke.), so it can run next to the tests.
 """
 import argparse
@@ -31,10 +34,12 @@ import urllib.request
 
 import yaml
 
-PREFIX = "fbs-smoke-"
+PREFIX = "tks-smoke-"
 TOPIC_PREFIX = "chartsmoke."
-DB = "fbs_smoke"
-PAGES = ["brand0", "brand1", "brand2"]
+DB = "tks_smoke"
+# fakett's synthetic accounts (internal/fakett).
+ACCOUNTS = ["account_0", "account_1", "account_2"]
+INFRA = "tks-{}-1"  # make infra-up's containers (Compose project tks)
 
 
 def sh(*args, check=True, capture=True, timeout=600):
@@ -45,16 +50,23 @@ def sh(*args, check=True, capture=True, timeout=600):
 
 
 def psql(sql, db=DB):
-    return sh("docker", "exec", "fbs-postgres-1", "psql", "-U", "fbs", "-d", db, "-tAc", sql).stdout.strip()
+    return sh("docker", "exec", INFRA.format("postgres"), "psql", "-U", "tks", "-d", db, "-tAc", sql).stdout.strip()
 
 
 def render(args):
     repo, _, tag = args.image.rpartition(":")
     if not repo or "/" in tag:
         raise SystemExit(f"--image {args.image}: want repository:tag")
-    out = sh(args.helm, "template", "fbs", "deploy/helm/fbs", "-f", args.values,
-             "--set", f"image.repository={repo}",
-             "--set", f"image.tag={tag}",
+    sets = ["--set", f"image.repository={repo}", "--set", f"image.tag={tag}"]
+    if args.browser_image:
+        brepo, _, btag = args.browser_image.rpartition(":")
+        if brepo != repo:
+            raise SystemExit(f"--browser-image {args.browser_image}: want the repository of --image ({repo})")
+        sets += ["--set", f"image.browserTag={btag}"]
+    else:
+        # No Chromium: nothing signs, so comments and replies are not read.
+        sets += ["--set", "config.tt.signer.mode=none", "--set", "components.canary.enabled=false"]
+    out = sh(args.helm, "template", "tks", "deploy/helm/tks", "-f", args.values, *sets,
              "--set", "image.pullPolicy=Never",
              "--set", f"config.kafka.topic_prefix={TOPIC_PREFIX}",
              "--set", "config.redis.db=15").stdout
@@ -120,18 +132,19 @@ def cleanup():
     names = sh("docker", "ps", "-aq", "--filter", f"name={PREFIX}").stdout.split()
     if names:
         sh("docker", "rm", "-f", *names, check=False)
-    sh("docker", "exec", "fbs-postgres-1", "psql", "-U", "fbs", "-d", "postgres", "-c", f"DROP DATABASE IF EXISTS {DB} WITH (FORCE)", check=False)
-    sh("docker", "exec", "fbs-redpanda-1", "rpk", "topic", "delete", "-r", "^" + TOPIC_PREFIX.replace(".", r"\.") + ".*", check=False)
-    sh("docker", "exec", "fbs-valkey-1", "valkey-cli", "-n", "15", "flushdb", check=False)
+    sh("docker", "exec", INFRA.format("postgres"), "psql", "-U", "tks", "-d", "postgres", "-c", f"DROP DATABASE IF EXISTS {DB} WITH (FORCE)", check=False)
+    sh("docker", "exec", INFRA.format("redpanda"), "rpk", "topic", "delete", "-r", "^" + TOPIC_PREFIX.replace(".", r"\.") + ".*", check=False)
+    sh("docker", "exec", INFRA.format("valkey"), "valkey-cli", "-n", "15", "flushdb", check=False)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--image", default="fbs:dev")
-    ap.add_argument("--values", default="deploy/helm/fbs/examples/fakefb.yaml")
-    ap.add_argument("--network", default="fbs_default")
+    ap.add_argument("--image", default="tks:dev")
+    ap.add_argument("--browser-image", default="", help="the --target browser image (same repository): the signer's pages sign comments and replies")
+    ap.add_argument("--values", default="deploy/helm/tks/examples/fakett.yaml")
+    ap.add_argument("--network", default="tks_default")
     ap.add_argument("--helm", default="helm")
-    ap.add_argument("--timeout", type=int, default=300, help="seconds for the backfills")
+    ap.add_argument("--timeout", type=int, default=420, help="seconds for the backfills")
     ap.add_argument("--keep", action="store_true", help="leave the containers running")
     args = ap.parse_args()
 
@@ -139,10 +152,10 @@ def main():
     # starting. A fresh broker also answers its first producer-ID requests
     # with NOT_COORDINATOR for a while: produce once (idempotently, as the
     # components do) before starting them.
-    sh("docker", "exec", "fbs-redpanda-1", "rpk", "cluster", "health", "--exit-when-healthy", timeout=180)
+    sh("docker", "exec", INFRA.format("redpanda"), "rpk", "cluster", "health", "--exit-when-healthy", timeout=180)
     cleanup()
     deadline = time.time() + 120
-    while sh("docker", "exec", "fbs-redpanda-1", "sh", "-c",
+    while sh("docker", "exec", INFRA.format("redpanda"), "sh", "-c",
              f"rpk topic create {TOPIC_PREFIX}warmup >/dev/null 2>&1; echo warmup | rpk topic produce {TOPIC_PREFIX}warmup", check=False).returncode != 0:
         if time.time() > deadline:
             raise SystemExit("Redpanda does not accept idempotent produce requests")
@@ -167,17 +180,20 @@ def main():
                 f.write(body)
             os.chmod(os.path.join(d, fname), 0o644)
         configmaps[cm] = d
-    # What the cluster's Secret fbs-env (secretEnv.existingSecret) would hold.
-    secret_env = os.path.join(work, "fbs-env")
+    # What the cluster's Secret tks-env (secretEnv.existingSecret) would hold.
+    secret_env = os.path.join(work, "tks-env")
     with open(secret_env, "w") as f:
-        f.write(f"TKS_POSTGRES__DSN=postgres://fbs:fbs@postgres:5432/{DB}?sslmode=disable\n"
-                "TKS_S3__ACCESS_KEY=smoke\nIGS_S3__SECRET_KEY=smokesmoke\n"
+        f.write(f"TKS_POSTGRES__DSN=postgres://tks:tks@postgres:5432/{DB}?sslmode=disable\n"
+                "TKS_S3__ACCESS_KEY=smoke\nTKS_S3__SECRET_KEY=smokesmoke\n"
                 f"TKS_PRIVACY__AUTHOR_HMAC_KEY={secrets.token_hex(32)}\n")
     # The Services the values expect besides the infrastructure.
     sh("docker", "run", "-d", "--name", PREFIX + "s3", "--network", args.network, "--network-alias", "s3",
        "--entrypoint", "/usr/local/bin/devs3", args.image, "--addr", ":9000")
-    sh("docker", "run", "-d", "--name", PREFIX + "fakefb", "--network", args.network, "--network-alias", "fakefb",
-       "--entrypoint", "/usr/local/bin/fakefb", args.image, "--addr", ":8090", "--pages", str(len(PAGES)), "--posts", "10")
+    sh("docker", "run", "-d", "--name", PREFIX + "fakett", "--network", args.network, "--network-alias", "fakett",
+       "--entrypoint", "/usr/local/bin/fakett", args.image, "--addr", ":8090", "--accounts", str(len(ACCOUNTS)),
+       "--posts", "8", "--max-comments", "25", "--max-replies", "4",
+       # Without Chromium nothing signs: fakett then serves comments unsigned.
+       *(["--require-signature"] if args.browser_image else []))
 
     failures = []
     try:
@@ -211,50 +227,47 @@ def main():
             raise SystemExit(f"not ready after 120s: {sorted(pending)}")
         print(f"all {len(deployments)} deployments ready")
 
-        # An API key, as the go-live runbook creates it.
-        out = sh("docker", "exec", PREFIX + "fbs-api", "/usr/local/bin/fbctl", "apikey", "create", "--name", "smoke",
-                 "--scopes", "pages:write,jobs:write,data:read").stdout
+        # An API key, as docs/runbooks/tks-deploy.md creates it.
+        out = sh("docker", "exec", PREFIX + "tks-api", "/usr/local/bin/tksctl", "apikey", "create", "--name", "smoke",
+                 "--scopes", "accounts:write,jobs:write,data:read,pii:read").stdout
         key = json.loads(out[out.index("{"):])["api_key"]
-        pages_file = os.path.join(work, "pages.csv")
-        with open(pages_file, "w") as f:
-            f.write("page\n" + "\n".join(PAGES) + "\n")
-        os.chmod(pages_file, 0o644)
-        out = sh("docker", "run", "--rm", "--network", args.network, "-v", f"{pages_file}:/pages.csv:ro",
-                 "--entrypoint", "/usr/local/bin/fbctl", args.image, "pages", "import",
-                 "--api", "http://fbs-api:8080", "--key", key, "/pages.csv").stdout
-        imported = json.loads(out[out.index("{"):])
-        print(f"pages import: {imported}")
-        if imported.get("created") != len(PAGES):
-            failures.append(f"pages import created {imported.get('created')}, want {len(PAGES)}")
+        api = f"http://127.0.0.1:{host_port('tks-api', 8080)}"
+        status, body = http(api + "/v1/accounts/import", key, {"lines": ACCOUNTS, "labels": ["smoke"]}, "POST")
+        imported = json.loads(body) if status == 200 else {}
+        print(f"accounts import: {status} {body[:300]}")
+        if imported.get("added") != len(ACCOUNTS):
+            failures.append(f"accounts import added {imported.get('added')}, want {len(ACCOUNTS)}")
         # Importing again changes nothing.
-        out = sh("docker", "run", "--rm", "--network", args.network, "-v", f"{pages_file}:/pages.csv:ro",
-                 "--entrypoint", "/usr/local/bin/fbctl", args.image, "pages", "import",
-                 "--api", "http://fbs-api:8080", "--key", key, "/pages.csv").stdout
-        again = json.loads(out[out.index("{"):])
-        if again.get("existing") != len(PAGES) or again.get("created"):
-            failures.append(f"second import: {again}")
+        status, body = http(api + "/v1/accounts/import", key, {"lines": ACCOUNTS}, "POST")
+        again = json.loads(body) if status == 200 else {}
+        if again.get("already_monitored") != len(ACCOUNTS) or again.get("added"):
+            failures.append(f"second import: {status} {body[:300]}")
 
+        # Each account's backfill (admitted at once: no budget is set).
         deadline = time.time() + args.timeout
         while time.time() < deadline:
-            done = int(psql("SELECT count(*) FROM jobs WHERE status IN ('completed','partial','failed','cancelled')") or 0)
-            if done >= len(PAGES):
+            done = int(psql("SELECT count(*) FROM tt.jobs WHERE kind = 'backfill' AND status IN ('completed','partial','failed','cancelled')") or 0)
+            if done >= len(ACCOUNTS):
                 break
-            time.sleep(2)
-        statuses = psql("SELECT string_agg(kind || ':' || status, ',') FROM jobs")
-        posts = int(psql("SELECT count(*) FROM posts"))
-        comments = int(psql("SELECT count(*) FROM comments"))
-        media = psql("SELECT coalesce(string_agg(status || '=' || n, ','), '') FROM (SELECT status, count(*) n FROM media GROUP BY status) m")
-        print(f"jobs {statuses}; posts {posts}; comments {comments}; media {media}")
-        if statuses is None or statuses.count(":completed") != len(PAGES):
-            failures.append(f"jobs: {statuses}")
-        if posts == 0 or comments == 0:
-            failures.append("nothing stored")
-        if "ready=" not in media and "deleted=" not in media:
+            time.sleep(3)
+        statuses = psql("SELECT string_agg(kind || ':' || status, ',' ORDER BY kind) FROM tt.jobs")
+        posts = int(psql("SELECT count(*) FROM tt.posts"))
+        comments = int(psql("SELECT count(*) FROM tt.comments WHERE parent_comment_id IS NULL") or 0)
+        replies = int(psql("SELECT count(*) FROM tt.comments WHERE parent_comment_id IS NOT NULL") or 0)
+        media = psql("SELECT coalesce(string_agg(status || '=' || n, ','), '') FROM (SELECT status, count(*) n FROM tt.media GROUP BY status) m")
+        print(f"jobs {statuses}; posts {posts}; comments {comments}; replies {replies}; media {media}")
+        backfills = [s for s in (statuses or "").split(",") if s.startswith("backfill:")]
+        if len(backfills) != len(ACCOUNTS) or any(s != "backfill:completed" for s in backfills):
+            failures.append(f"backfills: {statuses}")
+        if posts == 0:
+            failures.append("no posts stored")
+        if comments == 0 or replies == 0:
+            failures.append(f"comments {comments}, replies {replies}: want both")
+        if "ready=" not in media:
             failures.append(f"no media downloaded: {media}")
-        api_port = host_port("fbs-api", 8080)
-        status, body = http(f"http://127.0.0.1:{api_port}/v1/pages", key)
-        if status != 200:
-            failures.append(f"GET /v1/pages: {status} {body[:200]}")
+        status, body = http(api + "/v1/accounts?label=smoke", key)
+        if status != 200 or body.count('"username"') < len(ACCOUNTS):
+            failures.append(f"GET /v1/accounts: {status} {body[:200]}")
 
         for d in deployments + hooks:
             name = d["metadata"]["name"]

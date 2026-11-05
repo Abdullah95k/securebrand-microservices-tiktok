@@ -3,8 +3,8 @@
 apiVersion: keda.sh/v1alpha1
 kind: TriggerAuthentication
 metadata:
-  name: {{ include "fbs.fullname" . }}-kafka
-  labels: {{- include "fbs.labels" . | nindent 4 }}
+  name: {{ include "tks.fullname" . }}-kafka
+  labels: {{- include "tks.labels" . | nindent 4 }}
 spec:
   secretTargetRef:
     {{- range .Values.keda.authParams }}

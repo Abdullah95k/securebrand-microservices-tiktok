@@ -1,36 +1,36 @@
-{{- define "fbs.fullname" -}}
+{{- define "tks.fullname" -}}
 {{- printf "%s" .Release.Name | trunc 50 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "fbs.labels" -}}
-app.kubernetes.io/name: fbs
+{{- define "tks.labels" -}}
+app.kubernetes.io/name: tks
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- end -}}
 
-{{- define "fbs.selector" -}}
-app.kubernetes.io/name: fbs
+{{- define "tks.selector" -}}
+app.kubernetes.io/name: tks
 app.kubernetes.io/instance: {{ .root.Release.Name }}
 app.kubernetes.io/component: {{ .name }}
 {{- end -}}
 
-{{- define "fbs.configFiles" -}}
+{{- define "tks.configFiles" -}}
 {{- if .Values.secretFiles.existingSecret -}}
-/etc/fbs/config.yaml,/etc/fbs-secret/{{ .Values.secretFiles.key }}
+/etc/tks/config.yaml,/etc/tks-secret/{{ .Values.secretFiles.key }}
 {{- else -}}
-/etc/fbs/config.yaml
+/etc/tks/config.yaml
 {{- end -}}
 {{- end -}}
 
 {{/* Shared pod spec pieces: env, volumes, mounts. */}}
-{{- define "fbs.env" -}}
+{{- define "tks.env" -}}
 - name: TKS_CONFIG
-  value: {{ include "fbs.configFiles" . | quote }}
+  value: {{ include "tks.configFiles" . | quote }}
 {{- end -}}
 
-{{- define "fbs.envFrom" -}}
+{{- define "tks.envFrom" -}}
 {{- if .Values.secretEnv.existingSecret }}
 envFrom:
   - secretRef:
@@ -38,13 +38,13 @@ envFrom:
 {{- end }}
 {{- end -}}
 
-{{- define "fbs.volumeMounts" -}}
+{{- define "tks.volumeMounts" -}}
 - name: config
-  mountPath: /etc/fbs
+  mountPath: /etc/tks
   readOnly: true
 {{- if .Values.secretFiles.existingSecret }}
 - name: secret-files
-  mountPath: /etc/fbs-secret
+  mountPath: /etc/tks-secret
   readOnly: true
 {{- end }}
 {{- if .Values.tlsFiles.existingSecret }}
@@ -56,15 +56,15 @@ envFrom:
   mountPath: /tmp
 {{- end -}}
 
-{{- define "fbs.volumes" -}}
-{{- include "fbs.volumesFor" (dict "root" . "configMap" (printf "%s-config" (include "fbs.fullname" .))) -}}
+{{- define "tks.volumes" -}}
+{{- include "tks.volumesFor" (dict "root" . "configMap" (printf "%s-config" (include "tks.fullname" .))) -}}
 {{- end -}}
 
-{{- define "fbs.hookVolumes" -}}
-{{- include "fbs.volumesFor" (dict "root" . "configMap" (printf "%s-hook-config" (include "fbs.fullname" .))) -}}
+{{- define "tks.hookVolumes" -}}
+{{- include "tks.volumesFor" (dict "root" . "configMap" (printf "%s-hook-config" (include "tks.fullname" .))) -}}
 {{- end -}}
 
-{{- define "fbs.volumesFor" -}}
+{{- define "tks.volumesFor" -}}
 {{- $root := .root -}}
 - name: config
   configMap:

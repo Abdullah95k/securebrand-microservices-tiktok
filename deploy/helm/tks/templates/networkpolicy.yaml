@@ -2,12 +2,12 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "fbs.fullname" . }}-ingress
-  labels: {{- include "fbs.labels" . | nindent 4 }}
+  name: {{ include "tks.fullname" . }}-ingress
+  labels: {{- include "tks.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: fbs
+      app.kubernetes.io/name: tks
       app.kubernetes.io/instance: {{ .Release.Name }}
   policyTypes: [Ingress]
   ingress:

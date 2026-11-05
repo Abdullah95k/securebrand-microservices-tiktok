@@ -4,4 +4,4 @@ FROM gcr.io/distroless/static-debian12:nonroot
 COPY bin/ /usr/local/bin/
 USER nonroot:nonroot
 EXPOSE 8080 9090
-ENTRYPOINT ["/usr/local/bin/fbs-api"]
+ENTRYPOINT ["/usr/local/bin/tks-api"]

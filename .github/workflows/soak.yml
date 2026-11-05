@@ -31,7 +31,7 @@ jobs:
       - name: Infrastructure
         run: |
           make infra-up
-          for i in $(seq 1 60); do docker exec fbs-redpanda-1 rpk cluster health --exit-when-healthy && break; sleep 2; done
+          for i in $(seq 1 60); do docker exec tks-redpanda-1 rpk cluster health --exit-when-healthy && break; sleep 2; done
       - name: Soak
         env:
           TKS_SOAK_DURATION: ${{ inputs.duration }}

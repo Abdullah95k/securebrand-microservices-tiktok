@@ -15,7 +15,7 @@ import (
 // The alert rules and dashboards shipped with the chart must only use
 // metrics that exist: a renamed metric otherwise silently disables an alert.
 
-const chartFiles = "../../../deploy/helm/fbs/files"
+const chartFiles = "../../../deploy/helm/tks/files"
 
 var (
 	fqName    = regexp.MustCompile(`fqName: "([^"]+)"`)

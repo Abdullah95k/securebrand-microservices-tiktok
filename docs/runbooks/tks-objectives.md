@@ -1,6 +1,6 @@
 # tks service objectives: metrics and alerts
 
-What tks must achieve is [build brief §8](../tiktok/build-brief.md#8-acceptance-criteria-for-the-finished-service). This runbook covers the two the M6c milestone measures end to end (A1 and A2) and the cost (A5, M9b): what each metric means, how to read it, and what to do when its alert fires. Design: [ADR 0007 §15](../tiktok/adr/0007-tks-data-model-and-contracts.md#15-settled-in-m6c-media-the-objectives-and-the-budget). The metrics are on each binary's ops port (`/metrics`); the alerts are in `deploy/helm/fbs/files/alerts.yaml` (group `tks.objectives`).
+What tks must achieve is [build brief §8](../tiktok/build-brief.md#8-acceptance-criteria-for-the-finished-service). This runbook covers the two the M6c milestone measures end to end (A1 and A2) and the cost (A5, M9b): what each metric means, how to read it, and what to do when its alert fires. Design: [ADR 0007 §15](../tiktok/adr/0007-tks-data-model-and-contracts.md#15-settled-in-m6c-media-the-objectives-and-the-budget). The metrics are on each binary's ops port (`/metrics`); the alerts are in `deploy/helm/tks/files/alerts.yaml` (group `tks.objectives`).
 
 ## A1: scheduled checks
 

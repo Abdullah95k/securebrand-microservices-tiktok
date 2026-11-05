@@ -1,18 +1,25 @@
 # Local overrides (mounted into every service). Fast pacing is fine against
-# fakefb; NEVER use these rates against real Facebook.
+# fakett; NEVER use these rates against TikTok.
 service: {env: dev}
 log: {level: info, format: text}
-fb:
+tt:
   identity_rps: 20
   identity_burst: 5
-  page_rps: 50
-  page_rps_p0: 50
+  account_rps: 20
+  account_rps_p0: 20
   global_rps: 200
   capture_raw: failures
+  browser:
+    no_sandbox: true
+  signer:
+    pages: 1
+  canary:
+    accounts: [account_0]   # fakett's
+    interval: 10m
 crawler:
   slots: 48
   lanes: {p0: 48, p1: 48, p2: 20}
   lane_min: 4
-registry_sync:
-  interval: 5m
-  canary_pages: [brand0, brand1]   # fakefb pages
+scheduler:
+  budget:
+    stretch_tiers: []

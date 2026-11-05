@@ -8,8 +8,8 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "fbs.fullname" $root }}-{{ .name }}
-  labels: {{- include "fbs.labels" $root | nindent 4 }}
+  name: {{ include "tks.fullname" $root }}-{{ .name }}
+  labels: {{- include "tks.labels" $root | nindent 4 }}
   annotations:
     helm.sh/hook: pre-install,pre-upgrade
     helm.sh/hook-weight: "-5"
@@ -23,11 +23,11 @@ spec:
       containers:
         - name: {{ .name }}
           image: "{{ $root.Values.image.repository }}:{{ $root.Values.image.tag | default $root.Chart.AppVersion }}"
-          command: ["/usr/local/bin/fbctl"]
+          command: ["/usr/local/bin/tksctl"]
           args: {{- toYaml .args | nindent 12 }}
-          env: {{- include "fbs.env" $root | nindent 12 }}
-          {{- include "fbs.envFrom" $root | nindent 10 }}
+          env: {{- include "tks.env" $root | nindent 12 }}
+          {{- include "tks.envFrom" $root | nindent 10 }}
           securityContext: {{- toYaml $root.Values.securityContext | nindent 12 }}
-          volumeMounts: {{- include "fbs.volumeMounts" $root | nindent 12 }}
-      volumes: {{- include "fbs.hookVolumes" $root | nindent 8 }}
+          volumeMounts: {{- include "tks.volumeMounts" $root | nindent 12 }}
+      volumes: {{- include "tks.hookVolumes" $root | nindent 8 }}
 {{- end }}
