@@ -16,6 +16,7 @@ package cost
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -214,7 +215,7 @@ func (m *Meter) Measure(ctx context.Context) (Estimate, error) {
 			bytes += w * float64(b)
 		}
 		s, err := m.RDB.HGet(ctx, dayKey(m.NS, day.Add(-time.Duration(i)*24*time.Hour)), "browser_seconds").Result()
-		if err != nil && err != redis.Nil {
+		if err != nil && !errors.Is(err, redis.Nil) {
 			return Estimate{}, fmt.Errorf("cost: browser time: %w", err)
 		}
 		if sec, _ := strconv.ParseFloat(s, 64); sec > 0 {
