@@ -5,7 +5,7 @@ PG_DSN ?= postgres://fbs:fbs@localhost:5432/fbs?sslmode=disable
 TEST_ENV = TKS_TEST_PG_DSN="$(PG_DSN)" TKS_TEST_REDIS_ADDR=localhost:6379 TKS_TEST_KAFKA_BROKERS=localhost:19092 TKS_TEST_SCHEMA_REGISTRY=http://localhost:18081
 COMPOSE = docker compose -f deploy/compose/docker-compose.yml
 
-.PHONY: all build test lint vet generate golden fixtures infra-up infra-down test-integration e2e loadtest soak docker docker-prebuilt compose-up compose-down spike-report phase0 phase0-dryrun phase0-trim phase0-rate pilot-up pilot-register pilot-registry pilot-report pilot-down pilot-clean spike-bin tks-probe tks-probe-all tks-probe-dryrun tks-browser-check tks-phase0 tks-phase0-dryrun tks-signers tks-signers-dryrun tks-signers-browsers tks-spike-bin chart-check chart-smoke clean
+.PHONY: all build test lint vet generate golden fixtures infra-up infra-down test-integration e2e loadtest soak docker docker-prebuilt compose-up compose-down spike-report phase0 phase0-dryrun phase0-trim phase0-rate pilot-up pilot-register pilot-registry pilot-report pilot-down pilot-clean spike-bin tks-probe tks-probe-all tks-probe-dryrun tks-browser-check tks-phase0 tks-phase0-dryrun tks-signers tks-signers-dryrun tks-signers-browsers tks-discover tks-discover-dryrun tks-spike-bin chart-check chart-smoke clean
 
 all: generate build test
 
@@ -286,6 +286,38 @@ tks-signers-dryrun:
 ## Download Lightpanda and chrome-headless-shell into ~/tks-browsers (nothing system-wide).
 tks-signers-browsers:
 	bash scripts/tks-signers-browsers.sh
+
+TKS_DISCOVER_ACCOUNTS ?= phase0/tt-accounts-all.txt
+TKS_DISCOVER_TIER ?= isp
+TKS_DISCOVER_OUT ?= phase0/out-tt-discover
+# The full pass's posts (C3): those no longer listed are read (T34).
+TKS_DISCOVER_KNOWN ?= phase0/out-tt-all/isp/posts.csv
+# Optional: links to posts you know were deleted or made private, and short links.
+TKS_DISCOVER_GONE ?= phase0/tt-gone-posts.txt
+TKS_DISCOVER_SHORT ?= phase0/tt-short-links.txt
+TKS_DISCOVER_MEM ?= 3G
+TKS_DISCOVER_CPU ?= 200%
+TKS_DISCOVER_ARGS ?=
+# The cap: a systemd scope named tks-discover (systemctl stop tks-discover.scope
+# ends it and every browser in it).
+TKS_DISCOVER_CAP = systemd-run --scope --quiet --unit=tks-discover -p MemoryMax=$(TKS_DISCOVER_MEM) -p MemorySwapMax=0 -p CPUQuota=$(TKS_DISCOVER_CPU)
+
+## The discovery probe against real TikTok (checkpoint C6, docs/runbooks/tks-discovery-probe.md),
+## about an hour, capped at TKS_DISCOVER_MEM of memory and TKS_DISCOVER_CPU of CPU where systemd
+## runs the machine: search (posts and accounts), hashtags, sounds, the For You feed, related
+## posts, following and followers lists, reposts, posts no longer listed (T34), short links, and
+## the pages' own calls in a browser. Writes $(TKS_DISCOVER_OUT)/ and its bundle.
+tks-discover:
+	@test -f $(TKS_DISCOVER_ACCOUNTS) || { echo "missing $(TKS_DISCOVER_ACCOUNTS): copy your accounts file there (docs/runbooks/tks-discovery-probe.md)"; exit 2; }
+	@test -f $(PHASE0_CONFIG) || { echo "missing $(PHASE0_CONFIG) (docs/runbooks/tks-discovery-probe.md)"; exit 2; }
+	$(GO) build -o bin/tks-spike ./cmd/tks-spike
+	$(if $(wildcard /run/systemd/system),$(TKS_DISCOVER_CAP)) ./bin/tks-spike discover --accounts $(TKS_DISCOVER_ACCOUNTS) --config $(PHASE0_CONFIG) \
+	  --tier $(TKS_DISCOVER_TIER) --out-dir $(TKS_DISCOVER_OUT) $(if $(wildcard $(TKS_DISCOVER_KNOWN)),--known-posts $(TKS_DISCOVER_KNOWN)) \
+	  $(if $(wildcard $(TKS_DISCOVER_GONE)),--gone-posts $(TKS_DISCOVER_GONE)) $(if $(wildcard $(TKS_DISCOVER_SHORT)),--short-links $(TKS_DISCOVER_SHORT)) $(TKS_DISCOVER_ARGS)
+
+## Rehearse the discovery probe against a built-in fake TikTok: no traffic, no proxies, about a minute.
+tks-discover-dryrun:
+	$(GO) run ./cmd/tks-spike discover --dry-run $(TKS_DISCOVER_ARGS)
 
 ## Is a Chromium installed for the probe's browser signer? Prints how to install one if not.
 tks-browser-check:

@@ -43,6 +43,24 @@ func TestDryRun(t *testing.T) {
 	}
 }
 
+// The discovery dry run reads every source of the fake TikTok and writes
+// the report and the bundle: what make tks-discover-dryrun runs.
+func TestDiscoverDryRun(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "out")
+	if code := runDiscover([]string{"--dry-run", "--out-dir", dir, "--keywords", "3", "--signer", "none"}); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	for _, f := range []string{"calls.jsonl", "report.json", "report.txt", "tks-discover-bundle.tar.gz"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "report.txt"))
+	if !strings.Contains(string(b), "search_general") || !strings.Contains(string(b), "short link 301") {
+		t.Fatalf("report:\n%s", b)
+	}
+}
+
 // --parallel is capped at the tier's exit IPs: a static list's endpoints,
 // direct's one; a rotating gateway does not cap it.
 func TestTierIPs(t *testing.T) {

@@ -70,6 +70,18 @@ type Faults struct {
 	// call to a key's path is refused with an empty 200, and the value's
 	// path serves what the key's did.
 	MovedPaths map[string]string
+	// Region is the app context's region (default IQ); tks's US exits are
+	// served US (C2), the owner's browser in Iraq IQ.
+	Region string
+	// LoginAfter answers the discovery lists (search, hashtag, sound,
+	// following and followers) asked from this many results on with
+	// LoginCode, as TikTok may ask a logged-out visitor to log in after a
+	// few pages (discovery-plan §8.4): a code of fakett's own, since what
+	// TikTok answers is a question for C6 (T36).
+	LoginAfter int
+	// FollowListsNeedLogin answers the following and followers lists with
+	// LoginCode from the first page (discovery-plan §9).
+	FollowListsNeedLogin bool
 }
 
 // Options configure a server.
@@ -154,6 +166,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		page(w, `<html><body>Log in to TikTok</body></html>`)
 	case strings.HasPrefix(p, "/@"):
 		s.page(w, r)
+	case s.discoveryPage(w, r):
 	default:
 		http.NotFound(w, r)
 	}
@@ -216,19 +229,7 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	wid, odin, created := s.mint()
-	chain := "chain-" + wid
-	s.mu.Lock()
-	s.devices[wid] = &device{chain: chain, cursor: map[string]bool{}}
-	s.mu.Unlock()
-	for _, c := range []*http.Cookie{{Name: "ttwid", Value: "fake-ttwid-" + wid}, {Name: "tt_chain_token", Value: chain},
-		{Name: "msToken", Value: "fake-mstoken-" + wid}, {Name: "tt_csrf_token", Value: "csrf-" + odin}} {
-		c.Path = "/"
-		http.SetCookie(w, c)
-	}
-	w.Header().Set("x-ms-token", "fake-mstoken-"+wid)
-	scope := map[string]any{"webapp.app-context": map[string]any{"language": "en", "region": "IQ", "appId": 1988, "wid": wid,
-		"webIdCreatedTime": created, "odinId": odin, "botType": "others", "csrfToken": "csrf-" + odin}}
+	scope := s.newDevice(w)
 	switch {
 	case len(parts) == 3 && (parts[1] == "video" || parts[1] == "photo"):
 		id, _ := strconv.ParseInt(parts[2], 10, 64)
@@ -261,6 +262,37 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	s.writeDoc(w, scope)
+}
+
+// newDevice mints a device for a page load (its cookies set on w) and
+// returns the page's scope with its app context.
+func (s *Server) newDevice(w http.ResponseWriter) map[string]any {
+	wid, odin, created := s.mint()
+	chain := "chain-" + wid
+	s.mu.Lock()
+	s.devices[wid] = &device{chain: chain, cursor: map[string]bool{}}
+	s.mu.Unlock()
+	for _, c := range []*http.Cookie{{Name: "ttwid", Value: "fake-ttwid-" + wid}, {Name: "tt_chain_token", Value: chain},
+		{Name: "msToken", Value: "fake-mstoken-" + wid}, {Name: "tt_csrf_token", Value: "csrf-" + odin}} {
+		c.Path = "/"
+		http.SetCookie(w, c)
+	}
+	w.Header().Set("x-ms-token", "fake-mstoken-"+wid)
+	return map[string]any{"webapp.app-context": map[string]any{"language": "en", "region": s.region(), "appId": 1988, "wid": wid,
+		"webIdCreatedTime": created, "odinId": odin, "botType": "others", "csrfToken": "csrf-" + odin}}
+}
+
+// region is the app context's region: Faults.Region, else IQ.
+func (s *Server) region() string {
+	if r := s.faults().Region; r != "" {
+		return r
+	}
+	return "IQ"
+}
+
+// writeDoc writes a page with scope as its rehydration document.
+func (s *Server) writeDoc(w http.ResponseWriter, scope map[string]any) {
 	blob, _ := json.Marshal(map[string]any{"__DEFAULT_SCOPE__": scope})
 	script := ""
 	if s.faults().RequireSignature {
@@ -393,7 +425,9 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		}
 		s.commentPage(w, q, c.Replies, item, int64(len(c.Replies)), strconv.FormatInt(c.ID, 10))
 	default:
-		http.NotFound(w, r)
+		if !s.discoveryAPI(w, r, path, q) {
+			http.NotFound(w, r)
+		}
 	}
 }
 
@@ -642,7 +676,7 @@ func (s *Server) item(p *Post, host string) map[string]any {
 	off := strings.Index(p.Desc, "#")
 	for _, h := range p.Hashtags {
 		extra = append(extra, map[string]any{"hashtagName": h, "start": off, "end": off + 1 + len(h), "type": 1, "subType": 0, "isCommerce": false, "awemeId": ""})
-		challenges = append(challenges, map[string]any{"id": strconv.Itoa(len(h) * 1000), "title": h, "desc": ""})
+		challenges = append(challenges, map[string]any{"id": strconv.FormatInt(ChallengeID(h), 10), "title": h, "desc": ""})
 		off += len(h) + 2
 	}
 	it := map[string]any{
