@@ -105,6 +105,10 @@ type Post struct {
 	Owner    *Account
 	// Unavailable is the statusCode a hidden post's page answers (HidePost).
 	Unavailable int64
+	// Region is locationCreated, where the post was made ("" serves none);
+	// TextLanguage overrides textLanguage (default "ar").
+	Region       string
+	TextLanguage string
 }
 
 // CommentCount is what TikTok shows: top-level comments plus replies.
@@ -247,6 +251,37 @@ func (w *World) Clock() time.Time {
 
 // Advance moves the world's present forward.
 func (w *World) Advance(d time.Duration) { w.Mutate(func() { w.Now = w.Now.Add(d) }) }
+
+// AddAccount adds an account no monitored account mentions yet, as
+// discovery finds them (docs/tiktok/discovery-plan.md §4): n posts with no
+// comment, hashtag or region, the newest made newest before the present
+// and each older one spacing before the last. A test sets what it scores
+// (bio, posts' Region and Desc) and its state (Private, Gone) through
+// Mutate.
+func (w *World) AddAccount(username, bio string, n int, newest, spacing time.Duration) *Account {
+	var acc *Account
+	w.Mutate(func() {
+		created := w.Now.Add(-1000 * 24 * time.Hour)
+		i := len(w.accounts)
+		acc = &Account{Person: Person{UID: ItemID(created, w.rng.Uint32()), SecUID: fmt.Sprintf("MS4wLjABAAAAfound%04d%08x", i, w.rng.Uint32()),
+			Username: username, Nickname: username}, Bio: bio, CreateTime: created, Followers: int64(w.rng.IntN(10000))}
+		t := w.Now.Add(-newest)
+		for k := 0; k < n; k++ {
+			p := &Post{ID: ItemID(t, w.rng.Uint32()), Created: t, Kind: "video", Duration: 15, Owner: acc,
+				Desc: fmt.Sprintf("post %d", k), TextLanguage: "en",
+				Music: Music{ID: int64(7_200_000_000_000_000_000 + w.rng.IntN(1_000_000)), Title: "original sound", Author: username, Original: true, Duration: 15},
+				Plays: int64(w.rng.IntN(1000)), Likes: int64(w.rng.IntN(100))}
+			acc.Posts = append(acc.Posts, p)
+			w.posts[p.ID] = p
+			t = t.Add(-spacing)
+		}
+		// Not in Accounts(): the world's ground truth is the monitored
+		// accounts; a found one is served by its username and secUid.
+		w.byName[username] = acc
+		w.bySec[acc.SecUID] = acc
+	})
+	return acc
+}
 
 // AddPost publishes a new post on acc at the world's present, with
 // comments top-level comments (no replies), and returns it.

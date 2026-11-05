@@ -109,6 +109,18 @@ func NewAccount(jobID string, lane tkstaskv1.Lane, mode commonv1.CrawlMode, s *t
 	})
 }
 
+// NewEntry creates the root task of an entry check: one read of a found
+// account's post list, deciding whether discovery adds it
+// (docs/tiktok/discovery-plan.md §4). It never walks the list, reads no
+// comments and queues no media.
+func NewEntry(jobID string, s *tkstaskv1.AccountScope) *tkstaskv1.Task {
+	return Finalize(&tkstaskv1.Task{
+		JobId: jobID, Lane: tkstaskv1.Lane_LANE_P2, Kind: tkstaskv1.Kind_KIND_ENTRY,
+		Mode: commonv1.CrawlMode_CRAWL_MODE_FULL, Scope: &tkstaskv1.Task_Account{Account: s},
+		Limits: &tkstaskv1.Limits{VideoPolicy: tkstaskv1.VideoPolicy_VIDEO_POLICY_NONE},
+	})
+}
+
 // NewPost creates a comments task for a post.
 func NewPost(parent *tkstaskv1.Task, mode commonv1.CrawlMode, s *tkstaskv1.PostScope) *tkstaskv1.Task {
 	return Finalize(&tkstaskv1.Task{

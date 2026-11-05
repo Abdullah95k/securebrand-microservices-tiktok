@@ -52,7 +52,14 @@ var ErrUnknownID = errors.New("an id: reference needs an account tks has read; r
 type Registration struct {
 	ClientID uuid.UUID
 	Ref      string // normalised (task.NormalizeRef)
-	How      string // HowAPI, HowImport or a discovery source
+	// UserID is the account's TikTok user id when the caller knows it and
+	// tks has not stored the account yet (discovery: the source named it),
+	// so that the account joins a schedule registered under another
+	// reference of it.
+	UserID int64
+	// How is HowAPI, HowImport or a discovery source; "" records no source
+	// (discovery recorded its sources when it found the account).
+	How      string
 	Via      string // what led to it: an import batch, a keyword, an account ('' for the API)
 	Origin   string // OriginOwner or OriginDiscovery
 	Priority int
@@ -144,7 +151,7 @@ func RegisterTx(ctx context.Context, tx pgx.Tx, r Registration) (Result, error) 
 	if err != nil {
 		return Result{}, err
 	}
-	var uid int64
+	uid := r.UserID
 	if known {
 		uid = acc.UserID
 	}
@@ -204,8 +211,10 @@ func RegisterTx(ctx context.Context, tx pgx.Tx, r Registration) (Result, error) 
 	for _, l := range r.Labels {
 		b.Queue(`INSERT INTO account_labels (api_client_id, account_ref, label) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, r.ClientID, ref, l)
 	}
-	queueSource(b, Source{AccountRef: ref, How: r.How, Via: r.Via, UserID: nilIfZero(uid), ClientID: &r.ClientID,
-		At: r.Now, Evidence: r.Evidence, Score: r.Score})
+	if r.How != "" {
+		queueSource(b, Source{AccountRef: ref, How: r.How, Via: r.Via, UserID: nilIfZero(uid), ClientID: &r.ClientID,
+			At: r.Now, Evidence: r.Evidence, Score: r.Score})
+	}
 	b.Queue(`DELETE FROM account_blocks WHERE api_client_id = $1 AND (account_ref = $2 OR account_ref = $3
 		OR ($4::bigint IS NOT NULL AND user_id = $4))`, r.ClientID, ref, r.Ref, nilIfZero(uid))
 	return res, tx.SendBatch(ctx, b).Close()

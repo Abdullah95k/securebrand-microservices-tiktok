@@ -475,6 +475,22 @@ paths:
         "200": {description: Keyword}
         "404": {$ref: '#/components/responses/Problem'}
         "409": {$ref: '#/components/responses/Problem'}
+  /discovery/accounts:
+    get:
+      summary: Accounts discovery found, with their entry check, Iraq score and evidence (discovery:read)
+      description: >-
+        Every account a discovery source found and tks does not monitor, and those it added
+        (docs/tiktok/discovery-plan.md §3, §4). state=dormant is the dormant list (private, no post
+        in 90 days, never posted, banned, gone or unreadable; read again only when found after
+        next_check_at); state=not_iraqi holds the public, active accounts whose score does not pass
+        (yet). The latest found first; counts gives every state's total. Usernames need pii:read.
+      parameters:
+        - {in: query, name: state, schema: {type: string, enum: [pending, checking, qualified, added, not_iraqi, dormant, blocked]}}
+        - {in: query, name: after, schema: {type: string}, description: The next cursor of the previous page}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        "200": {description: 'Found accounts ({accounts, counts, next})'}
+        "400": {$ref: '#/components/responses/Problem'}
   /admin/operations:
     get:
       summary: TikTok's operations in the registry (admin)

@@ -269,6 +269,65 @@ type Discovery struct {
 	// Client names the API client that holds discovered accounts'
 	// registrations; tks creates it (with no usable key) when it is missing.
 	Client string `koanf:"client"`
+	// Entry is the entry check every found account goes through, and the
+	// dormant list (docs/tiktok/discovery-plan.md §4).
+	Entry EntryCheck `koanf:"entry"`
+	// Score is the Iraq score's weights and thresholds (discovery-plan §3).
+	Score IraqScore `koanf:"score"`
+}
+
+// EntryCheck is discovery's entry check (docs/tiktok/discovery-plan.md §4):
+// one read of a found account's post list decides whether it is added
+// (public, a post within ActiveFor, the Iraq score passes), kept as not
+// Iraqi (yet), or put on the dormant list (private, quiet, gone) until
+// RecheckAfter, after which it is read again only when a source finds it
+// again.
+type EntryCheck struct {
+	// ActiveFor: an account qualifies only with a post this recent (90
+	// days, the owner's decision 3).
+	ActiveFor time.Duration `koanf:"active_for"`
+	// RecheckAfter: a dormant account is not read again before this (180
+	// days, the owner's decision 3).
+	RecheckAfter time.Duration `koanf:"recheck_after"`
+	// Batch is how many found accounts the leader sends to their entry
+	// check per tick; MaxRunning caps the entry checks running fleet-wide
+	// (they run in the backfill lane, which the budget pauses).
+	Batch      int `koanf:"batch"`
+	MaxRunning int `koanf:"max_running"`
+	// MaxAttempts: an entry check that fails (no answer, not a status) is
+	// tried this many times before the account goes on the dormant list as
+	// unreadable.
+	MaxAttempts int `koanf:"max_attempts"`
+	// Posts is how many of the account's newest stored posts the score
+	// reads (a list page: 15).
+	Posts int `koanf:"posts"`
+}
+
+// IraqScore weighs the signals that an account is Iraqi, run from Iraq or
+// followed by an Iraqi audience (docs/tiktok/discovery-plan.md §3). Each
+// kind of signal counts once, with its strength's weight; an account
+// qualifies when the sum reaches Pass. With the defaults one strong signal
+// passes, as do two different medium ones; weak signals together add at
+// most WeakMax, never enough alone or with one medium signal.
+type IraqScore struct {
+	Strong  float64 `koanf:"strong"`
+	Medium  float64 `koanf:"medium"`
+	Weak    float64 `koanf:"weak"`
+	WeakMax float64 `koanf:"weak_max"`
+	Pass    float64 `koanf:"pass"`
+	// Regions are the post regions (locationCreated) that count as made in
+	// Iraq.
+	Regions []string `koanf:"regions"`
+	// CaptionPostsStrong: captions or hashtags naming Iraqi places in this
+	// many of the posts read make the signal strong (one post: medium).
+	CaptionPostsStrong int `koanf:"caption_posts_strong"`
+	// AudienceStrong: an audience signal (followed, mentioned or replied to
+	// by monitored accounts, shown to viewers in Iraq) from this many
+	// different accounts or searches is strong (fewer: medium).
+	AudienceStrong int `koanf:"audience_strong"`
+	// Languages are the post text languages (textLanguage) that count as
+	// the weak "writes in Arabic or Kurdish" signal.
+	Languages []string `koanf:"languages"`
 }
 
 // DiscoverySources are the ways discovery finds accounts (account_sources.how
@@ -766,6 +825,12 @@ func (c *Config) Validate() error {
 	default:
 		errs = append(errs, fmt.Errorf("privacy.pii_mode %q must be full or pseudonymized", c.Privacy.PIIMode))
 	}
+	// Discovery finds people by their user ids and registers them by
+	// secUid, which pseudonymized mode does not keep (docs/tiktok/
+	// discovery-plan.md §7).
+	if c.Privacy.PIIMode == "pseudonymized" && c.TT.Discovery.Enabled {
+		errs = append(errs, errors.New("tt.discovery.enabled cannot be on with privacy.pii_mode pseudonymized: discovery needs people's ids"))
+	}
 	// The author key pseudonymises commenters and matches erased authors on
 	// later scrapes. A known or short key lets anyone confirm a guessed
 	// Facebook id from an author_key. Generate one per deployment (e.g.
@@ -908,6 +973,17 @@ func (t TT) validate() []error {
 	}
 	if t.Discovery.MaxNewPerDay < 0 || t.Discovery.Client == "" {
 		errs = append(errs, errors.New("tt.discovery: max_new_per_day >= 0 (0: no cap) and client set"))
+	}
+	if e := t.Discovery.Entry; e.ActiveFor <= 0 || e.RecheckAfter <= 0 || e.Batch <= 0 || e.MaxRunning <= 0 || e.MaxAttempts <= 0 ||
+		e.Posts <= 0 {
+		errs = append(errs, errors.New("tt.discovery.entry: active_for, recheck_after, batch, max_running, max_attempts and posts > 0"))
+	}
+	// One strong signal passes; neither a medium one nor the weak ones
+	// alone, nor the two together, do (discovery-plan §3).
+	if s := t.Discovery.Score; s.Strong < s.Pass || s.Medium <= 0 || s.Weak < 0 || s.WeakMax < 0 || s.Pass <= 0 ||
+		s.Medium+s.WeakMax >= s.Pass || 2*s.Medium < s.Pass || s.CaptionPostsStrong <= 0 || s.AudienceStrong <= 0 || len(s.Regions) == 0 {
+		errs = append(errs, errors.New("tt.discovery.score: strong >= pass > 0; 2 × medium >= pass > medium + weak_max; "+
+			"caption_posts_strong and audience_strong > 0; regions set"))
 	}
 	for name := range t.Discovery.Sources {
 		if !slices.Contains(DiscoverySources, name) {

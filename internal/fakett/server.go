@@ -660,6 +660,12 @@ func (s *Server) item(p *Post, host string) map[string]any {
 	if p.Pinned {
 		it["isPinnedItem"] = true
 	}
+	if p.Region != "" {
+		it["locationCreated"] = p.Region
+	}
+	if p.TextLanguage != "" {
+		it["textLanguage"] = p.TextLanguage
+	}
 	cover := cdn + "cover/" + id + ".jpg?x-expires=" + exp + "&x-signature=fake"
 	if p.Kind == "photo" {
 		it["imagePost"] = map[string]any{"title": "", "cover": map[string]any{"imageURL": map[string]any{"urlList": []string{cover}}},
