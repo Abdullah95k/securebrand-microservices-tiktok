@@ -100,20 +100,21 @@ jobs:
         run: |
           go install github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7
           make chart-check
-          helm template fbs deploy/helm/fbs --set keda.enabled=false,api.ingress.enabled=true,networkPolicy.enabled=true > /dev/null
-          helm template fbs deploy/helm/fbs --set alerts.enabled=true,dashboards.enabled=true,serviceMonitor.enabled=true > /tmp/monitoring.yaml
-          grep -q "kind: PrometheusRule" /tmp/monitoring.yaml && grep -q "fbs-overview.json" /tmp/monitoring.yaml
+          helm template tks deploy/helm/tks --set keda.enabled=false,api.ingress.enabled=true,networkPolicy.enabled=true > /dev/null
+          helm template tks deploy/helm/tks --set alerts.enabled=true,dashboards.enabled=true,serviceMonitor.enabled=true > /tmp/monitoring.yaml
+          grep -q "kind: PrometheusRule" /tmp/monitoring.yaml && grep -q "tks-overview.json" /tmp/monitoring.yaml
+          # The signer's crawlers and the canary run the browser image, the rest the default one.
+          helm template tks deploy/helm/tks --set image.tag=t,image.browserTag=tb > /tmp/images.yaml
+          test "$(grep -c 'image: "ghcr.io/abdullah95k/tks:tb"' /tmp/images.yaml)" = 3
       - name: Docker build
         run: |
-          docker build -f deploy/docker/Dockerfile -t fbs:ci .
-          docker build -f deploy/docker/Dockerfile --target browser -t fbs:ci-browser .
-          docker run --rm --entrypoint chromium fbs:ci-browser --version
-      - name: Chart smoke run (the chart's workloads in Docker against fakefb)
+          docker build -f deploy/docker/Dockerfile -t tks:ci .
+          docker build -f deploy/docker/Dockerfile --target browser -t tks:ci-browser .
+          docker run --rm --entrypoint chromium tks:ci-browser --version
+      - name: Chart smoke run (the chart's workloads in Docker against fakett, signed by Chromium)
         run: |
           python3 -c 'import yaml' 2>/dev/null || sudo apt-get install -y python3-yaml
           make infra-up
-          make chart-smoke IMAGE=fbs:ci
-      - name: Compose config is valid (local stack and pilot)
-        run: |
-          docker compose -f deploy/compose/docker-compose.yml config -q
-          docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/pilot.yml config -q
+          make chart-smoke IMAGE=tks:ci BROWSER_IMAGE=tks:ci-browser
+      - name: Compose config is valid (local stack)
+        run: docker compose -f deploy/compose/docker-compose.yml config -q

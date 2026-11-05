@@ -1,7 +1,7 @@
-# Prometheus rules for fbs. The chart ships them as a PrometheusRule
+# Prometheus rules for tks. The chart ships them as a PrometheusRule
 # (alerts.enabled); they are plain Prometheus rule groups and can be loaded
 # as a rule file as well. Thresholds are starting points: tune them against
-# the Phase 0 baseline. internal/platform/metrics/monitoring_test.go checks
+# the Phase 0 baseline (C4). internal/platform/metrics/monitoring_test.go checks
 # every metric referenced here exists.
 #
 # Gauges the leader scheduler publishes (AIMD, budget, schedule lag,
@@ -11,7 +11,7 @@ groups:
   - name: tks.recording
     interval: 30s
     rules:
-      - record: tks:ig_requests:rate5m
+      - record: tks:tt_requests:rate5m
         expr: sum by (query, class, tier) (rate(tks_tt_requests_total[5m]))
       - record: tks:block_ratio:rate5m
         expr: |
@@ -50,35 +50,36 @@ groups:
       - record: tks:comment_completeness:p50_1h
         expr: histogram_quantile(0.5, sum by (le) (rate(tks_comment_completeness_ratio_bucket[1h])))
 
-  - name: tks.facebook
+  - name: tks.traffic
     rules:
       - alert: TksBlockRateHigh
         expr: tks:block_ratio:rate5m > 0.10
         for: 10m
         labels: {severity: warning}
         annotations:
-          summary: "{{ $value | humanizePercentage }} of Facebook responses are blocks"
+          summary: "{{ $value | humanizePercentage }} of TikTok answers are blocks"
           description: >-
-            Rate limits, login walls and checkpoints are above 10% fleet-wide.
+            Rate limits, login walls, captchas and checkpoints are above 10%
+            fleet-wide.
             AIMD should be lowering the ceiling; check which tier and exit
             buckets are affected.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#block-storm-block-rate--10
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#block-storm
       - alert: TksBlockRateCritical
         expr: tks:block_ratio:rate5m > 0.25
         for: 10m
         labels: {severity: critical}
         annotations:
-          summary: "{{ $value | humanizePercentage }} of Facebook responses are blocks"
+          summary: "{{ $value | humanizePercentage }} of TikTok answers are blocks"
           description: >-
             A quarter of responses are blocks even with AIMD backing off.
             Consider pinning the ceiling low and moving routing to another tier.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#block-storm-block-rate--10
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#block-storm
       - alert: TksCrawlersIdleWithBacklog
-        # Tasks, not requests: fbs-registry-sync's own requests every 30m
-        # would otherwise keep resetting the for timer.
+        # Tasks, not requests: tks-canary's own requests every hour would
+        # otherwise keep resetting the for timer.
         expr: |
           sum(rate(tks_tasks_total[10m])) == 0
-            and sum(tks:leader:kafka_consumer_lag{group=~"tks-crawler-.*"}) > 0
+            and sum(tks:leader:kafka_consumer_lag{group=~"tks-tt-crawler-.*"}) > 0
         for: 15m
         labels: {severity: critical}
         annotations:
@@ -87,7 +88,7 @@ groups:
             No crawl task handled in 10 minutes with crawl tasks queued.
             Check the crawler pods, the AIMD ceiling (a pinned 0?), the proxy
             breakers and the budget.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#kafka-lag
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#kafka-lag
       - alert: TksQueryBreakerOpen
         expr: max by (name) (tks_breaker_state{name=~"query:.*"}) == 2
         for: 15m
@@ -95,10 +96,10 @@ groups:
         annotations:
           summary: "Breaker {{ $labels.name }} is open"
           description: >-
-            The responses of this (query, doc_id) keep being rejected or failing
-            to parse, so it is not being sent. Expect fbs-registry-sync to
-            promote a replacement, or a parser fix.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
+            The answers of this operation variant keep being refused or failing
+            to parse, so it is not being sent. Expect tks-canary to promote
+            another variant, or a parser fix.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-canary.md#an-operation-is-failing
       - alert: TksProxyBucketOpen
         expr: max by (name) (tks_breaker_state{name=~"proxy:.*"}) == 2
         for: 30m
@@ -108,7 +109,7 @@ groups:
           description: >-
             The bucket keeps failing its probes after cooldowns. Check the
             provider; remove the endpoints or route around the tier.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#block-storm-block-rate--10
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#block-storm
 
       - alert: TksBrowserFallbackSaturated
         expr: sum(rate(tks_bootstrap_total{method="browser", outcome=~"capped|busy"}[15m])) > 0.05
@@ -117,10 +118,10 @@ groups:
         annotations:
           summary: Pages that need the browser fallback are turned away
           description: >-
-            More HTML loads carry no tokens than fb.browser.max_share or
-            max_concurrent allow; those bootstraps fail and their tasks retry.
-            Facebook may now require JavaScript on more pages.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#browser-fallback
+            More profile pages carry no data (shell pages, T1) than
+            tt.browser.max_share or max_concurrent allow; those bootstraps fail
+            and their tasks retry.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#browser-fallback
       - alert: TksBrowserFallbackFailing
         expr: |
           sum(rate(tks_bootstrap_total{method="browser", outcome=~"error|no_tokens"}[30m]))
@@ -130,7 +131,7 @@ groups:
         annotations:
           summary: "{{ $value | humanizePercentage }} of browser bootstraps fail"
           description: Chromium fails to start or render, or the rendered pages carry no tokens either.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#browser-fallback
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#browser-fallback
 
   - name: tks.registry
     rules:
@@ -139,38 +140,22 @@ groups:
         for: 45m
         labels: {severity: warning}
         annotations:
-          summary: "{{ $labels.query }}: {{ $value | humanizePercentage }} of requests use a rejected doc_id"
+          summary: "{{ $labels.query }}: {{ $value | humanizePercentage }} of calls use a refused operation variant"
           description: >-
-            Facebook rejects the active doc_id and fbs-registry-sync has not
-            promoted a replacement within a run or two.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
+            TikTok refuses the active variant and tks-canary has not promoted
+            a replacement within a run or two.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-canary.md#an-operation-is-failing
       - alert: TksRegistryQueryFailing
         expr: min by (query) (tks_registry_query_healthy) == 0
         for: 5m
         labels: {severity: critical}
         annotations:
-          summary: "{{ $labels.query }}: the active doc_id fails on the canary pages and nothing can replace it"
+          summary: "{{ $labels.query }}: the active variant fails on the canary accounts and nothing can replace it"
           description: >-
-            Stale with no working candidate (Facebook may have renamed the
-            operation: see not_found in the run report), or drift (the parser
-            needs a fix). GET /v1/admin/registry-sync/runs has the details.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
-      - alert: TksRegistrySyncNotRunning
-        # Every fbs binary exports the gauge (0 outside fbs-registry-sync);
-        # the runs counter exists only where syncs run.
-        expr: |
-          time() - max(tks_registry_sync_last_success_timestamp_seconds) > 3 * 3600
-            and on () count(tks_registry_sync_runs_total) > 0
-        for: 10m
-        labels: {severity: warning}
-        annotations:
-          summary: No fbs-registry-sync run in 3 hours checked every query
-          description: >-
-            Rotations will not be followed. Usually no canary page loads (dead
-            page, blocked tier), the probes are blocked (every check
-            inconclusive), the canary pages lack posts with comments or reply
-            threads, or registry_sync.canary_pages is empty.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#registry-stale-doc_id-rotated
+            Stale with no working variant (TikTok may have moved the call,
+            T25), or drift (the parser needs a fix). tks-canary's runs have
+            the details.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-canary.md#an-operation-is-failing
       - alert: TksSchemaDrift
         expr: tks:parse_drift_ratio:rate15m > 0.05
         for: 15m
@@ -178,12 +163,12 @@ groups:
         annotations:
           summary: "{{ $labels.query }}: {{ $value | humanizePercentage }} of responses miss required fields"
           description: >-
-            Facebook changed the response shape. Raw failing responses are in
-            the raw bucket under raw-failures/<query>/.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#schema-drift
+            TikTok changed the answer's shape. Raw failing answers are in the
+            raw bucket (tt.capture_raw: failures).
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#schema-drift
 
       - alert: TksOptionalFieldDrift
-        # Facebook renamed or dropped a field the parser treats as
+        # TikTok renamed or dropped a field the parser treats as
         # optional: nothing fails, but the data loses it silently. Fires
         # when a field goes missing far more often than a week before, or
         # goes missing in many responses when it was never missing a week
@@ -200,10 +185,10 @@ groups:
         annotations:
           summary: "{{ $labels.query }}: optional field {{ $labels.field }} missing in {{ $value | humanizePercentage }} of responses"
           description: >-
-            Compared with a week ago. Look at captured responses (fbctl replay
-            --prefix raw with capture_raw: all, or the fixtures) and add the
-            field's new path to the parser.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#schema-drift
+            Compared with a week ago. Look at captured answers (the raw bucket,
+            with tt.capture_raw: all for a while) and add the field's new path
+            to the parser (internal/tt/parse).
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#schema-drift
       - alert: TksShadowParserDiffers
         expr: |
           sum by (query) (rate(tks_parse_shadow_total{outcome!="same"}[1h]))
@@ -212,8 +197,8 @@ groups:
         labels: {severity: info}
         annotations:
           summary: "{{ $labels.query }}: the candidate parser disagrees on {{ $value | humanizePercentage }} of sampled responses"
-          description: The differing responses are captured under raw-failures/shadow-<query>/; replay them (fbctl replay --query shadow-<query>) before promoting the candidate.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#schema-drift
+          description: The differing answers are captured in the raw bucket; compare them before promoting the candidate.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#schema-drift
 
   - name: tks.pipeline
     rules:
@@ -222,13 +207,13 @@ groups:
         for: 5m
         labels: {severity: critical}
         annotations:
-          summary: No fbs-scheduler holds the leader lock
+          summary: No tks-scheduler holds the leader lock
           description: >-
-            Nothing plans scheduled jobs, finalises jobs, runs AIMD or the
-            budget. Check the scheduler pods and their Postgres connection.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#stuck-jobs
+            Nothing plans scheduled checks, admits new accounts, finalises jobs,
+            runs AIMD, the budget or the cost meter. Check the scheduler pods and their Postgres connection.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#stuck-jobs
       - alert: TksOnDemandLag
-        expr: max by (group, topic) (tks:leader:kafka_consumer_lag{group=~"tks-crawler-.*-p0"}) > 500
+        expr: max by (group, topic) (tks:leader:kafka_consumer_lag{group=~"tks-tt-crawler-.*-p0"}) > 500
         for: 10m
         labels: {severity: warning}
         annotations:
@@ -236,15 +221,15 @@ groups:
           description: >-
             On-demand work waits. KEDA should be scaling the stage; check its
             max replicas, the lane slots and the AIMD ceiling.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#kafka-lag
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#kafka-lag
       - alert: TksPersisterLag
-        expr: max by (topic) (tks:leader:kafka_consumer_lag{group="tks-persister"}) > 50000
+        expr: max by (topic) (tks:leader:kafka_consumer_lag{group="tks-tt-persister"}) > 50000
         for: 15m
         labels: {severity: warning}
         annotations:
           summary: "The persister is {{ $value }} records behind on {{ $labels.topic }}"
           description: Results reach Postgres late. Check tks_persist_batch_seconds and the database.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#kafka-lag
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#kafka-lag
       - alert: TksPersisterQuarantine
         expr: sum by (entity, reason) (increase(tks_persist_quarantined_total[1h])) > 0
         for: 5m
@@ -252,10 +237,9 @@ groups:
         annotations:
           summary: "The persister set aside {{ $value }} {{ $labels.entity }} records in an hour ({{ $labels.reason }})"
           description: >-
-            Records it could not write are in the quarantine topic. Read the
-            log lines for their SQLSTATE, fix the cause, then replay them with
-            fbctl dlq replay --topic fbs.persist.dlq.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#persister-quarantine
+            Records it could not write are in tks.persist.dlq (kept 7 days).
+            Read the log lines for their SQLSTATE and fix the cause.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#persister-quarantine
       - alert: TksHandlerPanics
         expr: sum by (group) (increase(tks_kafka_handler_panics_total[10m])) > 0
         for: 5m
@@ -267,15 +251,15 @@ groups:
             it (its lag grows). The handler's log line "kafka: handler
             panicked" names the topic, partition and offset and has the stack.
             Fix the bug; the record goes through once it no longer panics.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#kafka-lag
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#kafka-lag
       - alert: TksDLQGrowing
         expr: sum by (stage, reason) (increase(tks_dlq_total[1h])) > 100
         for: 15m
         labels: {severity: warning}
         annotations:
           summary: "{{ $value }} {{ $labels.stage }} tasks dead-lettered in an hour ({{ $labels.reason }})"
-          description: Fix the cause, then replay with fbctl dlq replay --reason <reason>.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#stuck-jobs
+          description: The tasks are in tks.task.dlq (kept 14 days). Fix the cause; the next scheduled check reads the account again.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#stuck-jobs
       - alert: TksJobsFailing
         expr: |
           sum(rate(tks_jobs_total{status="failed"}[30m]))
@@ -285,7 +269,7 @@ groups:
         annotations:
           summary: "{{ $value | humanizePercentage }} of jobs fail"
           description: Look at the failed jobs' error and the request classes of their queries.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#stuck-jobs
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#stuck-jobs
       - alert: TksAPIErrors
         expr: |
           sum(rate(tks_api_requests_total{code=~"5.."}[5m]))
@@ -295,7 +279,7 @@ groups:
         annotations:
           summary: "{{ $value | humanizePercentage }} of API requests fail with 5xx"
           description: Check the API logs and the read replica.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#key-signals
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#key-signals
 
   - name: tks.coverage
     rules:
@@ -304,12 +288,11 @@ groups:
         for: 30m
         labels: {severity: warning}
         annotations:
-          summary: "Scheduled pages of {{ $labels.tier }} are {{ $value | humanizeDuration }} overdue"
+          summary: "Scheduled accounts of {{ $labels.tier }} are {{ $value | humanizeDuration }} overdue"
           description: >-
-            The crawl capacity does not keep up with the schedule (or the
-            budget stretches it). Add crawler capacity or move pages to slower
-            tiers.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#schedule-and-tiers
+            The crawl capacity does not keep up with the schedule. Add crawler
+            capacity (IPs, signer pages) or look at the budget.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#schedule-lag
       - alert: TksCommentCompletenessLow
         expr: tks:comment_completeness:p50_1h < 0.8
         for: 2h
@@ -317,9 +300,9 @@ groups:
         annotations:
           summary: "Median comment completeness is {{ $value | humanizePercentage }}"
           description: >-
-            Posts end with fewer comments than Facebook reports. Compare
-            orderings, look for login walls (timelines_truncated) and drift.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#key-signals
+            Posts end with fewer comments than TikTok's comment count. Look at
+            refused signed calls (TksSignedCallsRefused), walls and drift.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#key-signals
       - alert: TksDeletionChecksSkipped
         expr: |
           sum(rate(tks_deletion_checks_total{outcome=~"skipped_.*"}[6h]))
@@ -331,9 +314,9 @@ groups:
           summary: "{{ $value | humanizePercentage }} of full comment reads look partial; deletions are not being detected"
           description: >-
             Full reads of known posts do not account for the comment count
-            Facebook gives, so their posts are not checked for deleted
-            comments. Facebook is likely serving partial comment lists.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#comment-edits-and-deletions
+            TikTok gives, so their posts are not checked for deleted comments.
+            TikTok is likely serving partial comment lists.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#key-signals
       - alert: TksBudgetOverrun
         expr: |
           max by (kind) (tks:leader:budget_projected)
@@ -344,25 +327,17 @@ groups:
         annotations:
           summary: "The day's projected {{ $labels.kind }} exceed the budget by more than 10%"
           description: >-
-            On-demand and scheduled traffic alone overrun the budget, even with
-            backfill paused and slow tiers stretched.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#daily-budget
+            On-demand and scheduled traffic alone overrun the request or byte
+            budget, even with backfill paused (tks stretches no tier).
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-objectives.md#a5-cost-per-account-per-day
       - alert: TksBackfillPausedLong
         expr: tks:leader:budget_backfill_paused == 1
         for: 12h
         labels: {severity: info}
         annotations:
           summary: The budget has held backfill back for 12 hours
-          description: Backfills of new pages make no progress. Raise the budget or reduce scheduled work.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#daily-budget
-      - alert: TksMediaTTLExpiries
-        expr: sum(increase(tks_media_deleted_total{reason="ttl_expired"}[1h])) > 0
-        for: 1h
-        labels: {severity: warning}
-        annotations:
-          summary: Media is deleted at its TTL before the analysis service acknowledged it
-          description: The analysis service is not keeping up with fb.media.ready.v1, or its acks do not arrive.
-          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/operations.md#media-backlog--ttl-expiries
+          description: Backfills of new accounts make no progress, and no account is admitted. Raise the budget or reduce scheduled work.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-objectives.md#a5-cost-per-account-per-day
 
   # tks's service objectives (docs/tiktok build brief §8): A1, the scheduled
   # checks that succeed; A2, the delay before a new post is stored. Measured

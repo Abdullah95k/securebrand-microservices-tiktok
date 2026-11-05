@@ -523,8 +523,15 @@ type BrowserConfig struct {
 // environment once, and signs every call with them in place of the
 // identity's (PageQuery).
 func BrowserOpener(c BrowserConfig) Opener {
-	binary, noSandbox, acceptLanguage, callTimeout := c.Binary, c.NoSandbox, c.AcceptLanguage, c.CallTimeout
+	noSandbox, acceptLanguage, callTimeout := c.NoSandbox, c.AcceptLanguage, c.CallTimeout
+	// An empty Binary (tt.browser.binary's default) is found as the
+	// bootstrap fallback finds it: $TKS_BROWSER_BINARY (the browser
+	// image's), then PATH.
+	binary, findErr := browser.FindBinary(c.Binary)
 	return func(ctx context.Context, id *session.Identity, pageURL string) (Page, error) {
+		if findErr != nil {
+			return nil, fmt.Errorf("sign: %w", findErr)
+		}
 		var proxyURL *url.URL
 		if id.Endpoint.URL != "" {
 			u, err := url.Parse(id.Endpoint.URL)

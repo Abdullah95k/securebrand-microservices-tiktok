@@ -1,30 +1,31 @@
-# Local stack: infrastructure + every fbs service + fakefb.
-#   make compose-up        build the image and start everything
+# Local stack: infrastructure + every tks service + fakett (a synthetic
+# TikTok). It never reaches TikTok.
+#   make compose-up        build the images and start everything
 #   make compose-down
 # Ports are published on 127.0.0.1 only: the passwords are the defaults,
 # and Docker's published ports go around a host firewall.
-# The crawler points at fakefb (a synthetic Facebook). To try real Facebook
-# set TKS_FB__BASE_URL=https://www.facebook.com and configure proxies in
-# deploy/compose/local.yaml first (see docs/runbooks/phase0-spike.md).
-name: fbs
+# fakett refuses unsigned comment and reply calls, as TikTok does, so the
+# crawler (the browser image) signs them in its signer pages, as in
+# production (build brief D11).
+name: tks
 
-x-fbs: &fbs
-  image: ${TKS_IMAGE:-fbs:dev}
+x-tks: &tks
+  image: ${TKS_IMAGE:-tks:dev}
   restart: unless-stopped
   # A stop lets in-flight work finish and commits it (the crawler drains for
   # up to 75s); Docker's default 10s would kill it mid-drain and every task
   # running would be redone.
   stop_grace_period: 100s
-  environment: &fbs-env
-    TKS_CONFIG: /etc/fbs/local.yaml
-    TKS_POSTGRES__DSN: postgres://fbs:fbs@postgres:5432/fbs?sslmode=disable
+  environment: &tks-env
+    TKS_CONFIG: /etc/tks/local.yaml
+    TKS_POSTGRES__DSN: postgres://tks:tks@postgres:5432/tks?sslmode=disable
     TKS_REDIS__ADDR: valkey:6379
     TKS_KAFKA__BROKERS: redpanda:9092
     TKS_KAFKA__SCHEMA_REGISTRY__URL: http://redpanda:8081
     TKS_S3__ENDPOINT: s3:9000
-    TKS_FB__BASE_URL: ${TKS_FB_BASE_URL:-http://fakefb:8090}
+    TKS_TT__BASE_URL: http://fakett:8090
   volumes:
-    - ./local.yaml:/etc/fbs/local.yaml:ro
+    - ./local.yaml:/etc/tks/local.yaml:ro
   depends_on:
     init: {condition: service_completed_successfully}
     topics: {condition: service_completed_successfully}
@@ -33,9 +34,9 @@ x-fbs: &fbs
 services:
   postgres:
     image: postgres:18-alpine
-    environment: {POSTGRES_USER: fbs, POSTGRES_PASSWORD: fbs, POSTGRES_DB: fbs}
+    environment: {POSTGRES_USER: tks, POSTGRES_PASSWORD: tks, POSTGRES_DB: tks}
     ports: ["127.0.0.1:5432:5432"]
-    healthcheck: {test: ["CMD", "pg_isready", "-U", "fbs"], interval: 2s, retries: 30}
+    healthcheck: {test: ["CMD", "pg_isready", "-U", "tks"], interval: 2s, retries: 30}
     volumes: [pgdata:/var/lib/postgresql]
 
   redpanda:
@@ -56,71 +57,70 @@ services:
   # In-memory S3 for development. Swap for MinIO/SeaweedFS/AWS S3 by changing
   # TKS_S3__ENDPOINT and credentials.
   s3:
-    image: ${TKS_IMAGE:-fbs:dev}
+    image: ${TKS_IMAGE:-tks:dev}
     entrypoint: ["/usr/local/bin/devs3", "--addr", ":9000"]
     ports: ["127.0.0.1:9000:9000"]
 
-  fakefb:
-    image: ${TKS_IMAGE:-fbs:dev}
-    entrypoint: ["/usr/local/bin/fakefb", "--addr", ":8090", "--pages", "5", "--posts", "30"]
+  fakett:
+    image: ${TKS_IMAGE:-tks:dev}
+    entrypoint: ["/usr/local/bin/fakett", "--addr", ":8090", "--accounts", "5", "--posts", "30", "--require-signature"]
     ports: ["127.0.0.1:8090:8090"]
 
   init:
-    image: ${TKS_IMAGE:-fbs:dev}
-    environment: *fbs-env
+    image: ${TKS_IMAGE:-tks:dev}
+    environment: *tks-env
     volumes:
-      - ./local.yaml:/etc/fbs/local.yaml:ro
-    entrypoint: ["/usr/local/bin/fbctl", "migrate", "up"]
+      - ./local.yaml:/etc/tks/local.yaml:ro
+    entrypoint: ["/usr/local/bin/tksctl", "migrate", "up"]
     depends_on:
       postgres: {condition: service_healthy}
       redpanda: {condition: service_healthy}
 
   topics:
-    image: ${TKS_IMAGE:-fbs:dev}
-    environment: *fbs-env
+    image: ${TKS_IMAGE:-tks:dev}
+    environment: *tks-env
     volumes:
-      - ./local.yaml:/etc/fbs/local.yaml:ro
-    entrypoint: ["/usr/local/bin/fbctl", "kafka", "apply", "--partitions-cap", "3", "--replicas", "1"]
+      - ./local.yaml:/etc/tks/local.yaml:ro
+    entrypoint: ["/usr/local/bin/tksctl", "kafka", "apply", "--partitions-cap", "3", "--replicas", "1"]
     depends_on:
       redpanda: {condition: service_healthy}
 
   schemas:
-    image: ${TKS_IMAGE:-fbs:dev}
-    environment: *fbs-env
+    image: ${TKS_IMAGE:-tks:dev}
+    environment: *tks-env
     volumes:
-      - ./local.yaml:/etc/fbs/local.yaml:ro
-    entrypoint: ["/usr/local/bin/fbctl", "schemas", "apply"]
+      - ./local.yaml:/etc/tks/local.yaml:ro
+    entrypoint: ["/usr/local/bin/tksctl", "schemas", "apply"]
     depends_on:
       redpanda: {condition: service_healthy}
 
   api:
-    <<: *fbs
-    entrypoint: ["/usr/local/bin/fbs-api"]
+    <<: *tks
+    entrypoint: ["/usr/local/bin/tks-api"]
     ports: ["127.0.0.1:8080:8080"]
 
   scheduler:
-    <<: *fbs
-    entrypoint: ["/usr/local/bin/fbs-scheduler"]
+    <<: *tks
+    entrypoint: ["/usr/local/bin/tks-scheduler"]
 
+  # Every stage in one process, with Chromium for the signer's pages.
   crawler:
-    <<: *fbs
-    entrypoint: ["/usr/local/bin/fbs-crawler", "--stages", "page,post,thread,retry"]
+    <<: *tks
+    image: ${TKS_BROWSER_IMAGE:-tks:dev-browser}
+    entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/tks-crawler", "--stages", "account,post,thread,retry"]
 
   persister:
-    <<: *fbs
-    entrypoint: ["/usr/local/bin/fbs-persister"]
+    <<: *tks
+    entrypoint: ["/usr/local/bin/tks-persister"]
 
   media-downloader:
-    <<: *fbs
-    entrypoint: ["/usr/local/bin/fbs-media-downloader"]
+    <<: *tks
+    entrypoint: ["/usr/local/bin/tks-media-downloader"]
 
-  media-janitor:
-    <<: *fbs
-    entrypoint: ["/usr/local/bin/fbs-media-janitor"]
-
-  registry-sync:
-    <<: *fbs
-    entrypoint: ["/usr/local/bin/fbs-registry-sync"]
+  canary:
+    <<: *tks
+    image: ${TKS_BROWSER_IMAGE:-tks:dev-browser}
+    entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/tks-canary"]
 
 volumes:
   pgdata: {}

@@ -2,12 +2,12 @@
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  name: {{ include "fbs.fullname" . }}
-  labels: {{- include "fbs.labels" . | nindent 4 }}
+  name: {{ include "tks.fullname" . }}
+  labels: {{- include "tks.labels" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: fbs
+      app.kubernetes.io/name: tks
       app.kubernetes.io/instance: {{ .Release.Name }}
   podMetricsEndpoints:
     - port: metrics
