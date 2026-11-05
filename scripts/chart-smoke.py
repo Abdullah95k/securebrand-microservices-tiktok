@@ -99,7 +99,10 @@ def docker_args(name, alias, pod, container, configmaps, secret_env, network):
         if "configMap" in v:
             a += ["-v", f"{configmaps[v['configMap']['name']]}:{m['mountPath']}:ro"]
         elif "emptyDir" in v:
-            a += ["--tmpfs", f"{m['mountPath']}:uid={psc.get('runAsUser', 0)},gid={psc.get('fsGroup', 0)}"]
+            # An emptyDir is not mounted noexec in Kubernetes; Docker's
+            # tmpfs is by default, and Chromium (--disable-dev-shm-usage)
+            # keeps its shared memory there.
+            a += ["--tmpfs", f"{m['mountPath']}:exec,uid={psc.get('runAsUser', 0)},gid={psc.get('fsGroup', 0)}"]
         else:
             raise SystemExit(f"{name}: volume {m['name']} has no Docker equivalent here: {v}")
     for p in container.get("ports") or []:
@@ -209,6 +212,26 @@ def main():
             print(f"hook {name}: exit {code}")
             if code != "0":
                 raise SystemExit(f"hook {name} failed:\n{logs[-3000:]}")
+
+        # Chromium in the signer's container, as the pod runs it: a render
+        # that fails here says why, where the signer only counts errors.
+        for d in deployments:
+            pod = d["spec"]["template"]["spec"]
+            c = pod["containers"][0]
+            if not args.browser_image or not c["image"].endswith(":" + args.browser_image.rpartition(":")[2]):
+                continue
+            a = docker_args("chromium-check", "chromium-check", pod, c, configmaps, secret_env, args.network)
+            a = a[:a.index("--entrypoint")]
+            a = [x for x in a if x != "-d"]
+            a[a.index("run") + 1:a.index("run") + 1] = ["--rm"]
+            r = sh(*[x for x in a if not x.startswith("127.0.0.1::") and x != "-p"], "--entrypoint", "/usr/bin/chromium",
+                   c["image"], "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+                   "--dump-dom", "data:text/html,<p>chromium-ok</p>", check=False, timeout=120)
+            if "chromium-ok" not in r.stdout:
+                raise SystemExit(f"Chromium does not render in {d['metadata']['name']}'s container "
+                                 f"(exit {r.returncode}):\n{r.stdout[-2000:]}\n{r.stderr[-4000:]}")
+            print(f"chromium renders in {d['metadata']['name']}'s container")
+            break
 
         for d in deployments:
             name = d["metadata"]["name"]
