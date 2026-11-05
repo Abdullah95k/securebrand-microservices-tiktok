@@ -11,6 +11,12 @@
 //	tks-spike phase0 --accounts phase0/tt-accounts-all.txt --config phase0/proxies.yaml --tiers isp
 //	tks-spike signers --dry-run                                   # rehearse against fakett
 //	tks-spike signers --accounts phase0/tt-accounts-all.txt --config phase0/proxies.yaml --tier isp
+//	tks-spike discover --dry-run                                  # rehearse against fakett
+//	tks-spike discover --accounts phase0/tt-accounts-all.txt --config phase0/proxies.yaml --tier isp
+//
+// discover (checkpoint C6, docs/runbooks/tks-discovery-probe.md) reads
+// TikTok's discovery pages and calls under caps: search, hashtags,
+// sounds, the feed, related posts, following and followers lists.
 package main
 
 import (
@@ -53,6 +59,8 @@ func main() {
 		os.Exit(runPhase0(os.Args[2:]))
 	case "signers":
 		os.Exit(runSigners(os.Args[2:]))
+	case "discover":
+		os.Exit(runDiscover(os.Args[2:]))
 	case "browser-check":
 		os.Exit(browserCheck())
 	case "version", "--version":
@@ -69,6 +77,8 @@ func usage() {
        tks-spike phase0 --dry-run
        tks-spike signers --accounts FILE --config FILE --tier isp [flags]
        tks-spike signers --dry-run
+       tks-spike discover --accounts FILE --config FILE --tier isp [flags]
+       tks-spike discover --dry-run
        tks-spike browser-check
 
 probe loads each account's page and reads it with the logged-out web API,
@@ -84,6 +94,10 @@ signers compares signer browsers (Lightpanda, chrome-headless-shell,
 Chrome), each presenting itself as itself: whether TikTok answers the
 comment calls each signs, and each one's memory, CPU and proxy data, under
 a memory guard (run it with make tks-signers, which also caps its memory).
+discover reads TikTok's discovery pages and calls (search, hashtags, sounds,
+the For You feed, related posts, following and followers lists, short links)
+under caps, and writes calls.jsonl, report.txt and a bundle whose raw/ holds
+TikTok's answers (personal data: send it through your Drive only).
 browser-check reports whether a Chromium for --signer browser is installed.
 `)
 	os.Exit(2)

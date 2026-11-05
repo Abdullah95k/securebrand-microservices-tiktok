@@ -1,0 +1,119 @@
+# The discovery calls the C6 probe tries (docs/tiktok/discovery-plan.md §8,
+# §9), in the crawler seed's format (configs/tt/operations.seed.yaml); the
+# client params are the crawler's. Not in the crawler's registry: M12 and
+# M13 move the ones C6 confirms there, with their parsers.
+#
+# Search and the For You feed are as the owner's recording of 2026-11-04
+# shows them (docs/tiktok/har-findings-search-2026-11-04.md §2, §4): signed
+# by TikTok's script, so their seed variant is "web-signed". The others
+# are hypotheses from public sources (T36): their seed variant is unsigned
+# and the probe tries each one's signed twin too. Null values are left out
+# of the query.
+queries:
+  - name: search_general
+    doc_id: web-signed
+    method: GET
+    endpoint: /api/search/general/full/
+    parser: search
+    priority: 10
+    variables:
+      keyword: "{{keyword}}"
+      offset: "{{offset}}"
+      cursor: "{{offset}}"
+      count: "12"
+      search_source: normal_search
+      search_id: "{{search_id}}"
+      is_non_personalized_search: "0"
+      from_page: search
+  - name: search_user
+    doc_id: web
+    method: GET
+    endpoint: /api/search/user/full/
+    parser: search
+    priority: 10
+    variables:
+      keyword: "{{keyword}}"
+      cursor: "{{offset}}"
+      search_id: "{{search_id}}"
+      from_page: search
+  - name: challenge_detail
+    doc_id: web
+    method: GET
+    endpoint: /api/challenge/detail/
+    parser: detail
+    priority: 10
+    variables:
+      challengeName: "{{name}}"
+  - name: challenge_list
+    doc_id: web
+    method: GET
+    endpoint: /api/challenge/item_list/
+    parser: items
+    priority: 10
+    variables:
+      challengeID: "{{id}}"
+      count: "30"
+      cursor: "{{offset}}"
+      coverFormat: "2"
+  - name: music_detail
+    doc_id: web
+    method: GET
+    endpoint: /api/music/detail/
+    parser: detail
+    priority: 10
+    variables:
+      musicId: "{{id}}"
+  - name: music_list
+    doc_id: web
+    method: GET
+    endpoint: /api/music/item_list/
+    parser: items
+    priority: 10
+    variables:
+      musicID: "{{id}}"
+      count: "30"
+      cursor: "{{offset}}"
+      coverFormat: "2"
+  - name: recommend_list
+    doc_id: web-signed
+    method: GET
+    endpoint: /api/recommend/item_list/
+    parser: items
+    priority: 10
+    variables:
+      count: "12"
+      from_page: fyp
+      pullType: "{{pull}}"
+  - name: related_list
+    doc_id: web
+    method: GET
+    endpoint: /api/related/item_list/
+    parser: items
+    priority: 10
+    variables:
+      itemID: "{{item_id}}"
+      count: "16"
+  # Following (scene 21) and followers (scene 67), as public sources give
+  # them; minCursor pages back (T36).
+  - name: user_list
+    doc_id: web
+    method: GET
+    endpoint: /api/user/list/
+    parser: users
+    priority: 10
+    variables:
+      secUid: "{{sec_uid}}"
+      scene: "{{scene}}"
+      count: "30"
+      minCursor: "{{offset}}"
+      maxCursor: "0"
+  - name: repost_list
+    doc_id: web
+    method: GET
+    endpoint: /api/repost/item_list/
+    parser: items
+    priority: 10
+    variables:
+      secUid: "{{sec_uid}}"
+      count: "16"
+      cursor: "{{offset}}"
