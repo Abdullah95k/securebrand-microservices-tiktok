@@ -97,7 +97,7 @@ type Follow struct {
 	FollowerCount  *int64 `protobuf:"varint,7,opt,name=follower_count,json=followerCount,proto3,oneof" json:"follower_count,omitempty"`
 	FollowingCount *int64 `protobuf:"varint,8,opt,name=following_count,json=followingCount,proto3,oneof" json:"following_count,omitempty"`
 	// The page of the read it was on (0: the list's first page) and its place
-	// on that page: TikTok serves the newest first (T40).
+	// on that page: TikTok serves the newest first (T41).
 	Page          int32 `protobuf:"varint,9,opt,name=page,proto3" json:"page,omitempty"`
 	Position      int32 `protobuf:"varint,10,opt,name=position,proto3" json:"position,omitempty"`
 	unknownFields protoimpl.UnknownFields

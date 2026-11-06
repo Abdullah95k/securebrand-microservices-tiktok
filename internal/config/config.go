@@ -317,7 +317,7 @@ type Discovery struct {
 // and followers list are read, each read taking the newest people down to
 // those already stored, then going deeper from where the last read
 // stopped, up to MaxPages. How deep a large account's list goes logged out
-// is still open (T40): MaxPages and DayPages are the caps.
+// is still open (T41): MaxPages and DayPages are the caps.
 type FollowLists struct {
 	// FollowingEvery and FollowersEvery: how often each list is read (a
 	// week and a day, discovery-plan §9). A read that failed is tried again

@@ -315,7 +315,7 @@ tt:
     # people down to those already stored (known_pages in a row with nobody
     # new), then goes deeper from where the last read stopped, up to
     # max_pages; day_pages caps all reads in a UTC day (0: no cap). How deep
-    # a large account's list goes logged out is still open (T40).
+    # a large account's list goes logged out is still open (T41).
     follows:
       following_every: 168h   # a week
       followers_every: 24h    # a day
