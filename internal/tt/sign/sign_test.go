@@ -46,10 +46,17 @@ func (p *fakePage) Sign(ctx context.Context, raw string) (string, error) {
 	if p.fail.Load() {
 		return "", errors.New("page broke")
 	}
-	select {
-	case <-time.After(p.hold):
-	case <-ctx.Done():
-		return "", ctx.Err()
+	// A page closed while it signs (the guard) ends the call, as a closed
+	// browser.Session does.
+	for end := time.Now().Add(p.hold); time.Now().Before(end); {
+		select {
+		case <-time.After(min(10*time.Millisecond, time.Until(end))):
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+		if p.closed.Load() {
+			return "", errors.New("closed")
+		}
 	}
 	return raw + "&X-Gnarly=page" + string(rune('0'+p.n)), nil
 }
@@ -82,6 +89,22 @@ func (o *opener) open(_ context.Context, _ *session.Identity, pageURL string) (s
 	p := &fakePage{n: len(o.pages), url: pageURL, fail: &o.fail, busy: &o.busy, most: &o.most, hold: o.hold, stuck: o.stuck}
 	o.pages = append(o.pages, p)
 	return p, nil
+}
+
+// page returns the i-th page opened, once it is.
+func (o *opener) page(t *testing.T, i int) *fakePage {
+	t.Helper()
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		o.mu.Lock()
+		if i < len(o.pages) {
+			p := o.pages[i]
+			o.mu.Unlock()
+			return p
+		}
+		o.mu.Unlock()
+	}
+	t.Fatalf("page %d never opened", i)
+	return nil
 }
 
 func identity(ua string) *session.Identity {

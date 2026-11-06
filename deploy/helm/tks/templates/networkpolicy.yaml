@@ -5,10 +5,13 @@ metadata:
   name: {{ include "tks.fullname" . }}-ingress
   labels: {{- include "tks.labels" . | nindent 4 }}
 spec:
+  # Every component but tks-signer, which has its own policy below.
   podSelector:
     matchLabels:
       app.kubernetes.io/name: tks
       app.kubernetes.io/instance: {{ .Release.Name }}
+    matchExpressions:
+      - {key: app.kubernetes.io/component, operator: NotIn, values: [signer]}
   policyTypes: [Ingress]
   ingress:
     - from:
@@ -20,4 +23,34 @@ spec:
       from:
         - podSelector: {}
         - namespaceSelector: {}
+{{- if .Values.components.signer.enabled }}
+---
+# tks-signer (M9d): only the crawlers and the canary may ask it to sign.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "tks.fullname" . }}-signer
+  labels: {{- include "tks.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "tks.selector" (dict "root" . "name" "signer") | nindent 6 }}
+  policyTypes: [Ingress{{ if .Values.networkPolicy.signerEgress }}, Egress{{ end }}]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.metricsFromNamespace }}
+      ports: [{port: 9090}]
+    - ports: [{port: {{ .Values.components.signer.port }}}]
+      from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tks
+              app.kubernetes.io/instance: {{ .Release.Name }}
+            matchExpressions:
+              - {key: app.kubernetes.io/component, operator: In, values: [crawler-post, crawler-thread, canary]}
+  {{- with .Values.networkPolicy.signerEgress }}
+  egress: {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
 {{- end }}

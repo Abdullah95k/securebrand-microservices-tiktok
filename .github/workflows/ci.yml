@@ -100,15 +100,15 @@ jobs:
           helm template tks deploy/helm/tks --set keda.enabled=false,api.ingress.enabled=true,networkPolicy.enabled=true > /dev/null
           helm template tks deploy/helm/tks --set alerts.enabled=true,dashboards.enabled=true,serviceMonitor.enabled=true > /tmp/monitoring.yaml
           grep -q "kind: PrometheusRule" /tmp/monitoring.yaml && grep -q "tks-overview.json" /tmp/monitoring.yaml
-          # The signer's crawlers and the canary run the browser image, the rest the default one.
+          # Only tks-signer runs the browser image (M9d), the rest the default one.
           helm template tks deploy/helm/tks --set image.tag=t,image.browserTag=tb > /tmp/images.yaml
-          test "$(grep -c 'image: "ghcr.io/abdullah95k/tks:tb"' /tmp/images.yaml)" = 3
+          test "$(grep -c 'image: "ghcr.io/abdullah95k/tks:tb"' /tmp/images.yaml)" = 1
       - name: Docker build
         run: |
           docker build -f deploy/docker/Dockerfile -t tks:ci .
           docker build -f deploy/docker/Dockerfile --target browser -t tks:ci-browser .
           docker run --rm --entrypoint chromium tks:ci-browser --version
-      - name: Chart smoke run (the chart's workloads in Docker against fakett, signed by Chromium)
+      - name: Chart smoke run (the chart's workloads in Docker against fakett, signed by tks-signer's Chromium)
         run: |
           python3 -c 'import yaml' 2>/dev/null || sudo apt-get install -y python3-yaml
           make infra-up

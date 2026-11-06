@@ -4,9 +4,9 @@
 #   make compose-down
 # Ports are published on 127.0.0.1 only: the passwords are the defaults,
 # and Docker's published ports go around a host firewall.
-# fakett refuses unsigned comment and reply calls, as TikTok does, so the
-# crawler (the browser image) signs them in its signer pages, as in
-# production (build brief D11).
+# fakett refuses unsigned comment and reply calls, as TikTok does, so
+# tks-signer (the browser image) signs them in its pages for the crawler and
+# the canary, as in production (build brief D11, M9d).
 name: tks
 
 x-tks: &tks
@@ -24,6 +24,8 @@ x-tks: &tks
     TKS_KAFKA__SCHEMA_REGISTRY__URL: http://redpanda:8081
     TKS_S3__ENDPOINT: s3:9000
     TKS_TT__BASE_URL: http://fakett:8090
+    TKS_TT__SIGNER__MODE: remote
+    TKS_TT__SIGNER__REMOTE_URL: http://signer:8080
   volumes:
     - ./local.yaml:/etc/tks/local.yaml:ro
   depends_on:
@@ -103,11 +105,18 @@ services:
     <<: *tks
     entrypoint: ["/usr/local/bin/tks-scheduler"]
 
-  # Every stage in one process, with Chromium for the signer's pages.
+  # Every stage in one process; tks-signer signs its comment and reply calls.
   crawler:
     <<: *tks
+    entrypoint: ["/usr/local/bin/tks-crawler", "--stages", "account,post,thread,retry"]
+
+  # The signer's Chromium pages, capped as the chart caps them.
+  signer:
+    <<: *tks
     image: ${TKS_BROWSER_IMAGE:-tks:dev-browser}
-    entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/tks-crawler", "--stages", "account,post,thread,retry"]
+    entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/tks-signer"]
+    mem_limit: 2g
+    cpus: 1
 
   persister:
     <<: *tks
@@ -119,8 +128,7 @@ services:
 
   canary:
     <<: *tks
-    image: ${TKS_BROWSER_IMAGE:-tks:dev-browser}
-    entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/tks-canary"]
+    entrypoint: ["/usr/local/bin/tks-canary"]
 
 volumes:
   pgdata: {}

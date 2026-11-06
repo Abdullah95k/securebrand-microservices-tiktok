@@ -10,8 +10,8 @@ One Dockerfile (`deploy/docker/Dockerfile`), two images, every binary in both:
 
 | Image | Build | Used by |
 |---|---|---|
-| default (distroless, static binaries) | `docker build -f deploy/docker/Dockerfile -t tks:dev .` | `tks-api`, `tks-scheduler`, `tks-crawler --stages account` and `retry`, `tks-persister`, `tks-media-downloader`, the hooks (`tksctl`), `fakett`, `devs3` |
-| browser (Debian with Chromium) | `docker build -f deploy/docker/Dockerfile --target browser -t tks:dev-browser .` | `tks-crawler --stages post` and `thread` (the signer's pages sign comments and replies: D11) and `tks-canary` |
+| default (distroless, static binaries) | `docker build -f deploy/docker/Dockerfile -t tks:dev .` | `tks-api`, `tks-scheduler`, every `tks-crawler` stage, `tks-persister`, `tks-media-downloader`, `tks-canary`, the hooks (`tksctl`), `fakett`, `devs3` |
+| browser (Debian with Chromium) | `docker build -f deploy/docker/Dockerfile --target browser -t tks:dev-browser .` | `tks-signer` only: its pages sign the comment and reply calls (D11, M9d) |
 
 `make docker` builds both (`IMAGE`, `BROWSER_IMAGE`). The release publishes both tags of one repository; the chart's `image.tag` and `image.browserTag` pick them.
 
@@ -24,12 +24,13 @@ One Dockerfile (`deploy/docker/Dockerfile`), two images, every binary in both:
 | `api` | `tks-api` | default | Service on port 80 |
 | `scheduler` | `tks-scheduler` | default | 2 replicas, one leader |
 | `crawler-account` | `tks-crawler --stages account` | default | Post lists, metrics, account refresh (plain HTTP) |
-| `crawler-post` | `tks-crawler --stages post` | browser | Comments, signed |
-| `crawler-thread` | `tks-crawler --stages thread` | browser | Replies, signed |
+| `crawler-post` | `tks-crawler --stages post` | default | Comments, signed by tks-signer |
+| `crawler-thread` | `tks-crawler --stages thread` | default | Replies, signed by tks-signer |
 | `crawler-retry` | `tks-crawler --stages retry` | default | The retry relays |
 | `persister` | `tks-persister` | default | |
 | `media-downloader` | `tks-media-downloader` | default | Idle while `tt.media.include` is false (D5); no janitor: another service deletes files |
-| `canary` | `tks-canary` | browser | Needs `TKS_TT__CANARY__ACCOUNTS` |
+| `canary` | `tks-canary` | default | Needs `TKS_TT__CANARY__ACCOUNTS`; signs through tks-signer |
+| `signer` | `tks-signer` | browser | The signer's pages in their own capped pod; Service on port 8080 for the crawlers and the canary only ([below](#the-signer-service)) |
 
 What the release namespace needs before `helm install`:
 
@@ -58,15 +59,41 @@ and an API key (printed once):
 kubectl exec deploy/tks-api -- /usr/local/bin/tksctl apikey create --name <client> --scopes jobs:write,accounts:write,data:read
 ```
 
-Settings the chart's values fix for tks (checked by `internal/config/deploy_test.go`): TikTok through the ISP tier, the browser signer on with Chromium's sandbox off (pods drop every capability), media downloads off (D5), and **`scheduler.budget.stretch_tiers: []`**: over a budget only backfills pause, checks keep their 2 h 45 min (owner, 2026-11-05). The dollar budget itself is `tt.cost.budget_per_account_usd` ([`tks-objectives.md`](tks-objectives.md#a5-cost-per-account-per-day)).
+Settings the chart's values fix for tks (checked by `internal/config/deploy_test.go`): TikTok through the ISP tier, the browser signer on in tks-signer (`tt.signer.mode: remote`) with Chromium's sandbox off (pods drop every capability), media downloads off (D5), and **`scheduler.budget.stretch_tiers: []`**: over a budget only backfills pause, checks keep their 2 h 45 min (owner, 2026-11-05). The dollar budget itself is `tt.cost.budget_per_account_usd` ([`tks-objectives.md`](tks-objectives.md#a5-cost-per-account-per-day)).
 
-Sizes are C4's: 2 IPs and 2 signer pages served 1,000 accounts. Before a larger list, raise the IPs in `tks-proxies` and the post and thread crawlers' replicas (each runs `tt.signer.pages` pages); `GET /v1/admission` says how many a queue needs.
+Sizes are C4's: 2 IPs and 2 signer pages served 1,000 accounts. Before a larger list, raise the IPs in `tks-proxies` and tks-signer's replicas (`components.signer.replicas`, each with `tt.signer.pages` pages in 2 GiB); `GET /v1/admission` says how many a queue needs.
+
+## The signer service
+
+`tks-signer` (M9d) runs the browser signer's Chromium pages in a pod of their own, so a page that runs away can only take down that pod, never a crawler or a node. The crawlers and the canary run no browser (`tt.signer.mode: remote`, `tt.signer.remote_url` set by the chart to `http://<release>-signer:8080`) and ask it over HTTP:
+
+1. The crawler builds the call as before and sends `POST /v1/sign` with the URL, the page it is made from, the identity's browser fingerprint (user agent and client hints) and its exit **by name** (`tier` and `exit` for a static exit, `session` for a gateway). tks-signer finds that exit in its own copy of the proxy file (the same `tks-proxies` Secret), so **no proxy credential crosses the network**, and an exit it does not have is refused.
+2. A page with that user agent signs the call, unsent, with TikTok's own script (as before: a page opened on the asking identity's exit is reused for every identity with its user agent, T27 and C4). tks-signer answers the signed URL; the crawler sends it by plain HTTP.
+3. The crawler reports TikTok's answer (`POST /v1/outcome`) to the replica that signed (its pod IP, `$POD_IP`). A refused call names the page, and the crawler's retry has tks-signer sign on another one (S4); a page refused `max_refusals` times in a row is replaced.
+
+Limits: memory request = limit (2 GiB for 2 pages), one CPU at most. Within the pod, a page whose Chrome passes `tt.signer.max_page_mb` (800) is reopened after its call or when idle, and one past **`tt.signer.kill_page_mb` (1,200) is closed even while it signs**, found within 10 s (`tks_signer_page_closes_total{reason="killed"}`); its call fails and is signed again on a fresh page. With `networkPolicy.enabled` only the post and thread crawlers and the canary reach its port; `networkPolicy.signerEgress` restricts its egress to the proxies, Valkey and DNS.
+
+Its metrics are the signer's (`tks_signer_*`, `tks_signed_calls_total`, `tks_signer_page_seconds_total` for the cost); the callers count their calls to it in `tks_signer_remote_calls_total{call, result}`. `tt.signer.mode: browser` keeps pages in the process itself (the probes, Phase 0, `tks-spike`); `none` signs nothing.
+
+## tks-signer unreachable
+
+`TksSignerUnreachable`: more than 20 % of the crawlers' sign calls got no answer for 5 minutes. No comment or reply is read meanwhile; the reads wait in the 30 s retry topic (as without a page), nothing is sent unsigned and nothing is lost.
+1. `kubectl get pods -l app.kubernetes.io/component=signer`: not running or restarting? An OOM kill: see [tks-signer memory](#tks-signer-memory). Not starting: its log says why (Chromium missing in the image, `image.browserTag` unset, or the proxy file unreadable).
+2. Running but unreachable: the Service `<release>-signer` and, with `networkPolicy.enabled`, the `<release>-signer` NetworkPolicy (only `crawler-post`, `crawler-thread` and `canary` may connect).
+3. `tks_signer_remote_calls_total{result="refused"}` instead: tks-signer refuses the requests; its answer names the exit it lacks when its proxy file differs from the crawlers' (both mount `secretFiles`).
+
+## tks-signer memory
+
+`TksSignerMemoryNearLimit` (over 90 % of its limit for 10 minutes) and `TksSignerOOMKilled` (the pod restarted after an OOM kill). Only the signer's calls fail meanwhile; crawlers and nodes are unaffected, which is what the cap is for.
+1. `tks_signer_page_closes_total` by reason: `killed` and `memory` rising mean pages grow; check `tt.signer.freeze` and `open_on: profile` are on (S2: the runaway is the video page's).
+2. Two pages near `max_page_mb` together, plus Chrome's shared processes, fill 2 GiB: lower `tt.signer.kill_page_mb` or `max_page_mb`, or set `tt.signer.pages: 1` and add a replica.
+3. Never raise the limit without lowering the pages per pod: the point is that one pod's pages can never take more than the pod.
 
 **Checks before a release:** `make chart-check` (lint, and every render validated with kubeconform) and `make chart-smoke` (below). CI runs both.
 
 ## The smoke run and the local stack
 
-`make infra-up && make docker && make chart-smoke` renders the chart with `examples/fakett.yaml` and runs its hooks and Deployments in Docker exactly as rendered (user, read-only root, dropped capabilities, memory limits), against `fakett` with signatures required for comments and replies. It imports three accounts through the API, waits for their backfills, and fails unless every backfill completes with posts, comments, replies (signed by the crawlers' Chromium pages) and media stored, and no component logs an error. It uses its own database (`tks_smoke`), Redis DB 15 and topic prefix, next to the tests.
+`make infra-up && make docker && make chart-smoke` renders the chart with `examples/fakett.yaml` and runs its hooks and Deployments in Docker exactly as rendered (user, read-only root, dropped capabilities, memory limits), against `fakett` with signatures required for comments and replies. It imports three accounts through the API, waits for their backfills, and fails unless every backfill completes with posts, comments, replies (signed by tks-signer's Chromium pages, which the crawlers reach by its name as by its Service) and media stored, and no component logs an error. It uses its own database (`tks_smoke`), Redis DB 15 and topic prefix, next to the tests.
 
 `make compose-up` starts the whole stack locally against `fakett` (`deploy/compose/docker-compose.yml`, Compose project `tks`, ports on 127.0.0.1 only); `make compose-down` removes it. Its pacing (`deploy/compose/local.yaml`) is for `fakett` only: never point it at TikTok.
 

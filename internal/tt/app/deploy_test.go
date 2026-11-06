@@ -113,3 +113,45 @@ func TestChartAutoscaleTargets(t *testing.T) {
 		t.Fatal("no autoscale triggers found")
 	}
 }
+
+// Only tks-signer runs Chromium (M9d), in a pod whose memory request is
+// its limit, at one CPU at most; the crawlers that send signed calls and
+// the canary run the default image within 1 GiB.
+func TestChartSignerIsCapped(t *testing.T) {
+	b, err := os.ReadFile(chart + "/values.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		Components map[string]struct {
+			Browser   bool     `yaml:"browser"`
+			Service   bool     `yaml:"service"`
+			Port      int      `yaml:"port"`
+			Command   []string `yaml:"command"`
+			Resources struct {
+				Requests map[string]string `yaml:"requests"`
+				Limits   map[string]string `yaml:"limits"`
+			} `yaml:"resources"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(b, &v); err != nil {
+		t.Fatal(err)
+	}
+	for name, c := range v.Components {
+		if c.Browser != (name == "signer") {
+			t.Errorf("%s: browser image %v; only tks-signer runs Chromium", name, c.Browser)
+		}
+	}
+	s := v.Components["signer"]
+	if !slices.Equal(s.Command, []string{"/usr/local/bin/tks-signer"}) || !s.Service || s.Port != 8080 {
+		t.Errorf("signer: command %v, service %v, port %d", s.Command, s.Service, s.Port)
+	}
+	if s.Resources.Requests["memory"] != "2Gi" || s.Resources.Limits["memory"] != "2Gi" || s.Resources.Limits["cpu"] != "1" {
+		t.Errorf("signer resources %+v: want memory request = limit = 2Gi, cpu limit 1", s.Resources)
+	}
+	for _, name := range []string{"crawler-post", "crawler-thread", "canary"} {
+		if m := v.Components[name].Resources.Limits["memory"]; m != "1Gi" && m != "512Mi" {
+			t.Errorf("%s: memory limit %s; without Chromium it needs at most 1Gi", name, m)
+		}
+	}
+}

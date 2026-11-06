@@ -37,6 +37,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/run"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/s3x"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/proxy"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/transport"
@@ -45,6 +46,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/app"
 	ttclient "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/client"
 	ttpersist "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/persist"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/sign"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/task"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/topics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/ttstore"
@@ -60,7 +62,12 @@ type Stack struct {
 	Fake     *fakett.Server
 	Crawler  *app.Crawler
 	Signer   *Signer
-	Tracker  *jobs.Tracker
+	// SignerDown makes tks-signer unreachable (with Options.RemoteSigner):
+	// every connection to it is dropped.
+	SignerDown atomic.Bool
+	// SignerDropped counts the connections dropped while it was down.
+	SignerDropped atomic.Int64
+	Tracker       *jobs.Tracker
 	// Requests counts the HTTP requests fakett answered.
 	Requests atomic.Int64
 
@@ -86,6 +93,10 @@ type Options struct {
 	CrawlerDrain time.Duration
 	// Latency delays every fakett answer, as a proxy's round trip does.
 	Latency time.Duration
+	// RemoteSigner runs the crawler with tt.signer.mode remote: Signer
+	// behind tks-signer's handler (internal/tt/sign.Server), which the
+	// crawler reaches over HTTP, as the chart deploys it (M9d).
+	RemoteSigner bool
 }
 
 // Signer stands in for the browser signer's pages (internal/tt/sign has its
@@ -216,6 +227,27 @@ func Start(t *testing.T, o Options) *Stack {
 	s.DB, s.Producer = db, producer
 	s.copts = app.CrawlerOptions{Signer: s.Signer, DrainTimeout: o.CrawlerDrain,
 		DoerFactory: func(transport.Options) (transport.Doer, error) { return transport.NewStd(10 * time.Second), nil }}
+	if o.RemoteSigner {
+		s.copts.Signer = nil // the crawler builds its tks-signer client from the configuration
+		proxies, err := proxy.New(cfg.TT.Proxy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		base, _ := url.Parse(hs.URL)
+		h := (&sign.Server{Signer: s.Signer, Proxies: proxies, Base: base}).Handler()
+		ss := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			if s.SignerDown.Load() {
+				s.SignerDropped.Add(1)
+				if c, _, err := http.NewResponseController(rw).Hijack(); err == nil {
+					_ = c.Close()
+				}
+				return
+			}
+			h.ServeHTTP(rw, r)
+		}))
+		t.Cleanup(ss.Close)
+		cfg.TT.Signer.Mode, cfg.TT.Signer.RemoteURL = config.SignerRemote, ss.URL
+	}
 	t.Cleanup(s.Stop)
 	s.RestartCrawler(t)
 	s.RestartPersister(t)

@@ -56,6 +56,8 @@ Each keeps fbs's and igs's behaviour as the default, so the copied tests prove n
 * `browser`: the call runs as `fetch` inside a TikTok page held by `browser.Session`, so TikTok's own script adds whatever it adds (T7). One page serves many calls; the pool of pages is small and capped, like igs's browser fallback.
 * If T27 holds (a URL signed in one page is accepted from another identity with the same user agent), the cheaper form of `browser` takes the signed URL the page produced and sends it by plain HTTP from the calling identity, so a handful of pages serve the whole fleet. Whether to use that form is part of G1, with the legal team's view.
 
+* `remote` (M9d, the chart's default): the same pages in their own service, `tks-signer` (`cmd/tks-signer`, `internal/tt/sign.Server`), and the crawlers and the canary its clients (`sign.Remote`). A call travels as its URL, its referer, the identity's browser fingerprint and its exit **by name**; tks-signer rebuilds the exit from its own copy of the proxy file (`proxy.Pool.Endpoint`), so no proxy credential crosses the network. TikTok's answer goes back to the replica that signed, which keeps the in-process behaviour: a refused call is signed again on another page (named by its `PageID`), and a page refused in a row is replaced. The pod is capped (memory request = limit) and a page past `tt.signer.kill_page_mb` is closed even mid-call, so a runaway page takes down only the signer. `browser` stays for the probes and Phase 0, which run on one machine.
+
 tks does **not** re-implement TikTok's signature algorithms. Open-source re-implementations exist, but they break whenever TikTok changes its obfuscated script, several carry licences or provenance we cannot accept, and an algorithm written to defeat a protection is the riskiest form of access for the legal review ([methods.md §5](../methods.md#5-legal-and-terms-of-service-notes-for-the-legal-team)). If Phase 0 shows the browser signer cannot meet the cost target, a native signer is a new decision for the owner and legal, not an implementation detail.
 
 ### 5. Isolation on shared infrastructure (D6)
@@ -79,7 +81,7 @@ fbs and igs keep their values; tks changes every one of them in its copy (M1b). 
 **Until M1b is merged, no tks binary runs on shared infrastructure; until M3, tks's pipeline does not run on shared Kafka either**, because the copied pipeline still uses fbs's topic names (`fb.*.v1`, `fbs.task.*`, as igs's copy does until its own M3). The probe (`tks-spike`) touches none of it, which is why it can come first.
 
 ### 6. Configuration
-tks's root config has igs's sections with `tt:` for the platform client, embedded defaults in `configs/tt/default.yaml`, env prefix `TKS_`, `--config` or `TKS_CONFIG`. The media download switch is `limits.include_media` (`TKS_LIMITS__INCLUDE_MEDIA`), default `false` (build brief D5). The signer is `tt.signer.mode` (`none`, `browser`) with a per-operation override in the registry.
+tks's root config has igs's sections with `tt:` for the platform client, embedded defaults in `configs/tt/default.yaml`, env prefix `TKS_`, `--config` or `TKS_CONFIG`. The media download switch is `limits.include_media` (`TKS_LIMITS__INCLUDE_MEDIA`), default `false` (build brief D5). The signer is `tt.signer.mode` (`none`, `browser`, `remote`) with a per-operation override in the registry; `remote` (M9d) has `tks-signer` sign (`tt.signer.remote_url`).
 
 ## Consequences
 * fbs and igs are untouched; nothing coordinates three repositories at commit time.

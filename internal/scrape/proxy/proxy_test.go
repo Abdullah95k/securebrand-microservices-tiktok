@@ -162,3 +162,49 @@ func TestPortsOfOneHostAreSeparateExits(t *testing.T) {
 		t.Fatalf("the other ports serve: %d", len(seen))
 	}
 }
+
+// Another process rebuilds an identity's exit from its name: a static exit
+// by tier|host:port, a gateway by its session id (with the same sticky
+// exit), direct egress by its tier alone; anything else is refused.
+func TestEndpointByName(t *testing.T) {
+	p := testPool(t)
+	ep, err := p.Next("isp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := p.Endpoint("isp", ep.Exit, "")
+	if !ok || got.URL != ep.URL || got.Exit != ep.Exit {
+		t.Fatalf("static exit %q: %+v %v", ep.Exit, got, ok)
+	}
+	// A blocked bucket does not hide the exit: the caller already chose it.
+	block(p, ep, 8)
+	if _, ok := p.Endpoint("isp", ep.Exit, ""); !ok {
+		t.Fatal("an exit behind an open breaker not found")
+	}
+	gw, err := p.Next("res")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok = p.Endpoint("res", "", gw.SessionID)
+	if !ok || got.URL != gw.URL || got.SessionID != gw.SessionID {
+		t.Fatalf("gateway session: %+v %v, want %s", got, ok, gw.URL)
+	}
+	for _, c := range []struct{ tier, exit, session string }{
+		{"isp", "isp|192.0.2.1:8000", ""}, // not in the file
+		{"isp", "", ""},
+		{"res", "", ""},
+		{"res", "res|gw.example:7777", ""},
+		{"nope", "", "s"},
+	} {
+		if _, ok := p.Endpoint(c.tier, c.exit, c.session); ok {
+			t.Errorf("Endpoint(%q, %q, %q) found", c.tier, c.exit, c.session)
+		}
+	}
+	d, err := New(config.Proxy{Tiers: []config.ProxyTier{{Name: "direct", Kind: "direct"}}, Routing: map[string][]string{"default": {"direct"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := d.Endpoint("direct", "", ""); !ok || got.URL != "" || got.Tier != "direct" {
+		t.Fatalf("direct: %+v %v", got, ok)
+	}
+}

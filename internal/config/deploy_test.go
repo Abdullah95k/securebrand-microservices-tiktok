@@ -62,6 +62,8 @@ func merge(dst, src map[string]any) {
 func TestChartConfigLoads(t *testing.T) {
 	// What the tks-env Secret holds (secretEnv).
 	t.Setenv("TKS_PRIVACY__AUTHOR_HMAC_KEY", strings.Repeat("ab", 32))
+	// What the chart sets from the release name (tks.env).
+	t.Setenv("TKS_TT__SIGNER__REMOTE_URL", "http://tks-signer:8080")
 	// What the tks-proxies Secret holds in production (tt.proxy.tiers).
 	proxies := filepath.Join(t.TempDir(), "proxies.yaml")
 	if err := os.WriteFile(proxies, []byte(`tt:
@@ -76,8 +78,14 @@ func TestChartConfigLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the chart's production config: %v", err)
 	}
-	if c.TT.BaseURL != "https://www.tiktok.com" || c.TT.Signer.Mode != SignerBrowser || !c.TT.Browser.NoSandbox {
+	// The signer's pages in tks-signer's capped pod (M9d), with the guard:
+	// one page running away to kill_page_mb next to the others at their
+	// max_page_mb still fits the pod's 2 GiB.
+	if c.TT.BaseURL != "https://www.tiktok.com" || c.TT.Signer.Mode != SignerRemote || !c.TT.Browser.NoSandbox {
 		t.Errorf("tt: base_url %q, signer %q, no_sandbox %v", c.TT.BaseURL, c.TT.Signer.Mode, c.TT.Browser.NoSandbox)
+	}
+	if s := c.TT.Signer; s.Pages != 2 || s.KillPageMB <= 0 || s.KillPageMB+s.MaxPageMB*float64(s.Pages-1) > 2*1024 || s.MaxPageMB > s.KillPageMB {
+		t.Errorf("tt.signer: %d pages, max_page_mb %v, kill_page_mb %v: one runaway and the other pages must fit 2 GiB", s.Pages, s.MaxPageMB, s.KillPageMB)
 	}
 	if !slices.Equal(c.TT.Proxy.Routing["default"], []string{"isp"}) {
 		t.Errorf("routing %v, want the ISP tier (D12)", c.TT.Proxy.Routing)

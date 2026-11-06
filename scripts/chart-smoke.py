@@ -8,8 +8,10 @@ environment, ConfigMap and Secret mounts, user, read-only root filesystem,
 dropped capabilities and memory limit, on the network of `make infra-up`
 (Postgres, Redpanda, Valkey), next to fakett and an in-memory S3. fakett
 refuses unsigned comment and reply calls when --browser-image is given,
-so the crawlers' signer pages (Chromium in the hardened container) must
-sign them; without it the signer is off and fakett serves them unsigned. Then it imports fakett's accounts through the API
+so tks-signer's pages (Chromium in its hardened container, which the
+crawlers and the canary reach by its network alias, as by its Service)
+must sign them; without it the signer is off and fakett serves them
+unsigned. Then it imports fakett's accounts through the API
 (`POST /v1/accounts/import`) and waits for their backfills: every job must
 complete, with posts, comments, replies and media stored, and no component
 may log an error.
@@ -65,7 +67,8 @@ def render(args):
         sets += ["--set", f"image.browserTag={btag}"]
     else:
         # No Chromium: nothing signs, so comments and replies are not read.
-        sets += ["--set", "config.tt.signer.mode=none", "--set", "components.canary.enabled=false"]
+        sets += ["--set", "config.tt.signer.mode=none", "--set", "components.canary.enabled=false",
+                 "--set", "components.signer.enabled=false"]
     out = sh(args.helm, "template", "tks", "deploy/helm/tks", "-f", args.values, *sets,
              "--set", "image.pullPolicy=Never",
              "--set", f"config.kafka.topic_prefix={TOPIC_PREFIX}",
@@ -92,7 +95,10 @@ def docker_args(name, alias, pod, container, configmaps, secret_env, network):
     if mem:
         a += ["--memory", mem.replace("Mi", "m").replace("Gi", "g")]
     for e in container.get("env") or []:
-        a += ["-e", f"{e['name']}={e['value']}"]
+        # valueFrom (POD_IP) has no Docker equivalent: tks-signer then
+        # answers without its own address, and callers use its Service's.
+        if "value" in e:
+            a += ["-e", f"{e['name']}={e['value']}"]
     volumes = {v["name"]: v for v in pod.get("volumes") or []}
     for m in container.get("volumeMounts") or []:
         v = volumes[m["name"]]
@@ -213,7 +219,7 @@ def main():
             if code != "0":
                 raise SystemExit(f"hook {name} failed:\n{logs[-3000:]}")
 
-        # Chromium in the signer's container, as the pod runs it: a render
+        # Chromium in tks-signer's container, as the pod runs it: a render
         # that fails here says why, where the signer only counts errors.
         for d in deployments:
             pod = d["spec"]["template"]["spec"]

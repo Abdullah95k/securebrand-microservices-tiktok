@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -385,13 +386,22 @@ type TTMedia struct {
 const (
 	SignerNone    = "none"
 	SignerBrowser = "browser"
+	// SignerRemote has tks-signer sign: the browser pages run in their own
+	// capped service, not in the process that sends the calls (M9d).
+	SignerRemote = "remote"
 )
 
 // Signer configures the browser signer (build brief D11): TikTok pages in
-// headless Chromium whose own script signs the calls that need it.
+// headless Chromium whose own script signs the calls that need it. With
+// mode browser the pages are the process's own (the probes, Phase 0);
+// with remote they are tks-signer's, which reads the same section.
 type Signer struct {
-	Mode string `koanf:"mode"` // none | browser
-	// Pages is the pages one crawler process keeps open.
+	Mode string `koanf:"mode"` // none | browser | remote
+	// RemoteURL is tks-signer's address (mode remote), e.g.
+	// http://tks-signer:8080.
+	RemoteURL string `koanf:"remote_url"`
+	// Pages is the pages one process keeps open (tks-signer's, or a
+	// process's own in mode browser).
 	Pages int `koanf:"pages"`
 	// A page is reopened after PageMaxSigns signatures or PageMaxAge.
 	PageMaxSigns int           `koanf:"page_max_signs"`
@@ -405,6 +415,10 @@ type Signer struct {
 	// idle signer page's Chrome grew to 7 GB (2026-11-03).
 	IdleClose time.Duration `koanf:"idle_close"`
 	MaxPageMB float64       `koanf:"max_page_mb"`
+	// KillPageMB closes a page whose browser uses more memory even while
+	// it signs, within the sweep's 10 s (0: never): the guard that keeps a
+	// runaway page from taking its pod's whole memory limit.
+	KillPageMB float64 `koanf:"kill_page_mb"`
 	// MaxRefusals replaces a page whose signed calls TikTok refused this
 	// many times in a row (0: never).
 	MaxRefusals int `koanf:"max_refusals"`
@@ -943,19 +957,29 @@ func (t TT) validate() []error {
 	}
 	switch t.Signer.Mode {
 	case SignerNone:
-	case SignerBrowser:
+	case SignerBrowser, SignerRemote:
+		// tks-signer reads the same section in mode remote: its pages
+		// need the same limits.
 		if t.Signer.Pages <= 0 || t.Signer.PageMaxSigns <= 0 || t.Signer.PageMaxAge <= 0 ||
 			t.Signer.SignTimeout <= 0 || t.Signer.PageTimeout <= 0 {
-			errs = append(errs, errors.New("tt.signer: browser mode needs pages, page_max_signs, page_max_age, sign_timeout and page_timeout > 0"))
+			errs = append(errs, fmt.Errorf("tt.signer: %s mode needs pages, page_max_signs, page_max_age, sign_timeout and page_timeout > 0", t.Signer.Mode))
+		}
+		if t.Signer.Mode == SignerRemote {
+			if u, err := url.Parse(t.Signer.RemoteURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				errs = append(errs, fmt.Errorf("tt.signer.remote_url %q must be tks-signer's http(s) address in remote mode", t.Signer.RemoteURL))
+			}
 		}
 	default:
-		errs = append(errs, fmt.Errorf("tt.signer.mode %q must be none or browser", t.Signer.Mode))
+		errs = append(errs, fmt.Errorf("tt.signer.mode %q must be none, browser or remote", t.Signer.Mode))
 	}
 	if s := t.Signer.MaxShare; s <= 0 || s > 1 {
 		errs = append(errs, errors.New("tt.signer.max_share must be in (0, 1]"))
 	}
-	if t.Signer.IdleClose < 0 || t.Signer.MaxPageMB < 0 || t.Signer.MaxRefusals < 0 {
-		errs = append(errs, errors.New("tt.signer.idle_close, max_page_mb and max_refusals must be >= 0"))
+	if t.Signer.IdleClose < 0 || t.Signer.MaxPageMB < 0 || t.Signer.KillPageMB < 0 || t.Signer.MaxRefusals < 0 {
+		errs = append(errs, errors.New("tt.signer.idle_close, max_page_mb, kill_page_mb and max_refusals must be >= 0"))
+	}
+	if k, m := t.Signer.KillPageMB, t.Signer.MaxPageMB; k > 0 && m > 0 && k < m {
+		errs = append(errs, errors.New("tt.signer.kill_page_mb must not be below max_page_mb: a page past max_page_mb is reopened after its call, one past kill_page_mb closed mid-call"))
 	}
 	switch t.Signer.OpenOn {
 	case "", SignerOpenOnCall, SignerOpenOnProfile:

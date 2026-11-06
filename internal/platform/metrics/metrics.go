@@ -100,7 +100,11 @@ var (
 	// SignerPagesMax is tt.signer.pages, the pool's cap: pages at the cap
 	// with busy signatures mean the pool is too small.
 	SignerPagesMax   = gauge("signer_pages_max", "Signer pages this pod may keep open (tt.signer.pages).")
-	SignerPageCloses = counterVec("signer_page_closes_total", "Signer pages closed, by reason (spent, idle, memory, refused, error, room, shutdown, stuck: did not close in time).", "reason")
+	SignerPageCloses = counterVec("signer_page_closes_total", "Signer pages closed, by reason (spent, idle, memory, refused, error, room, shutdown, stuck: did not close in time, killed: past kill_page_mb while signing).", "reason")
+	// SignerRemoteCalls counts the crawlers' and the canary's calls to
+	// tks-signer (tt.signer.mode remote), by call (sign, outcome) and
+	// result (ok, busy, error, refused, unreachable, cancelled).
+	SignerRemoteCalls = counterVec("signer_remote_calls_total", "Calls to tks-signer by call (sign, outcome) and result (ok, busy, error, refused, unreachable, cancelled).", "call", "result")
 	// SignedCalls counts TikTok's answers to the calls a signer page signed:
 	// answered, or refused (an empty answer).
 	SignedCalls = counterVec("signed_calls_total", "Calls a signer page signed, by TikTok's answer (answered, refused).", "result")

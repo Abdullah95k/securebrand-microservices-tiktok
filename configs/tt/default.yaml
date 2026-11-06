@@ -86,10 +86,15 @@ tt:
   # query, so one per request; T27). A page signs a call without sending it
   # (T32). mode browser signs the operation variants whose registry label
   # ends in "-signed" (comments and replies) and sends the rest as built;
-  # mode none signs nothing, so comments and replies are refused.
+  # mode none signs nothing, so comments and replies are refused. mode
+  # remote has tks-signer sign (M9d): the pages run in their own capped
+  # service, which reads this same section for them, and a runaway page
+  # takes down only that service (the chart's default). mode browser keeps
+  # the pages in the process itself (the probes, Phase 0, local runs).
   signer:
-    mode: browser          # none | browser
-    pages: 2               # per crawler process
+    mode: browser          # none | browser | remote
+    remote_url: ""         # tks-signer, e.g. http://tks-signer:8080 (mode remote)
+    pages: 2               # per process that keeps pages (tks-signer's in mode remote)
     page_max_signs: 500    # a page is reopened after this many signatures
     page_max_age: 30m
     sign_timeout: 30s
@@ -102,6 +107,10 @@ tt:
     # idle signer page grew to 7 GB, 2026-11-03; 0 turns either off).
     idle_close: 2m
     max_page_mb: 800
+    # The hard guard: a page past this is closed even while it signs,
+    # within 10 s (its call fails and is signed again on a fresh page), so
+    # two pages never reach a 2 GiB limit together (0 turns it off).
+    kill_page_mb: 1200
     # A page whose signed calls TikTok refuses this many times in a row is
     # replaced (C4: pages went bad within minutes and every call they signed
     # was refused until a fresh page took over; 0 turns it off).
