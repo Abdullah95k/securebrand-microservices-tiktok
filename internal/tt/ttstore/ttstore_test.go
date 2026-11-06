@@ -3,8 +3,8 @@ package ttstore_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,11 +116,15 @@ func TestMigrateUpDownUp(t *testing.T) {
 	}
 }
 
+// statusState is a status line's state: "<version> <state> <file>". The
+// version is not scanned as a number: a leading zero would read it as
+// octal, and 00008 is not.
 func statusState(line string) string {
-	var v int
-	var state, path string
-	_, _ = fmt.Sscan(line, &v, &state, &path)
-	return state
+	f := strings.Fields(line)
+	if len(f) < 2 {
+		return ""
+	}
+	return f[1]
 }
 
 // The schema holds what the pipeline writes: partitions for the backfill
@@ -192,6 +196,8 @@ func TestSchemaHoldsData(t *testing.T) {
 		VALUES (7400000000000000001, now(), 'unavailable', 'visible', 10216, 'US')`)
 	exec(`INSERT INTO discovery_candidates (account_ref, user_id, state, reason, first_seen_at, last_seen_at, next_check_at)
 		VALUES ('sec:MS4wother', 8, 'dormant', 'private', now(), now(), now() + interval '180 days')`)
+	exec(`INSERT INTO discovery_sightings (how, found_in, via_user_id, user_id, sec_uid, post_id, comment_id, seen_at)
+		VALUES ('commenter', 'comment', 1, 8, 'MS4wother', 7400000000000000001, 7400000000000000009, now())`)
 	for _, tb := range tables {
 		var rows int
 		if err := db.QueryRow(ctx, "SELECT count(*) FROM "+pgx.Identifier{tb}.Sanitize()).Scan(&rows); err != nil {
