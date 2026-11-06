@@ -50,7 +50,7 @@ jobs:
           if [ -f heap-end.pprof ]; then
             go tool pprof -top -nodecount=40 -sample_index=inuse_space -diff_base heap-base.pprof heap-end.pprof || true
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: soak
