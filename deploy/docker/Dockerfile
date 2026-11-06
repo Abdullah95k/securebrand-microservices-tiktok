@@ -31,6 +31,10 @@ ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/tks-signer"]
 # docs/runbooks/tks-backup.md). The client must be the server's major
 # version or newer.
 FROM postgres:18-alpine AS backup
+# The server's own entrypoint and its gosu are never run here (tksctl is the
+# entrypoint, as a non-root user): removed, so the image scan has nothing of
+# theirs to report.
+RUN rm -f /usr/local/bin/gosu /usr/local/bin/docker-entrypoint.sh /docker-entrypoint.sh
 COPY --from=build /out/tksctl /usr/local/bin/tksctl
 USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/tksctl"]
