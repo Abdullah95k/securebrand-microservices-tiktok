@@ -43,6 +43,12 @@ spec:
           command: {{- toYaml $c.command | nindent 12 }}
           env:
             {{- include "tks.env" (dict "root" $root "c" $c) | nindent 12 }}
+            {{- $tmpMB := $c.tmpSizeLimitMB | default $root.Values.tmpSizeLimitMB }}
+            {{- with $tmpMB }}
+            # The scratch volume's limit, exported as tks_tmp_limit_bytes.
+            - name: TKS_TMP_LIMIT_MB
+              value: {{ . | quote }}
+            {{- end }}
             {{- if $c.podIP }}
             - name: POD_IP
               valueFrom: {fieldRef: {fieldPath: status.podIP}}
@@ -64,7 +70,7 @@ spec:
           resources: {{- toYaml $c.resources | nindent 12 }}
           securityContext: {{- toYaml $root.Values.securityContext | nindent 12 }}
           volumeMounts: {{- include "tks.volumeMounts" $root | nindent 12 }}
-      volumes: {{- include "tks.volumes" $root | nindent 8 }}
+      volumes: {{- include "tks.volumesFor" (dict "root" $root "configMap" (printf "%s-config" (include "tks.fullname" $root)) "tmpMB" ($c.tmpSizeLimitMB | default $root.Values.tmpSizeLimitMB)) | nindent 8 }}
 {{- if $c.pdb }}
 ---
 apiVersion: policy/v1

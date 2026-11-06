@@ -671,3 +671,105 @@ groups:
             problem and marks nothing. Many at once suggests the creator list
             changed what it serves.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-posts.md#many-posts-missing-at-once
+  # Capacity and the pods' limits (M16). Container metrics come from
+  # cAdvisor and kube-state-metrics, selected by namespace tks (the
+  # production platform's; change it here for another namespace). The
+  # signer has its own memory alerts above.
+  - name: tks.resources
+    rules:
+      - alert: TksUsableExitsLow
+        expr: |
+          sum by (tier) (tks_proxy_exits{state="usable"}) / clamp_min(sum by (tier) (tks_proxy_exits), 1) < 0.5
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Only {{ $value | humanizePercentage }} of tier {{ $labels.tier }}'s exits can start identities"
+          description: >-
+            Most of the tier's exit groups cool down after blocks (their
+            breakers are open), so new identities crowd onto the rest, which
+            then block sooner. Look at the block rate and the provider.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#usable-exits-running-low
+      - alert: TksNoUsableExits
+        expr: |
+          sum by (tier) (tks_proxy_exits{state="usable"}) == 0 and sum by (tier) (tks_proxy_exits) > 0
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "No exit of tier {{ $labels.tier }} can start an identity"
+          description: >-
+            Every exit group of the tier is cooling down: no new identity
+            starts, and work waits in the retry topics. Stop tks (tksctl
+            stop) if the block rate stays high.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#usable-exits-running-low
+      - alert: TksMemoryNearLimit
+        expr: |
+          max by (pod, container) (container_memory_working_set_bytes{namespace="tks", container!="", container!="signer"})
+            / on (pod, container) max by (pod, container) (kube_pod_container_resource_limits{namespace="tks", resource="memory"}) > 0.9
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.container }} in {{ $labels.pod }} uses {{ $value | humanizePercentage }} of its memory limit"
+          description: >-
+            The next growth is an OOM kill. Raise the component's memory
+            limit in the chart's values, or look for a leak (its heap in
+            go_memstats_heap_inuse_bytes).
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#memory-near-the-limit
+      - alert: TksOOMKilled
+        expr: |
+          sum by (pod, container) (increase(kube_pod_container_status_restarts_total{namespace="tks", container!="signer"}[30m])) > 0
+          and on (pod, container) max by (pod, container) (kube_pod_container_status_last_terminated_reason{namespace="tks", reason="OOMKilled"}) == 1
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.container }} in {{ $labels.pod }} was OOM killed"
+          description: >-
+            The container restarted after using more memory than its limit.
+            Its work is retried, but it is a stop rule of the canary
+            (tksctl report). Raise the limit or find the cause first.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#memory-near-the-limit
+      - alert: TksScratchNearLimit
+        expr: max by (pod) (tks_tmp_bytes / tks_tmp_limit_bytes) > 0.8
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.pod }}'s scratch volume (/tmp) is {{ $value | humanizePercentage }} full"
+          description: >-
+            Past its size limit (tmpSizeLimitMB) the kubelet evicts the pod.
+            The signer's Chromium profiles are the usual cause: its pages are
+            replaced after page_max_signs or page_max_age, which clears them.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#scratch-volume-near-its-limit
+      - alert: TksPodEvicted
+        expr: sum by (pod) (kube_pod_status_reason{namespace="tks", reason="Evicted"}) > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.pod }} was evicted"
+          description: >-
+            The kubelet evicted the pod: its scratch volume passed its limit,
+            or the node ran short of disk or memory. Its replacement starts
+            elsewhere; find the reason in kubectl describe.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#scratch-volume-near-its-limit
+      - alert: TksBackupMissing
+        expr: |
+          time() - max(kube_cronjob_status_last_successful_time{namespace="tks", cronjob=~".*-backup"}) > 26 * 3600
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "No database backup has succeeded for {{ $value | humanizeDuration }}"
+          description: >-
+            The daily pg_dump to the backup bucket fails or does not run.
+            Nothing is lost yet; the last good dump is still in the bucket.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-backup.md#a-backup-failed
+      - alert: TksBackupFailed
+        # Only jobs of the last day: failed jobs are kept (failedJobsHistoryLimit).
+        expr: |
+          max by (job_name) (kube_job_status_failed{namespace="tks", job_name=~".*-backup-.*"}) > 0
+          and on (job_name) (time() - max by (job_name) (kube_job_status_start_time{namespace="tks", job_name=~".*-backup-.*"})) < 26 * 3600
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Backup job {{ $labels.job_name }} failed"
+          description: >-
+            The job's log says why (the database, the bucket, or the time
+            limit). The next run is tomorrow; run one now when fixed.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-backup.md#a-backup-failed

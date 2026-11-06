@@ -34,6 +34,7 @@ ul.evidence { margin: 0; padding-left: 1rem; }
 .weak { color: var(--muted); }
 .muted, .counts { color: var(--muted); }
 .error { color: var(--warn); }
+.note { color: var(--muted); font-size: 0.9em; margin: 0.25em 0; }
 .status { min-height: 1.4em; color: var(--muted); }
 .status.error { color: var(--warn); }
 .more { margin: .75rem 0; }

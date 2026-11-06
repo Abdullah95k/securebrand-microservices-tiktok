@@ -70,6 +70,7 @@ and grant every role its rights. */}}
   (list "TKS_S3__SECRET_KEY" "S3_SECRET_KEY" false)
   (list "TKS_S3__RAW_BUCKET" "S3_BUCKET_RAW" false)
   (list "TKS_S3__MEDIA_BUCKET" "S3_BUCKET_MEDIA" false)
+  (list "TKS_S3__BACKUP_BUCKET" "S3_BUCKET_BACKUPS" true)
 -}}
 {{- $role := $c.postgresRole | default "" -}}
 {{- if or .hook (ne $role "none") }}
@@ -156,5 +157,9 @@ envFrom:
     secretName: {{ $root.Values.tlsFiles.existingSecret }}
 {{- end }}
 - name: tmp
+  {{- with .tmpMB }}
+  emptyDir: {sizeLimit: {{ . }}Mi}
+  {{- else }}
   emptyDir: {}
+  {{- end }}
 {{- end -}}

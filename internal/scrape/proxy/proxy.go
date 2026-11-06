@@ -117,6 +117,7 @@ func New(cfg config.Proxy) (*Pool, error) {
 	if len(p.routing) == 0 {
 		p.routing = map[string][]string{"default": {"direct"}}
 	}
+	metrics.SetProxyExits(p.Exits)
 	for class, tiers := range p.routing {
 		if !RoutingClasses[class] {
 			// Not an error, so a deployment with a stale key keeps running.
@@ -214,6 +215,31 @@ func (p *Pool) PageLoad(ep Endpoint) (bool, string) {
 // neither paces nor backs off. It takes nothing (PageLoad does).
 func (p *Pool) CanLoadPage(ep Endpoint) bool {
 	return ep.Exit == "" || p.pages.ready(ep.Exit)
+}
+
+// Exits counts each proxied tier's exit groups (buckets, each once) by
+// whether a new identity may start there now; direct tiers have none.
+func (p *Pool) Exits() map[string]metrics.ExitCounts {
+	out := map[string]metrics.ExitCounts{}
+	for name, t := range p.tiers {
+		seen := map[string]bool{}
+		var n metrics.ExitCounts
+		for _, b := range t.Buckets() {
+			if seen[b] {
+				continue
+			}
+			seen[b] = true
+			if p.breakers.IsOpen(b) {
+				n.Cooling++
+			} else {
+				n.Usable++
+			}
+		}
+		if len(seen) > 0 {
+			out[name] = n
+		}
+	}
+	return out
 }
 
 // Available reports whether tier has a bucket that is not cooling down.

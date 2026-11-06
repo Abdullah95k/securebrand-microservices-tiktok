@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/iraq"
 )
 
 // Record is one request, or (Summary) one item's walk. It names keywords,
@@ -281,7 +283,7 @@ func FormatReport(rep Report) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "tks discovery probe (C6) %s, tier %s\n", rep.Version, rep.Tier)
 	fmt.Fprintf(&b, "%d requests from %s to %s, %d captchas; region served to the exits: %s\n\n",
-		rep.Requests, rep.Started.Format(time.RFC3339), rep.Ended.Format(time.RFC3339), rep.Captchas, mapLine(rep.Regions))
+		rep.Requests, iraq.Format(rep.Started), iraq.Format(rep.Ended), rep.Captchas, mapLine(rep.Regions))
 	b.WriteString("Calls (each variant on its source's first items, then the one that answered):\n")
 	for _, v := range rep.Variants {
 		sp := ""

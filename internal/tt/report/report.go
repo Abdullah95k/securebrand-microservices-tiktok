@@ -19,10 +19,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/iraq"
 )
 
 // Iraq is Iraq's time (UTC+3, no summer time), the owner's.
-var Iraq = time.FixedZone("Iraq (UTC+3)", 3*3600)
+var Iraq = iraq.Zone
 
 // Window is the report's time span.
 type Window struct{ From, To time.Time }

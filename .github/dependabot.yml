@@ -1,0 +1,17 @@
+# Dependabot (M16, I3): weekly pull requests for Go modules, the CI
+# actions and the Dockerfile's base images. Each runs the full CI.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: {interval: weekly, day: monday}
+    open-pull-requests-limit: 5
+    groups:
+      go-minor:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly, day: monday}
+  - package-ecosystem: docker
+    directory: /deploy/docker
+    schedule: {interval: weekly, day: monday}

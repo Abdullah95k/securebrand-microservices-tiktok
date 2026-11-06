@@ -16,6 +16,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: No secrets in the code or its history (gitleaks, G4)
+        # .gitleaks.toml: gitleaks' rules plus known synthetic values;
+        # .gitleaksignore: old findings that hold no secret.
+        run: |
+          # Findings are listed by file, commit, rule and line, never the value.
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" -w /repo ghcr.io/gitleaks/gitleaks:v8.21.2 \
+            git /repo --config /repo/.gitleaks.toml --gitleaks-ignore-path /repo/.gitleaksignore --redact --no-banner \
+            --report-format json --report-path /repo/gitleaks.json || {
+            jq -r '.[] | "\(.File):\(.StartLine) \(.RuleID) commit \(.Commit) fingerprint \(.Fingerprint)"' gitleaks.json
+            exit 1
+          }
       - name: No recordings, probe output or credentials in git
         run: |
           bad=$(git ls-files | grep -Ei '(\.har(\.gz|\.zip)?$|^\.local/|^phase0/(out|proxies\.yaml|tt-accounts(-all)?\.txt))' || true)

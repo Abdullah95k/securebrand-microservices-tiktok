@@ -9,6 +9,7 @@
 //	tksctl accounts import               register a list of accounts for a client, with a report (M10a)
 //	tksctl discovery keywords seed|import|list   discovery keywords (seed: the Iraq list; M10a)
 //	tksctl dlq replay                    send dead letters back: tasks to run again, set-aside records as they were (M9c)
+//	tksctl backup run|list|restore       dump schema tt to the backup bucket / list the dumps / restore one into a new database (M16)
 package main
 
 import (
@@ -39,7 +40,8 @@ commands:
   discovery keywords seed | discovery keywords import --file F | discovery keywords list [--language L] [--group G]
   dlq replay [--topic tks.task.dlq|tks.persist.dlq] [--reason R] [--max N] [--idle D]
   report [--from "YYYY-MM-DD HH:MM"] [--to ...] [--hours 24] [--prometheus URL] [--check] [--json]   (Iraq time)
-  stop --reason R | start`)
+  stop --reason R | start
+  backup run | backup list | backup restore --target-database DB [--key KEY|latest]   [--bucket B] [--prefix P]`)
 	os.Exit(2)
 }
 
@@ -56,9 +58,15 @@ func main() {
 		fail(err)
 	}
 	plog.Setup("tksctl", cfg.Log.Level, "text")
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
 	cmd, rest := args[0], args[1:]
+	limit := 30 * time.Minute
+	if cmd == "backup" {
+		// A dump grows with the data (nothing is deleted, D8): the backup
+		// job's activeDeadlineSeconds bounds it instead.
+		limit = 24 * time.Hour
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
 	sub := ""
 	if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		sub, rest = rest[0], rest[1:]
@@ -94,6 +102,8 @@ func main() {
 		out, err = runStop(ctx, cfg, rest)
 	case "start ":
 		out, err = runStart(ctx, cfg)
+	case "backup run", "backup list", "backup restore":
+		out, err = runBackup(ctx, cfg, sub, rest)
 	default:
 		usage()
 	}

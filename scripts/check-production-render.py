@@ -3,7 +3,9 @@
 production platform's conventions: images from the platform's registry at
 one commit, every container's credentials from platform-credentials and
 proxies, each component's own Postgres role (the signer none, the migrate
-hook the owner's), no topic hook, KEDA maxima at most 3 or the partitions.
+hook the owner's, the backup job the read-only one), no topic hook, KEDA
+maxima at most 3 or the partitions, the backup job's bucket from
+S3_BUCKET_BACKUPS (M16).
 Usage: check-production-render.py RENDER.yaml"""
 import sys
 
@@ -12,7 +14,7 @@ import yaml
 REGISTRY = "registry.digitalocean.com/securebrand/"
 ROLES = {"api": "API", "scheduler": "SCHEDULER", "persister": "PERSISTER", "signer": None, "canary": "CRAWLER",
          "media-downloader": "CRAWLER", "crawler-account": "CRAWLER", "crawler-post": "CRAWLER",
-         "crawler-thread": "CRAWLER", "crawler-retry": "CRAWLER"}
+         "crawler-thread": "CRAWLER", "crawler-retry": "CRAWLER", "backup": "READER"}
 
 
 def env_of(container):
@@ -29,8 +31,8 @@ def main(path):
     seen = set()
     for d in docs:
         kind, name = d["kind"], d["metadata"]["name"]
-        if kind in ("Deployment", "Job"):
-            spec = d["spec"]["template"]["spec"]
+        if kind in ("Deployment", "Job", "CronJob"):
+            spec = (d["spec"]["jobTemplate"]["spec"] if kind == "CronJob" else d["spec"])["template"]["spec"]
             for c in spec["containers"]:
                 if not c["image"].startswith(REGISTRY):
                     errs.append(f"{name}: image {c['image']} is not the platform's")
@@ -47,6 +49,8 @@ def main(path):
                         errs.append(f"{name}: the platform owns the topics")
                     continue
                 comp = d["metadata"]["labels"]["app.kubernetes.io/component"]
+                if kind == "CronJob" and env.get("TKS_S3__BACKUP_BUCKET") != ("platform-credentials", "S3_BUCKET_BACKUPS"):
+                    errs.append(f"{name}: backup bucket not from platform-credentials' S3_BUCKET_BACKUPS")
                 seen.add(comp)
                 role = ROLES.get(comp, "?")
                 want = None if role is None else ("platform-credentials", f"POSTGRES_{role}_USER")

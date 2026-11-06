@@ -27,17 +27,19 @@ var secrets = []string{
 	"7000000000000000003",      // a mentioned user id
 	"7702380883188833719",      // a music id
 	"original sound - Real Nickname",
-	"7682439766627038953", // a comment id
-	"7173266195505352160", // a commenter's id
-	"commenter.name",      // a commenter's username
-	"Commenter Nick",      // a commenter's nickname
-	"CommentBody",         // a comment's text
-	"x-signature=SIG",     // a signed image link
-	"signature=VIDSIG",    // a signed video link
-	"secret-age-band",     // predicted_age_group
-	"7459999999999999999", // a subtitle id, under a key the scrubber does not know
-	"csrfTokenValue",      // the page's tokens
-	"1234567890123456789", // the browser's device id (wid)
+	"7682439766627038953",  // a comment id
+	"7173266195505352160",  // a commenter's id
+	"commenter.name",       // a commenter's username
+	"Commenter Nick",       // a commenter's nickname
+	"CommentBody",          // a comment's text
+	"x-signature=SIG",      // a signed image link
+	"signature=VIDSIG",     // a signed video link
+	"secret-age-band",      // predicted_age_group
+	"7459999999999999999",  // a subtitle id, under a key the scrubber does not know
+	"csrfTokenValue",       // the page's tokens
+	"1234567890123456789",  // the browser's device id (wid)
+	"eyJzeW50aGV0aWMiOjF9", // a JSON Web Token (the music player's developer token)
+	"eyJhbGciOiJub25lIn0",  // one under a key the scrubber does not know
 }
 
 const list = `{"statusCode":0,"hasMorePrevious":true,"itemList":[{"id":"7702921642179910309","createTime":1761946200,
@@ -47,7 +49,8 @@ const list = `{"statusCode":0,"hasMorePrevious":true,"itemList":[{"id":"77029216
  "music":{"id":"7702380883188833719","title":"original sound - Real Nickname","authorName":"Real Nickname"},
  "video":{"playAddr":"https://www.tiktok.com/aweme/v1/play/?file_id=f&item_id=7702921642179910309&signature=VIDSIG&tk=tt_chain_token",
   "claInfo":{"captionInfos":[{"claSubtitleID":"7459999999999999999"}]},
-  "shareUrl":"https://www.tiktok.com/@realhandle/video/7702921642179910309?lang=en"}}]}`
+  "shareUrl":"https://www.tiktok.com/@realhandle/video/7702921642179910309?lang=en"},
+ "music_token":{"token":{"apple_music_token":{"developer_token":"eyJhbGciOiJFUzI1NiJ9.eyJzeW50aGV0aWMiOjF9.c2ln"}},"other":"eyJhbGciOiJub25lIn0.eyJ4IjoxfQ.c2ln"}}]}`
 
 const comments = `{"status_code":0,"total":1,"has_more":0,"cursor":20,"comments":[{"cid":"7682439766627038953","aweme_id":"7702921642179910309",
  "text":"CommentBody 😀","create_time":1757171405,"reply_id":"0",

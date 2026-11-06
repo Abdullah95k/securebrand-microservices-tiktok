@@ -4,16 +4,17 @@ What the platform needs to deploy tks (M18, decision D-026: tks's first real run
 
 ## 1. The commit to pin
 
-**`a7a5dfab763d2170d47b155487950d4c6eb0dc15`**: the merge commit of M18's pull request ([#59](https://github.com/Abdullah95k/securebrand-microservices-tiktok/pull/59)) on `main`. Pin this full SHA, never a branch. A later tks commit to deploy is announced the same way, in [`build-status.md`](build-status.md).
+**The merge commit of M16's pull request on `main`** (production hardening; it adds the backup image and the backup job, so M18's commit, `a7a5dfab763d2170d47b155487950d4c6eb0dc15`, is superseded). Its full SHA is in [`build-status.md`](build-status.md) (Log, M16) once the pull request is merged. Pin the full 40-character SHA, never a branch.
 
-## 2. Images (the platform builds both)
+## 2. Images (the platform builds all three)
 
 | Image | Dockerfile | Target | Build context | Used by |
 |---|---|---|---|---|
 | `registry.digitalocean.com/securebrand/tks` | `deploy/docker/Dockerfile` | `runtime` (the last stage; also the default) | the repository root (`.`) | every component except the signer, and the migrate hook |
 | `registry.digitalocean.com/securebrand/tks-browser` | `deploy/docker/Dockerfile` | `browser` (Debian with Chromium) | the repository root (`.`) | `tks-signer` only |
+| `registry.digitalocean.com/securebrand/tks-backup` | `deploy/docker/Dockerfile` | `backup` (`postgres:18-alpine` with `tksctl`) | the repository root (`.`) | the daily backup CronJob (M16) |
 
-Both images hold every tks binary (`/usr/local/bin/tks-*`, `tksctl`). Tag both with the pinned commit's SHA.
+The first two hold every tks binary (`/usr/local/bin/tks-*`, `tksctl`); the backup image holds `tksctl` with PostgreSQL 18's `pg_dump` and `pg_restore`. Tag all three with the pinned commit's SHA. CI builds and scans all three on every change (Trivy: a critical vulnerability with a fix fails the build).
 
 ## 3. Chart
 
@@ -28,6 +29,8 @@ Both images hold every tks binary (`/usr/local/bin/tks-*`, `tksctl`). Tag both w
   | `image.tag` | the commit SHA |
   | `image.browserRepository` | `registry.digitalocean.com/securebrand/tks-browser` (already in the values file) |
   | `image.browserTag` | the commit SHA |
+  | `image.backupRepository` | `registry.digitalocean.com/securebrand/tks-backup` (already in the values file) |
+  | `image.backupTag` | the commit SHA |
 
   `imagePullSecrets` if the cluster needs one to pull from the registry.
 
@@ -37,14 +40,14 @@ Rendered and checked in CI on every pull request (`make chart-check`: `helm lint
 
 | Secret | Keys | From |
 |---|---|---|
-| `platform-credentials` | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_SSLMODE`, `POSTGRES_DATABASE`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_CA_CERT`; `KAFKA_BROKERS`, `KAFKA_USER`, `KAFKA_PASSWORD`, `KAFKA_SASL_MECHANISM`, `KAFKA_TLS`, `KAFKA_CA_CERT`; `VALKEY_HOST`, `VALKEY_PORT`, `VALKEY_PASSWORD`, `VALKEY_TLS`, `VALKEY_CA_CERT`; `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET_RAW`, `S3_BUCKET_MEDIA`; `SCHEMA_REGISTRY_URL`; **and the roles below** | the platform |
+| `platform-credentials` | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_SSLMODE`, `POSTGRES_DATABASE`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_CA_CERT`; `KAFKA_BROKERS`, `KAFKA_USER`, `KAFKA_PASSWORD`, `KAFKA_SASL_MECHANISM`, `KAFKA_TLS`, `KAFKA_CA_CERT`; `VALKEY_HOST`, `VALKEY_PORT`, `VALKEY_PASSWORD`, `VALKEY_TLS`, `VALKEY_CA_CERT`; `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET_RAW`, `S3_BUCKET_MEDIA`, **`S3_BUCKET_BACKUPS`**; `SCHEMA_REGISTRY_URL`; **and the roles below** | the platform |
 | `proxies` | `proxies.yaml`: `tt.proxy.tiers` in tks's format, each tier with `country` | the platform, from the owner |
 | `tks-env` | `TKS_PRIVACY__AUTHOR_HMAC_KEY` (a secret of 64 hex characters: `openssl rand -hex 32`, made once and **never changed**), `TKS_TT__CANARY__ACCOUNTS` (3 or more of the owner's public accounts, comma separated) | made once for tks; not in git |
 
 Notes on the mapping (`deploy/helm/tks/templates/_helpers.tpl`, `tks.platformEnv`):
 - CA certificates are read as values (PEM); tks writes Postgres's to a file itself. `KAFKA_SASL_MECHANISM` may be `SCRAM-SHA-256` in any case. `KAFKA_TLS` and `VALKEY_TLS` are `true` or `false`. `S3_ENDPOINT` may be a URL (`https://…`) or a host.
 - Optional keys (a missing one is left unset): the three CAs, `KAFKA_TLS`, `VALKEY_TLS`, `VALKEY_PASSWORD`, `POSTGRES_PORT` (5432), `POSTGRES_SSLMODE`, `S3_REGION`, `SCHEMA_REGISTRY_URL`.
-- Not read yet: `S3_BUCKET_BACKUPS` (the backup job, M16) and `CONTRACT_VERSION` (the shared contract, M15).
+- `S3_BUCKET_BACKUPS` is read by the backup job only (M16); without it the job fails and `TksBackupMissing` fires. Not read yet: `CONTRACT_VERSION` (the shared contract, M15).
 - KEDA reads the brokers from the scaled container (`bootstrapServersFromEnv`), and `KAFKA_USER`, `KAFKA_PASSWORD`, `KAFKA_CA_CERT` through a `TriggerAuthentication`, with SASL SCRAM-SHA-256 over TLS.
 
 ## 5. PostgreSQL roles
@@ -81,6 +84,20 @@ Pod maximums are at most the partitions of the topics each component reads: 3 fo
 
 The first-run report (`tksctl report`) reads Prometheus for requests, signatures, blocks, proxy data and containers. Please give the operator the Prometheus URL that scrapes namespace `tks`. If the cluster runs the Prometheus Operator, set `serviceMonitor.enabled`, `alerts.enabled` and `dashboards.enabled` to `true` in the GitOps values.
 
-## 9. The stop switch
+## 9. Backups
+
+A CronJob, `tks-backup`, dumps schema `tt` every day at 02:17 Iraq time (23:17 UTC) into `S3_BUCKET_BACKUPS` under **`tks/postgres/`**, as the read-only role `tks_reader`, streamed (no disk). tks never deletes a dump: **please add the bucket's expiry rule for `tks/postgres/`** (30 days is a sensible start). Restore and failures: [`../runbooks/tks-backup.md`](../runbooks/tks-backup.md). Rollbacks need no down migration ([`../runbooks/tks-rollback.md`](../runbooks/tks-rollback.md)).
+
+## 10. Egress policy (optional, recommended)
+
+The chart can restrict every tks pod's egress (`networkPolicy.enabled` and `networkPolicy.egress.enabled`; off in `values-production.yaml` because NetworkPolicy takes addresses, which only the platform knows). To turn it on, set in the GitOps values:
+
+- `networkPolicy.egress.platform`: the addresses and ports of Postgres, Kafka, Valkey, the schema registry (the VPC's range and their ports) and the object store's endpoint (443);
+- `networkPolicy.egress.proxies`: the proxies' exit addresses and ports (from the Secret `proxies`);
+- DNS is allowed to `kube-dns` by default (`networkPolicy.egress.dns`).
+
+The crawlers, the canary and the signer may then reach only the proxies (and the platform); the API, the scheduler, the persister and the backup job only the platform; the media downloader also TikTok's CDN on 443 (downloads are off). The cluster's CNI must enforce NetworkPolicy. An example with synthetic addresses: `deploy/helm/tks/examples/egress.yaml`.
+
+## 11. The stop switch
 
 `tksctl stop --reason "…"` (from any tks pod) stops work without touching the deployment: no task starts and no request goes to TikTok until `tksctl start`. It lives in Valkey, so Argo CD's self-heal does not undo it. Use it rather than scaling to zero.

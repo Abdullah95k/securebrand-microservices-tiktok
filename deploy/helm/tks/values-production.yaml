@@ -2,11 +2,12 @@
 # runbook docs/runbooks/tks-production.md). Layered over values.yaml:
 #
 #   helm template tks deploy/helm/tks -n tks -f deploy/helm/tks/values-production.yaml \
-#     --set image.tag=<commit> --set image.browserTag=<commit>
+#     --set image.tag=<commit> --set image.browserTag=<commit> --set image.backupTag=<commit>
 #
 # Namespace tks holds, from the platform:
 #   - Secret platform-credentials: POSTGRES_*, KAFKA_*, VALKEY_*, S3_*,
-#     SCHEMA_REGISTRY_URL (mapped below with valueFrom, platformSecret);
+#     SCHEMA_REGISTRY_URL, S3_BUCKET_BACKUPS (mapped below with valueFrom,
+#     platformSecret);
 #     each component's Postgres role as POSTGRES_<ROLE>_USER and _PASSWORD
 #     for API, READER, PERSISTER, SCHEDULER and CRAWLER;
 #   - Secret proxies, key proxies.yaml: tt.proxy.tiers in tks's format,
@@ -17,12 +18,14 @@
 # separated).
 
 image:
-  # The platform builds both images from a commit of this repository and
+  # The platform builds the three images from a commit of this repository and
   # keeps them in its registry; the tags are that commit's full SHA.
   repository: registry.digitalocean.com/securebrand/tks
   tag: ""
   browserRepository: registry.digitalocean.com/securebrand/tks-browser
   browserTag: ""
+  backupRepository: registry.digitalocean.com/securebrand/tks-backup
+  backupTag: ""
 
 platformSecret:
   name: platform-credentials
@@ -48,6 +51,8 @@ config:
     media_prefix: "tks/"
     raw_keep_prefix: "tks/keep/"
     raw_rest_prefix: "tks/30d/"
+    # Dumps under tks/postgres/ in S3_BUCKET_BACKUPS (the backup job).
+    backup_prefix: "tks/"
   tt:
     # Failures and a 1 % sample of good answers, kept for good under
     # tks/keep/ (all would also keep every other answer under tks/30d/).
@@ -77,6 +82,12 @@ keda:
   authKeys: {username: KAFKA_USER, password: KAFKA_PASSWORD, ca: KAFKA_CA_CERT}
   sasl: scram_sha256
   tls: enable
+
+# The daily dump of schema tt (M16; docs/runbooks/tks-backup.md), 02:17
+# Iraq time, as the read-only role.
+backup:
+  enabled: true
+  postgresRole: reader
 
 # Each component's role, and its maximum pods at most the partitions of
 # the topics it reads (the platform's starting sizes: account lanes 3 each,

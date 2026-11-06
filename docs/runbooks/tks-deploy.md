@@ -97,6 +97,32 @@ Its metrics are the signer's (`tks_signer_*`, `tks_signed_calls_total`, `tks_sig
 
 `make compose-up` starts the whole stack locally against `fakett` (`deploy/compose/docker-compose.yml`, Compose project `tks`, ports on 127.0.0.1 only); `make compose-down` removes it. Its pacing (`deploy/compose/local.yaml`) is for `fakett` only: never point it at TikTok.
 
+## Usable exits running low
+
+`TksUsableExitsLow` (fewer than half a tier's exit groups can start identities, for 15 minutes) and `TksNoUsableExits` (none, for 5 minutes). An exit group is a static exit's /24 or a gateway's country; its breaker opens after blocks and lets one probe through after a cooldown that doubles while probes fail (`tt.proxy.breaker`). `tks_proxy_exits{tier, state}` counts them per pod (`usable`, `cooling`).
+1. The block rate by tier on the dashboard: one provider's IPs, or all? Blocks across every tier point at tks's pacing: lower `tt.identity_rps` or pin the AIMD ceiling (`tt.aimd.max_rps`).
+2. One tier only: the provider (expired IPs, a changed gateway, credentials). Route around it in `tt.proxy.routing` or ask the owner for new IPs (the Secret `proxies`).
+3. None usable and blocks still high: `tksctl stop --reason "no usable exits"` ([`tks-production.md`](tks-production.md#5-stop-rules)) until the cause is fixed; nothing is lost.
+
+## Memory near the limit
+
+`TksMemoryNearLimit` (a container over 90 % of its memory limit for 15 minutes) and `TksOOMKilled` (it restarted after an OOM kill; a stop rule of the canary). The signer has its own: [tks-signer memory](#tks-signer-memory).
+1. Which component: `kubectl -n tks top pods`. Its heap (`go_memstats_heap_inuse_bytes`) growing without bound is a leak: save the component's log and its memory graph and tell the build session.
+2. Load (more accounts, a larger persister batch): raise `components.<name>.resources.limits.memory` (and the request with it) in the GitOps values, and sync.
+
+## Scratch volume near its limit
+
+`TksScratchNearLimit` (a pod's `/tmp` over 80 % of `tmpSizeLimitMB` for 15 minutes) and `TksPodEvicted`. Every pod's root filesystem is read-only; `/tmp` is an `emptyDir` capped at `tmpSizeLimitMB` (1 GiB; the signer 4 GiB, `components.signer.tmpSizeLimitMB`), past which the kubelet evicts the pod. `tks_tmp_bytes` and `tks_tmp_limit_bytes` measure it.
+1. The signer: its Chromium profiles. Pages are replaced after `tt.signer.page_max_signs` or `page_max_age`, which removes their profile; lower either, or raise the limit.
+2. Another component: nothing else writes there but the Postgres CA (a few KB). Look inside (`kubectl -n tks exec POD -- ls -la /tmp` does not work in the distroless image; use `kubectl debug`) and tell the build session.
+3. Evicted for the node's disk or memory instead (`kubectl describe pod`): the platform's.
+
+## Egress policy
+
+With `networkPolicy.enabled` and `networkPolicy.egress.enabled` (M16), three NetworkPolicies limit where tks's pods may connect: every pod and the backup job to DNS, tks's own pods and `networkPolicy.egress.platform` (Postgres, Kafka, Valkey, the object store, the schema registry); the crawlers, the canary and the signer also to `networkPolicy.egress.proxies` (the proxies' exits); the media downloader also to `networkPolicy.egress.media` (TikTok's CDN on 443, from its own IP). The hooks are not limited. The chart refuses egress without proxies. Values: [`values.yaml`](../../deploy/helm/tks/values.yaml); an example: [`examples/egress.yaml`](../../deploy/helm/tks/examples/egress.yaml).
+
+Symptoms of a missing address: connection timeouts (not refusals) to that service in the component's log, and `TksUsableExitsLow` with every exit cooling when the proxies are missing. Add the address, sync, and the pods connect again without a restart.
+
 ## Key signals
 
 The dashboard `tks / Overview` (`files/dashboards/tks-overview.json`): traffic and blocks, AIMD, breakers, operations and parsers, the pipeline, jobs and coverage, the budget, media and the API. The objectives (A1, A2, A5) have their own alerts and runbook ([`tks-objectives.md`](tks-objectives.md)); the canary and the signer theirs ([`tks-canary.md`](tks-canary.md)).

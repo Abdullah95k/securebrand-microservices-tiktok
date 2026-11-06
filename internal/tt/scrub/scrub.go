@@ -28,7 +28,8 @@ import (
 )
 
 // Version is recorded in a fixture's meta.json. Raise it when Scrub learns
-// a new rule, so older fixtures are scrubbed again.
+// a new rule, so older fixtures are scrubbed again. (The JSON Web Token
+// rule of M16 changed only two fixtures' tokens, replaced in place.)
 const Version = 1
 
 // Kind is what an answer is; it names the fixture directory.
@@ -158,8 +159,12 @@ var (
 	// Tokens and file handles that identify a session or a file.
 	opaqueKeys = keys("csrfToken", "nonce", "requestId", "encryptedWebid", "impr_id", "Uri", "uri", "UrlKey",
 		"FileHash", "FileCs", "url_prefix", "encodeUserTag", "backendSourceEventTracking", "predicted_age_group",
-		"msToken", "ttwid", "verify_fp", "x-tt-logid")
+		"msToken", "ttwid", "verify_fp", "x-tt-logid", "developer_token")
 )
+
+// jwtRe is a JSON Web Token under any key (the music player's developer
+// token in post lists): a credential, never fixture data (M16, gitleaks).
+var jwtRe = regexp.MustCompile(`^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$`)
 
 func keys(ks ...string) map[string]bool {
 	m := make(map[string]bool, len(ks))
@@ -294,7 +299,7 @@ func (s *scrubber) str(v, key string) string {
 		return s.usernames[v]
 	case nicknameKeys[key]:
 		return s.nicknames[v]
-	case opaqueKeys[key]:
+	case opaqueKeys[key], jwtRe.MatchString(v):
 		return "scrubbed"
 	}
 	if inner, ok := serialized(v); ok {

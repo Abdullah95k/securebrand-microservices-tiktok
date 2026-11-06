@@ -81,12 +81,15 @@ chart-check:
 	$(HELM) lint deploy/helm/tks
 	$(HELM) lint deploy/helm/tks -f deploy/helm/tks/examples/fakett.yaml
 	set -o pipefail; $(HELM) template tks deploy/helm/tks | $(KUBECONFORM) $(KUBECONFORM_ARGS)
-	set -o pipefail; $(HELM) template tks deploy/helm/tks --set keda.authSecret=tks-keda-kafka,tlsFiles.existingSecret=tks-tls,alerts.enabled=true,dashboards.enabled=true,serviceMonitor.enabled=true,api.ingress.enabled=true,networkPolicy.enabled=true,hooks.schemas=true,image.browserTag=browser \
+	set -o pipefail; $(HELM) template tks deploy/helm/tks --set keda.authSecret=tks-keda-kafka,tlsFiles.existingSecret=tks-tls,alerts.enabled=true,dashboards.enabled=true,serviceMonitor.enabled=true,api.ingress.enabled=true,networkPolicy.enabled=true,hooks.schemas=true,image.browserTag=browser,backup.enabled=true,image.backupTag=backup \
 	  | $(KUBECONFORM) $(KUBECONFORM_ARGS)
 	set -o pipefail; $(HELM) template tks deploy/helm/tks -f deploy/helm/tks/examples/fakett.yaml | $(KUBECONFORM) $(KUBECONFORM_ARGS)
-	$(HELM) lint deploy/helm/tks -f deploy/helm/tks/values-production.yaml --set image.tag=0123456789abcdef0123456789abcdef01234567,image.browserTag=0123456789abcdef0123456789abcdef01234567
+	set -o pipefail; $(HELM) template tks deploy/helm/tks -f deploy/helm/tks/examples/egress.yaml --set backup.enabled=true,image.backupTag=b \
+	  | tee /tmp/tks-egress.yaml | $(KUBECONFORM) $(KUBECONFORM_ARGS)
+	test "$$(grep -c 'kind: NetworkPolicy' /tmp/tks-egress.yaml)" = 5
+	$(HELM) lint deploy/helm/tks -f deploy/helm/tks/values-production.yaml --set image.tag=0123456789abcdef0123456789abcdef01234567,image.browserTag=0123456789abcdef0123456789abcdef01234567,image.backupTag=0123456789abcdef0123456789abcdef01234567
 	set -o pipefail; $(HELM) template tks deploy/helm/tks -n tks -f deploy/helm/tks/values-production.yaml \
-	  --set image.tag=0123456789abcdef0123456789abcdef01234567,image.browserTag=0123456789abcdef0123456789abcdef01234567 \
+	  --set image.tag=0123456789abcdef0123456789abcdef01234567,image.browserTag=0123456789abcdef0123456789abcdef01234567,image.backupTag=0123456789abcdef0123456789abcdef01234567 \
 	  | tee /tmp/tks-production.yaml | $(KUBECONFORM) $(KUBECONFORM_ARGS)
 	python3 scripts/check-production-render.py /tmp/tks-production.yaml
 

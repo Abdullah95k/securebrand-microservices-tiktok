@@ -54,3 +54,69 @@ spec:
   {{- end }}
 {{- end }}
 {{- end }}
+{{- if and .Values.networkPolicy.enabled .Values.networkPolicy.egress.enabled }}
+{{- $e := .Values.networkPolicy.egress }}
+---
+# Egress (M16, I2): every tks pod (the backup job's too; the hooks' are not
+# selected) may
+# reach DNS, the platform's services (Postgres, Kafka, Valkey, the object
+# store, the schema registry) and tks's own pods; nothing else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "tks.fullname" . }}-egress
+  labels: {{- include "tks.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tks
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Egress]
+  egress:
+    {{- with $e.dns }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tks
+              app.kubernetes.io/instance: {{ .Release.Name }}
+    {{- with $e.platform }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+---
+# The components that read TikTok reach it only through the proxies' exits
+# (tt.proxy.tiers): the crawlers, the canary and the signer's pages.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "tks.fullname" . }}-egress-proxies
+  labels: {{- include "tks.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tks
+      app.kubernetes.io/instance: {{ .Release.Name }}
+    matchExpressions:
+      - {key: app.kubernetes.io/component, operator: In, values: [crawler-account, crawler-post, crawler-thread, crawler-retry, canary, signer]}
+  policyTypes: [Egress]
+  {{- if not $e.proxies }}{{ fail "networkPolicy.egress.enabled needs networkPolicy.egress.proxies (the proxies' exits)" }}{{ end }}
+  egress: {{- toYaml $e.proxies | nindent 4 }}
+{{- if (index .Values.components "media-downloader").enabled }}
+{{- with $e.media }}
+---
+# The media downloader fetches video files from TikTok's CDN from its own
+# IP (T33; off while tt.media.include is false).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "tks.fullname" $ }}-egress-media
+  labels: {{- include "tks.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "tks.selector" (dict "root" $ "name" "media-downloader") | nindent 6 }}
+  policyTypes: [Egress]
+  egress: {{- toYaml . | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}

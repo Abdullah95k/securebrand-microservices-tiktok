@@ -85,6 +85,10 @@ s3:
   media_prefix: ""
   raw_keep_prefix: "raw-failures/"
   raw_rest_prefix: "raw/"
+  # Database dumps (tksctl backup run; M16): bucket and key prefix; dumps
+  # go under <prefix>postgres/. Empty bucket: no backups.
+  backup_bucket: ""
+  backup_prefix: ""
 
 fb:
   # Base URL of the Facebook web surface. Tests and local dev point this at fakefb.
