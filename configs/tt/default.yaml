@@ -281,6 +281,10 @@ tt:
     # The API client discovered accounts are registered to (created by tks
     # with no usable key).
     client: discovery
+    # Part B (discovery-plan §7): the persister records the people a
+    # monitored account's new posts, bio and comments bring in (sources
+    # mention, reply, commenter); the leader counts this many at a time.
+    count_batch: 5000
     # The entry check (discovery-plan §4): one read of a found account's
     # post list. Public, a post within active_for and the Iraq score passes:
     # added (at the admission pace). Private, quiet or gone: the dormant

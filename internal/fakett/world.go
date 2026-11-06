@@ -109,6 +109,9 @@ type Post struct {
 	// TextLanguage overrides textLanguage (default "ar").
 	Region       string
 	TextLanguage string
+	// Mentions are the people the caption names (textExtra with their ids,
+	// after the hashtags).
+	Mentions []Person
 }
 
 // CommentCount is what TikTok shows: top-level comments plus replies.
@@ -128,6 +131,9 @@ type Comment struct {
 	Likes   int64
 	Author  Person
 	Replies []*Comment
+	// Mentions are the people the comment names (text_extra with their
+	// ids).
+	Mentions []Person
 }
 
 // World is the ground truth. The server reads it under its lock; tests
@@ -318,6 +324,31 @@ func (w *World) addComment(p *Post, t time.Time) {
 			SecUID: fmt.Sprintf("MS4wLjABAAAAlate%06d%08x", i, w.rng.Uint32()), Username: fmt.Sprintf("late_%d", i), Nickname: fmt.Sprintf("late %d", i)}}
 	p.Comments = append(p.Comments, cm)
 	w.comments[cm.ID] = cm
+}
+
+// AddComment adds a top-level comment to p by author, naming mentions, at
+// the world's present, and returns it.
+func (w *World) AddComment(p *Post, author Person, mentions ...Person) *Comment {
+	var cm *Comment
+	w.Mutate(func() {
+		cm = &Comment{ID: ItemID(w.Now, w.rng.Uint32()), Created: w.Now, Text: fmt.Sprintf("comment by %s", author.Username),
+			Author: author, Mentions: mentions}
+		p.Comments = append(p.Comments, cm)
+		w.comments[cm.ID] = cm
+	})
+	return cm
+}
+
+// AddReply adds a reply to the comment c by author, at the world's
+// present, and returns it.
+func (w *World) AddReply(c *Comment, author Person) *Comment {
+	var rp *Comment
+	w.Mutate(func() {
+		rp = &Comment{ID: ItemID(w.Now, w.rng.Uint32()), Created: w.Now, Text: fmt.Sprintf("reply by %s", author.Username), Author: author}
+		c.Replies = append(c.Replies, rp)
+		w.comments[rp.ID] = rp
+	})
+	return rp
 }
 
 // AddReplies adds n replies to the comment c, at the world's present.

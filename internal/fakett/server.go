@@ -633,9 +633,20 @@ func comment(c *Comment, item int64, parent string) map[string]any {
 	if g := c.Author.AgeGroup(); g != "" {
 		user["predicted_age_group"] = g
 	}
-	return map[string]any{"cid": strconv.FormatInt(c.ID, 10), "text": c.Text, "create_time": c.Created.Unix(), "digg_count": c.Likes,
+	m := map[string]any{"cid": strconv.FormatInt(c.ID, 10), "text": c.Text, "create_time": c.Created.Unix(), "digg_count": c.Likes,
 		"reply_comment_total": len(c.Replies), "aweme_id": strconv.FormatInt(item, 10), "reply_id": parent, "reply_to_reply_id": "0",
 		"is_author_digged": false, "stick_position": 0, "author_pin": false, "status": 1, "comment_language": "ar", "user": user}
+	if len(c.Mentions) > 0 {
+		var extra []any
+		off := 0
+		for _, p := range c.Mentions {
+			extra = append(extra, map[string]any{"start": off, "end": off + 1 + len(p.Username), "type": 0,
+				"user_id": strconv.FormatInt(p.UID, 10), "sec_uid": p.SecUID})
+			off += len(p.Username) + 2
+		}
+		m["text_extra"] = extra
+	}
+	return m
 }
 
 func (s *Server) userInfo(acc *Account, host string) map[string]any {
@@ -678,6 +689,11 @@ func (s *Server) item(p *Post, host string) map[string]any {
 		extra = append(extra, map[string]any{"hashtagName": h, "start": off, "end": off + 1 + len(h), "type": 1, "subType": 0, "isCommerce": false, "awemeId": ""})
 		challenges = append(challenges, map[string]any{"id": strconv.FormatInt(ChallengeID(h), 10), "title": h, "desc": ""})
 		off += len(h) + 2
+	}
+	for _, m := range p.Mentions {
+		extra = append(extra, map[string]any{"userId": strconv.FormatInt(m.UID, 10), "secUid": m.SecUID, "userUniqueId": m.Username,
+			"start": off, "end": off + 1 + len(m.Username), "type": 0, "subType": 0, "isCommerce": false, "awemeId": "", "hashtagName": ""})
+		off += len(m.Username) + 2
 	}
 	it := map[string]any{
 		"id": id, "desc": p.Desc, "createTime": p.Created.Unix(), "isAd": p.Ad, "AIGCDescription": "", "ShowAIGC": false,

@@ -86,8 +86,11 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 		times = append(times, c.PostCreatedAt.AsTime())
 	}
 	var n, edited, restored, upserted int64
+	got := sightingCounts{}
 	err := w.withPartitions(ctx, "comments", times, func() error {
 		n, edited, restored, upserted = 0, 0, 0, 0
+		clear(got)
+		fresh := map[int64]bool{} // comments written for the first time
 		return pgx.BeginFunc(ctx, w.DB, func(tx pgx.Tx) error {
 			rows := make([][]any, 0, len(cs))
 			var dels []*ttv1.Comment
@@ -109,7 +112,7 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 			}
 			upserted = int64(len(rows))
 			if len(rows) > 0 {
-				if err := upsertComments(ctx, tx, rows, &n, &edited, &restored); err != nil {
+				if err := upsertComments(ctx, tx, rows, &n, &edited, &restored, fresh); err != nil {
 					return err
 				}
 			}
@@ -118,39 +121,55 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 					return err
 				}
 			}
-			if len(people) == 0 {
-				return nil
-			}
-			prows := make([][]any, 0, len(people))
-			for _, r := range people {
-				prows = append(prows, r)
-			}
-			if err := copyTemp(ctx, tx, "tmp_people", "people", peopleCols, prows); err != nil {
+			if err := writePeople(ctx, tx, people); err != nil {
 				return err
 			}
-			_, err := tx.Exec(ctx, `INSERT INTO people AS p (`+strings.Join(peopleCols, ",")+`)
-				SELECT `+strings.Join(peopleCols, ",")+` FROM tmp_people
-				ON CONFLICT (author_key) DO UPDATE SET `+set(peopleCols, map[string]string{"author_key": "", "first_seen_at": "",
-				"last_seen_at": "GREATEST(p.last_seen_at, EXCLUDED.last_seen_at)",
-				// The last band TikTok served stays when a read carries none.
-				"predicted_age_group": "COALESCE(EXCLUDED.predicted_age_group, p.predicted_age_group)"})+`
-				WHERE p.last_seen_at <= EXCLUDED.last_seen_at
-				  AND (p.last_seen_at < EXCLUDED.last_seen_at - interval '1 day'
-				   OR (p.user_id, p.sec_uid, p.username, p.nickname, p.avatar_url, p.verified, p.predicted_age_group)
-				      IS DISTINCT FROM (EXCLUDED.user_id, EXCLUDED.sec_uid, EXCLUDED.username, EXCLUDED.nickname,
-				                        EXCLUDED.avatar_url, EXCLUDED.verified,
-				                        COALESCE(EXCLUDED.predicted_age_group, p.predicted_age_group)))`)
-			return err
+			if !w.partB() || len(fresh) == 0 {
+				return nil
+			}
+			direct, replies := w.commentSightings(cs, fresh)
+			if err := recordSightings(ctx, tx, direct, got); err != nil {
+				return err
+			}
+			return recordReplies(ctx, tx, replies, got)
 		})
 	})
 	if err != nil {
 		return fmt.Errorf("persist: comments: %w", err)
 	}
 	written("comment", n, start)
+	got.publish()
 	metrics.PersistRows.WithLabelValues("comment", "unchanged").Add(float64(upserted - n))
 	metrics.CommentChanges.WithLabelValues("edited").Add(float64(edited))
 	metrics.CommentChanges.WithLabelValues("restored").Add(float64(restored))
 	return nil
+}
+
+// writePeople upserts comment authors.
+func writePeople(ctx context.Context, tx pgx.Tx, people map[string][]any) error {
+	if len(people) == 0 {
+		return nil
+	}
+	prows := make([][]any, 0, len(people))
+	for _, r := range people {
+		prows = append(prows, r)
+	}
+	if err := copyTemp(ctx, tx, "tmp_people", "people", peopleCols, prows); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO people AS p (`+strings.Join(peopleCols, ",")+`)
+		SELECT `+strings.Join(peopleCols, ",")+` FROM tmp_people
+		ON CONFLICT (author_key) DO UPDATE SET `+set(peopleCols, map[string]string{"author_key": "", "first_seen_at": "",
+		"last_seen_at": "GREATEST(p.last_seen_at, EXCLUDED.last_seen_at)",
+		// The last band TikTok served stays when a read carries none.
+		"predicted_age_group": "COALESCE(EXCLUDED.predicted_age_group, p.predicted_age_group)"})+`
+		WHERE p.last_seen_at <= EXCLUDED.last_seen_at
+		  AND (p.last_seen_at < EXCLUDED.last_seen_at - interval '1 day'
+		   OR (p.user_id, p.sec_uid, p.username, p.nickname, p.avatar_url, p.verified, p.predicted_age_group)
+		      IS DISTINCT FROM (EXCLUDED.user_id, EXCLUDED.sec_uid, EXCLUDED.username, EXCLUDED.nickname,
+		                        EXCLUDED.avatar_url, EXCLUDED.verified,
+		                        COALESCE(EXCLUDED.predicted_age_group, p.predicted_age_group)))`)
+	return err
 }
 
 const (
@@ -160,7 +179,9 @@ const (
 	commentRestored = `(t.status = 'deleted' AND EXCLUDED.last_seen_at > t.deleted_at)`
 )
 
-func upsertComments(ctx context.Context, tx pgx.Tx, rows [][]any, written, edited, restored *int64) error {
+// upsertComments writes comments, counting what it wrote, edited and
+// restored, and marks in fresh the comments it inserted.
+func upsertComments(ctx context.Context, tx pgx.Tx, rows [][]any, written, edited, restored *int64, fresh map[int64]bool) error {
 	if err := copyTemp(ctx, tx, "tmp_comments", "comments", commentCols, rows); err != nil {
 		return err
 	}
@@ -178,7 +199,7 @@ func upsertComments(ctx context.Context, tx pgx.Tx, rows [][]any, written, edite
 		   OR `+commentRestored+`)
 		RETURNING new.edit_count > coalesce(old.edit_count, 0),
 			coalesce(old.status = 'deleted' AND new.status = 'visible', false),
-			new.post_created_at, new.post_id, new.comment_id, new.depth, old.deleted_at`)
+			new.post_created_at, new.post_id, new.comment_id, new.depth, old.deleted_at, old.comment_id IS NULL`)
 	if err != nil {
 		return err
 	}
@@ -194,11 +215,15 @@ func upsertComments(ctx context.Context, tx pgx.Tx, rows [][]any, written, edite
 		var post, id int64
 		var depth int16
 		var deletedAt *time.Time
-		if err := r.Scan(&e, &rs, &pc, &post, &id, &depth, &deletedAt); err != nil {
+		var inserted bool
+		if err := r.Scan(&e, &rs, &pc, &post, &id, &depth, &deletedAt, &inserted); err != nil {
 			r.Close()
 			return err
 		}
 		*written++
+		if inserted {
+			fresh[id] = true
+		}
 		if e {
 			*edited++
 		}

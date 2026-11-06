@@ -1,6 +1,6 @@
 # tks discovery: the entry check, the dormant list and the Iraq score
 
-How tks decides whether an account a discovery source found is added to monitoring ([`discovery-plan.md`](../tiktok/discovery-plan.md) §3 and §4; [ADR 0007 §19](../tiktok/adr/0007-tks-data-model-and-contracts.md#19-settled-in-m10c-the-entry-check-the-dormant-list-and-the-iraq-score)). The sources themselves come with M11 (mentions, replies, commenters), M12 (search, hashtags, sounds, the For You feed, related posts) and M13 (following and followers lists). Until then nothing finds accounts, and this machinery is idle.
+How tks decides whether an account a discovery source found is added to monitoring ([`discovery-plan.md`](../tiktok/discovery-plan.md) §3 and §4; [ADR 0007 §19](../tiktok/adr/0007-tks-data-model-and-contracts.md#19-settled-in-m10c-the-entry-check-the-dormant-list-and-the-iraq-score)). The sources: **part B** (M11, built: mentions, replies, commenters; [below](#part-b-from-what-tks-already-collects)), M12 (search, hashtags, sounds, the For You feed, related posts) and M13 (following and followers lists).
 
 ## What happens to a found account
 
@@ -25,6 +25,24 @@ How tks decides whether an account a discovery source found is added to monitori
 5. **Goes quiet.** A discovered account that turns private, banned or gone, or has no post for 90 days, moves to the dormant list: its checks stop, its data stays. Accounts the owner registered are never moved (they get the lighter checks of M10a).
 
 **The dormant list.** An account on it is read again only when a source finds it again **after** its next check date (its check plus 180 days, `recheck_after`). Found earlier, the finding is counted and nothing is read. Not found again, it is never read again.
+
+## Part B: from what tks already collects
+
+[`discovery-plan.md`](../tiktok/discovery-plan.md) §7; [ADR 0007 §21](../tiktok/adr/0007-tks-data-model-and-contracts.md#21-settled-in-m11-discovery-part-b). No new kind of TikTok request: the people come from the posts, bios and comments tks reads for the accounts it monitors; each new one costs one entry check.
+
+| Source | Who | Carries |
+|---|---|---|
+| `mention` | named with @ in a monitored account's caption, its bio, or a comment on its posts | id and secUid (caption, comment); a bio only the username, so the entry check reads the profile page |
+| `reply` | a person whose comment the monitored account answered on its own post | id, secUid and username (from the stored comment) |
+| `commenter` | everyone who commented on a monitored account's post | id, secUid and username |
+
+1. **The persister records** each person in `tt.discovery_sightings` (one row per sighting: source, where, the monitored account, the person, the post and comment), **only for a post or comment it writes for the first time, or a bio that changed**, in the same transaction. A re-read, an edit or a redelivered batch records nothing again. Only accounts on the schedule count (an entry check's posts bring no one in), and only sources switched on. The account itself, and its own comments and replies, are never recorded.
+2. **The leader counts** what it has not counted yet, `tt.discovery.count_batch` (5,000) at a time, for up to 10 seconds a tick: one finding per person, source and monitored account, with how often it was seen. The rows are kept (`counted_at` set).
+3. Each found account then follows [the steps above](#what-happens-to-a-found-account): already monitored, it gains the source; new, it gets one entry check; dormant, it waits for its date. The same commenter on a thousand posts is recorded each time and read once.
+
+**Scoring.** Mentions and replies count as "mentioned or replied to by monitored accounts" (medium; strong from 10 different monitored accounts); commenting counts as weak. A mention inside someone else's comment on a monitored post counts as a mention by that post's account: it is evidence of the Iraqi audience around it.
+
+**Known gaps.** A mention in a comment carries only ids; tks fills the username from what it stored for the person, if anything, and otherwise the entry check needs an identity that has loaded a page already (a fresh one fails once and the check is tried again). A discovered account's first 15 posts are stored by its entry check, before it is monitored, so their captions bring no one in; its later posts and all its comments do.
 
 ## The Iraq score
 
@@ -53,8 +71,9 @@ All in `tt.discovery` (off by default):
 tt:
   discovery:
     enabled: true
-    sources: {mention: true}   # each source as it is built (M11 to M13)
+    sources: {mention: true, reply: true, commenter: true}   # part B (M11); M12 and M13 add theirs
     max_new_per_day: 0         # a cap for testing; 0 = no cap
+    count_batch: 5000          # part B's sightings the leader counts at a time
 ```
 
 Discovery cannot be turned on with `privacy.pii_mode: pseudonymized`: it needs people's ids.
@@ -68,5 +87,7 @@ curl -s -H "Authorization: Bearer $KEY" "$TKS/v1/discovery/accounts?state=dorman
 ```
 
 `state=not_iraqi` lists the accounts close to the threshold; `counts` gives every state's total; `next` is the cursor for `&after=`. In SQL: `SELECT * FROM tt.dormant_accounts`.
+
+**Part B:** `tks_discovery_sightings_total{source}` (persister), `tks_discovery_sightings_counted_total`, `tks_discovery_sightings_backlog` (leader). A backlog that keeps growing means the leader counts slower than the persister records (raise `count_batch`, or look at the leader's errors). In SQL: `SELECT how, found_in, count(*) FROM tt.discovery_sightings GROUP BY 1, 2`.
 
 **Metrics:** `tks_discovery_findings_total{source,state}`, `tks_entry_checks_total{state}`, `tks_discovered_accounts_total`, `tks_dormant_moves_total{reason}`, `tks_discovery_candidates{state}` (leader). Many `entry_checks_total{state="pending"}` (retries) or a growing `discovery_candidates{state="checking"}` mean the checks fail: look at the account stage's errors (entry checks run on its topics). A `pending` count that never falls while backfills are paused is the budget at work (`GET /v1/admission`).

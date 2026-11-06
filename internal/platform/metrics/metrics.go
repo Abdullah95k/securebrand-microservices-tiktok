@@ -143,6 +143,11 @@ var (
 	DiscoveredAccounts  = counter("discovered_accounts_total", "tks accounts discovery registered for monitoring.")
 	DormantMoves        = counterVec("dormant_moves_total", "tks discovered accounts moved from monitoring to the dormant list, by reason (private, inactive, never_posted, banned, gone).", "reason")
 	DiscoveryCandidates = gaugeVec("discovery_candidates", "tks accounts discovery found and does not monitor, by state (pending, checking, qualified, not_iraqi, dormant, blocked; added counts those it registered) (leader scheduler).", "state")
+	// Discovery part B (docs/tiktok/discovery-plan.md §7): people a
+	// monitored account's new posts, bio and comments bring in.
+	DiscoverySightings        = counterVec("discovery_sightings_total", "tks people the persister recorded from monitored accounts' new posts, bios and comments for discovery part B, by source (mention, reply, commenter).", "source")
+	DiscoverySightingsCounted = counter("discovery_sightings_counted_total", "tks part B sightings the leader scheduler counted into accounts' sources and candidates.")
+	DiscoverySightingsBacklog = gauge("discovery_sightings_backlog", "tks part B sightings waiting to be counted (leader scheduler).")
 	// tks's delay before a new post is stored (build brief §8 A2): the
 	// buckets hold the targets (median 1.5 h, 99 % in 3 h, 99.9 % in 6 h).
 	PostStoreDelay = histVec("post_store_delay_seconds", "Time from a new tks post's createTime to its row in Postgres, for posts first read by a scheduled check (mode incremental) or a metrics walk in its place (refresh); backfills are not counted.",

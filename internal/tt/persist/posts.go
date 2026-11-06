@@ -141,8 +141,10 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 	var n int64
 	var now time.Time
 	var fresh []int64 // posts written for the first time
+	got := sightingCounts{}
 	err := w.withPartitions(ctx, "posts", times, func() error {
 		n, now, fresh = 0, w.now(), nil
+		clear(got)
 		return pgx.BeginFunc(ctx, w.DB, func(tx pgx.Tx) error {
 			rows := make([][]any, 0, len(ps))
 			var mrows [][]any
@@ -198,6 +200,9 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 			if fresh, err = pgx.CollectRows(idx, pgx.RowTo[int64]); err != nil {
 				return err
 			}
+			if err := recordSightings(ctx, tx, w.postSightings(ps, fresh), got); err != nil {
+				return err
+			}
 			if len(mrows) == 0 {
 				return nil
 			}
@@ -216,6 +221,7 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 		return fmt.Errorf("persist: posts: %w", err)
 	}
 	written("post", n, start)
+	got.publish()
 	metrics.PersistRows.WithLabelValues("post", "unchanged").Add(float64(int64(len(ps)) - n))
 	observeDelay(ps, fresh, now)
 	return nil
