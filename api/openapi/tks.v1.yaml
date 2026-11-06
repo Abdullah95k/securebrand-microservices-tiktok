@@ -319,6 +319,61 @@ paths:
                         verified: {type: boolean}
                         private: {type: boolean}
                   next_cursor: {type: string}
+  /accounts/{account}/follows:
+    parameters: [{$ref: '#/components/parameters/Account'}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+    get:
+      summary: The people on the account's following or followers list (discovery part D), the newest first seen first
+      description: >-
+        Read by discovery part D when tt.discovery's following and follower
+        sources are on. Who each person is needs pii:read; author_key is
+        always there. TikTok's lists do not say when someone followed: the
+        times are when tks first and last saw the link.
+      parameters:
+        - {in: query, name: direction, schema: {type: string, enum: [following, follower], default: follower}}
+      responses:
+        "200":
+          description: Follow links
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  direction: {type: string, enum: [following, follower]}
+                  list:
+                    type: object
+                    description: The list's read state (absent before its first read)
+                    properties:
+                      state: {type: string, enum: [new, ok, hidden, gone, refused]}
+                      status_code: {type: integer, format: int64, description: "TikTok's code for a list it would not serve"}
+                      last_read_at: {type: string, format: date-time}
+                      next_read_at: {type: string, format: date-time}
+                      read_to_end: {type: boolean}
+                      total: {type: integer, format: int64}
+                      last_stop: {type: string, enum: [end, known, cap, stuck, hidden, gone, refused]}
+                  follows:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        author_key: {type: string}
+                        person:
+                          type: object
+                          description: "pii:read"
+                          properties:
+                            user_id: {type: string}
+                            sec_uid: {type: string}
+                            username: {type: string}
+                            nickname: {type: string}
+                            avatar_url: {type: string}
+                            verified: {type: boolean}
+                        private: {type: boolean}
+                        video_count: {type: integer, format: int64}
+                        follower_count: {type: integer, format: int64}
+                        following_count: {type: integer, format: int64}
+                        first_seen_at: {type: string, format: date-time}
+                        last_seen_at: {type: string, format: date-time}
+                  next_cursor: {type: string}
+        "400": {$ref: '#/components/responses/Problem'}
   /accounts/{account}/posts:
     parameters: [{$ref: '#/components/parameters/Account'}]
     get:

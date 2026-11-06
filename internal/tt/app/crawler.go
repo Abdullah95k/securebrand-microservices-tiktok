@@ -200,6 +200,8 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 			tkstaskv1.Kind_KIND_THREAD:  &stage.ThreadStage{D: deps},
 			// Discovery's entry checks ride the account stage's topics.
 			tkstaskv1.Kind_KIND_ENTRY: &stage.EntryStage{A: &stage.AccountStage{D: deps}},
+			// So do discovery part D's list reads (unsigned).
+			tkstaskv1.Kind_KIND_FOLLOWS: &stage.FollowsStage{D: deps},
 		}}
 	c.Deps, c.Worker = deps, worker
 	c.Components = []run.Func{

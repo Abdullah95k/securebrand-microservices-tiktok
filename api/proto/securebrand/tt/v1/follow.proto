@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package securebrand.tt.v1;
+
+import "securebrand/common/v1/common.proto";
+import "securebrand/tt/v1/common.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1;ttv1";
+
+// FollowDirection says which of a monitored account's lists a link was
+// read from (docs/tiktok/discovery-plan.md §9).
+enum FollowDirection {
+  FOLLOW_DIRECTION_UNSPECIFIED = 0;
+  // The account's following list (scene 21): the account follows person.
+  FOLLOW_DIRECTION_FOLLOWING = 1;
+  // The account's followers list (scene 67): person follows the account.
+  FOLLOW_DIRECTION_FOLLOWER = 2;
+}
+
+// Follow is published on tt.follow.v1, keyed by user_id: one person on one
+// of a monitored account's lists, as a list page served it (discovery part
+// D, ADR 0007 §23). The same link read again is the same link with a later
+// observation. TikTok's lists say nothing about when someone followed, so a
+// link's time is when tks first and last saw it.
+message Follow {
+  securebrand.common.v1.Observation obs = 1;
+  // The monitored account whose list it is.
+  int64 user_id = 2;
+  FollowDirection direction = 3;
+  // Personal data but author_key (empty when privacy.pii_mode is
+  // pseudonymized: discovery cannot run then).
+  Person person = 4;
+  // What the list showed of the person, for discovery's cheap pre-checks
+  // (a private account, or one with no post, goes on the dormant list
+  // without a read): privateAccount, and the stats a list entry carries.
+  optional bool private = 5;
+  optional int64 video_count = 6;
+  optional int64 follower_count = 7;
+  optional int64 following_count = 8;
+  // The page of the read it was on (0: the list's first page) and its place
+  // on that page: TikTok serves the newest first (T39).
+  int32 page = 9;
+  int32 position = 10;
+}

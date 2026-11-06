@@ -145,9 +145,16 @@ var (
 	DiscoveryCandidates = gaugeVec("discovery_candidates", "tks accounts discovery found and does not monitor, by state (pending, checking, qualified, not_iraqi, dormant, blocked; added counts those it registered) (leader scheduler).", "state")
 	// Discovery part B (docs/tiktok/discovery-plan.md §7): people a
 	// monitored account's new posts, bio and comments bring in.
-	DiscoverySightings        = counterVec("discovery_sightings_total", "tks people the persister recorded from monitored accounts' new posts, bios and comments for discovery part B, by source (mention, reply, commenter).", "source")
+	DiscoverySightings        = counterVec("discovery_sightings_total", "tks people the persister recorded for discovery to count: from monitored accounts' new posts, bios and comments (part B: mention, reply, commenter) and from their following and followers lists (part D: following, follower), by source.", "source")
 	DiscoverySightingsCounted = counter("discovery_sightings_counted_total", "tks part B sightings the leader scheduler counted into accounts' sources and candidates.")
-	DiscoverySightingsBacklog = gauge("discovery_sightings_backlog", "tks part B sightings waiting to be counted (leader scheduler).")
+	DiscoverySightingsBacklog = gauge("discovery_sightings_backlog", "tks part B and D sightings waiting to be counted (leader scheduler).")
+	// Discovery part D (docs/tiktok/discovery-plan.md §9): monitored
+	// accounts' following and followers lists.
+	FollowPages     = counterVec("follow_pages_total", "tks following and followers list pages read, by direction (following, follower) and result (ok, hidden, gone, refused, error).", "direction", "result")
+	FollowReads     = counterVec("follow_reads_total", "tks following and followers list reads that ended, by direction and why they stopped (end, known, cap, day_cap, stuck, hidden, gone, refused).", "direction", "stop")
+	FollowLinks     = counterVec("follows_stored_total", "tks follow links the persister wrote, by direction and whether the link was new (new, seen).", "direction", "result")
+	FollowListsDue  = gaugeVec("follow_lists_due", "tks following and followers lists due to be read and not yet claimed, by direction (leader scheduler).", "direction")
+	FollowListState = gaugeVec("follow_lists", "tks following and followers lists by direction and state (new, ok, hidden, gone, refused) (leader scheduler).", "direction", "state")
 	// tks's delay before a new post is stored (build brief §8 A2): the
 	// buckets hold the targets (median 1.5 h, 99 % in 3 h, 99.9 % in 6 h).
 	PostStoreDelay = histVec("post_store_delay_seconds", "Time from a new tks post's createTime to its row in Postgres, for posts first read by a scheduled check (mode incremental) or a metrics walk in its place (refresh); backfills are not counted.",

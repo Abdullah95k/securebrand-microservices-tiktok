@@ -45,7 +45,7 @@ type Worker struct {
 
 var stageNames = map[tkstaskv1.Kind]string{
 	tkstaskv1.Kind_KIND_ACCOUNT: "account", tkstaskv1.Kind_KIND_POST: "post", tkstaskv1.Kind_KIND_THREAD: "thread",
-	tkstaskv1.Kind_KIND_ENTRY: "entry",
+	tkstaskv1.Kind_KIND_ENTRY: "entry", tkstaskv1.Kind_KIND_FOLLOWS: "follows",
 }
 
 // Handle implements kafka.Handler.

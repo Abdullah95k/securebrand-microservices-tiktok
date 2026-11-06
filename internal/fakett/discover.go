@@ -206,8 +206,9 @@ func (s *Server) itemList(w http.ResponseWriter, q url.Values, ps []*Post, host 
 }
 
 // userList serves the following (scene 21) and followers (scene 67) lists:
-// an account follows the other monitored accounts and is followed by the
-// people who commented on its posts.
+// the account's own lists once a test set them (newest first), else it
+// follows the other monitored accounts and is followed by the people who
+// commented on its posts. A hidden following list answers 10222.
 func (s *Server) userList(w http.ResponseWriter, q url.Values) {
 	f := s.faults()
 	if f.FollowListsNeedLogin {
@@ -224,14 +225,34 @@ func (s *Server) userList(w http.ResponseWriter, q url.Values) {
 		return
 	}
 	var people []map[string]any
+	entry := func(o *Account) map[string]any {
+		return map[string]any{"user": s.person(o.Person, o.Private), "stats": map[string]any{"followerCount": o.Followers,
+			"followingCount": o.Following, "videoCount": len(o.Posts)}}
+	}
 	switch atoi(q.Get("scene"), 0) {
 	case SceneFollowing:
+		if acc.FollowingHidden {
+			writeJSON(w, map[string]any{"statusCode": 10222, "statusMsg": "this account's following list is private"})
+			return
+		}
+		if acc.FollowingList != nil {
+			for _, o := range acc.FollowingList {
+				people = append(people, entry(o))
+			}
+			break
+		}
 		for _, o := range s.World.accounts {
 			if o != acc {
-				people = append(people, map[string]any{"user": s.person(o.Person, o.Private), "stats": map[string]any{"followerCount": o.Followers, "videoCount": len(o.Posts)}})
+				people = append(people, entry(o))
 			}
 		}
 	case SceneFollowers:
+		if acc.FollowerList != nil {
+			for _, o := range acc.FollowerList {
+				people = append(people, entry(o))
+			}
+			break
+		}
 		seen := map[int64]bool{}
 		for _, p := range acc.Posts {
 			for _, c := range p.Comments {

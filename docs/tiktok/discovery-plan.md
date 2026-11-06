@@ -2,7 +2,7 @@
 
 **Status: approved by the owner on 2026-11-04, with the decisions in §1.**
 - The build starts when M8 merges. Building it alongside M8 would change the same files: migrations, config, the scheduler, the API and `build-status.md`.
-- **Built so far:** §17 (M8b); M10a (2026-11-05): sources, labels, blocks, paced admission, the lighter checks, the keyword list loaded, and bulk import (part A), in [ADR 0007 §18](adr/0007-tks-data-model-and-contracts.md#18-settled-in-m10a-sources-labels-admission-and-bulk-import) and [`tks-import.md`](../runbooks/tks-import.md). M10 was split in two: M10a, then M10c (2026-11-05): the entry check, the dormant list and the Iraq score (§3, §4), in [ADR 0007 §19](adr/0007-tks-data-model-and-contracts.md#19-settled-in-m10c-the-entry-check-the-dormant-list-and-the-iraq-score) and [`tks-discovery.md`](../runbooks/tks-discovery.md); the sources that call it come with M11 to M13. M10b (2026-11-05): the C6 probe, `tks-spike discover` ([`tks-discovery-probe.md`](../runbooks/tks-discovery-probe.md)), with `fakett`'s synthetic discovery answers (§14); the calls not recorded yet are T36. M11 (2026-11-06): part B (§7), in [ADR 0007 §21](adr/0007-tks-data-model-and-contracts.md#21-settled-in-m11-discovery-part-b) and [`tks-discovery.md`](../runbooks/tks-discovery.md#part-b-from-what-tks-already-collects). M14 (2026-11-06): the review page (§11), in [ADR 0007 §22](adr/0007-tks-data-model-and-contracts.md#22-settled-in-m14-the-discovery-review-page) and [`tks-discovery.md`](../runbooks/tks-discovery.md#the-review-page).
+- **Built so far:** §17 (M8b); M10a (2026-11-05): sources, labels, blocks, paced admission, the lighter checks, the keyword list loaded, and bulk import (part A), in [ADR 0007 §18](adr/0007-tks-data-model-and-contracts.md#18-settled-in-m10a-sources-labels-admission-and-bulk-import) and [`tks-import.md`](../runbooks/tks-import.md). M10 was split in two: M10a, then M10c (2026-11-05): the entry check, the dormant list and the Iraq score (§3, §4), in [ADR 0007 §19](adr/0007-tks-data-model-and-contracts.md#19-settled-in-m10c-the-entry-check-the-dormant-list-and-the-iraq-score) and [`tks-discovery.md`](../runbooks/tks-discovery.md); the sources that call it come with M11 to M13. M10b (2026-11-05): the C6 probe, `tks-spike discover` ([`tks-discovery-probe.md`](../runbooks/tks-discovery-probe.md)), with `fakett`'s synthetic discovery answers (§14); the calls not recorded yet are T36. M11 (2026-11-06): part B (§7), in [ADR 0007 §21](adr/0007-tks-data-model-and-contracts.md#21-settled-in-m11-discovery-part-b) and [`tks-discovery.md`](../runbooks/tks-discovery.md#part-b-from-what-tks-already-collects). M14 (2026-11-06): the review page (§11), in [ADR 0007 §22](adr/0007-tks-data-model-and-contracts.md#22-settled-in-m14-the-discovery-review-page) and [`tks-discovery.md`](../runbooks/tks-discovery.md#the-review-page). M13 (2026-11-06): part D (§9), the following and followers lists, in [ADR 0007 §23](adr/0007-tks-data-model-and-contracts.md#23-settled-in-m13-discovery-part-d) and [`tks-discovery.md`](../runbooks/tks-discovery.md#part-d-following-and-followers-lists).
 
 **What tks does today** (checked in the code, 2026-11-04; see [`build-brief.md`](build-brief.md) and [`build-status.md`](build-status.md)):
 - It follows only the accounts it is given, one at a time, through `POST /v1/accounts`.
@@ -321,6 +321,8 @@ All four already carry the person's id and `secUid`, except bios, which carry on
 
 ## 9. Part D: who follows whom (C6, then M13)
 
+**Built** (M13, 2026-11-06; [`tks-discovery.md`](../runbooks/tks-discovery.md#part-d-following-and-followers-lists)). C6 run 1 answered the open question below: both lists are served logged out, unsigned; a hidden following list answers 10222 and the profile says so in advance. A re-read takes the newest people down to those already stored, then goes deeper from where the last read stopped, up to `tt.discovery.follows.max_pages`: a large account's list fills in over days. How deep TikTok lets a logged-out visitor go is still open (T39).
+
 **What is read:** for **every monitored account, including the ones discovery adds**, its **following** list and its **followers** list.
 
 **How:**
@@ -450,7 +452,7 @@ Go-live (C5) doesn't wait for discovery. Part A is usable as soon as M10 merges.
 ## 16. Still open
 
 1. **Exits in or near Iraq**, if C6 shows that TikTok serves Iraqi results only to Iraqi viewers (§8.3). This is a proxy decision.
-2. **Follower lists behind login** (§9). If TikTok serves them only to logged-in users, part D can't run without changing D3.
+2. ~~Follower lists behind login~~ (§9): **closed** (C6 run 1, 2026-11-05): served logged out; built in M13. How deep they go logged out is T39.
 3. ~~The owner's own accounts that go quiet~~: **closed** (owner, 2026-11-05): they stay monitored with lighter checks (§4, built in M10a).
 4. ~~Counsel's review~~ (§13): **closed** (owner, 2026-11-05): signed off, discovery included.
 

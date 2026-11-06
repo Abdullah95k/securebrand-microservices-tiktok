@@ -31,7 +31,8 @@
     "language": "ar",
     "status": "ACCOUNT_STATUS_ACTIVE",
     "source": "ACCOUNT_SOURCE_PROFILE_PAGE",
-    "author_key": "bup3Fg=="
+    "author_key": "bup3Fg==",
+    "following_visibility": 2
   },
   "dropped": {},
   "media": [

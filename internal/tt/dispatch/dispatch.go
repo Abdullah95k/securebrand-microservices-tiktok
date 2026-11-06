@@ -21,6 +21,7 @@ import (
 
 	commonv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/common/v1"
 	tkstaskv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tks/task/v1"
+	ttv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/jobs"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/task"
@@ -36,6 +37,10 @@ const (
 	// its post list (task.NewEntry), decided by the finalizer
 	// (docs/tiktok/discovery-plan.md §4).
 	KindEntry = "entry"
+	// KindFollows is discovery part D's read of a monitored account's
+	// following or followers list (task.NewFollows): its mode is the
+	// direction (docs/tiktok/discovery-plan.md §9).
+	KindFollows = "follows"
 )
 
 // Modes a job may ask for. auto reads a never-checked account in full (the
@@ -48,6 +53,9 @@ const (
 	ModeRefresh     = "refresh"
 	// ModeEntry is an entry check's: one list page, no watermark.
 	ModeEntry = "entry"
+	// ModeFollowing and ModeFollowers are a follow-list read's: which list.
+	ModeFollowing = "following"
+	ModeFollowers = "followers"
 )
 
 // Request describes a job to create.
@@ -70,6 +78,9 @@ type Request struct {
 	// scope: its page is loaded by the username.
 	UserID   int64
 	Username string
+	// Follows is a follow-list read's scope (Kind KindFollows); its
+	// direction sets the job's mode.
+	Follows *tkstaskv1.FollowScope
 }
 
 // Job is a job row.
@@ -237,6 +248,15 @@ func (d *Dispatcher) Create(ctx context.Context, r Request, maxRunning int) (*Jo
 	if r.Kind == KindEntry {
 		mode = ModeEntry
 	}
+	if r.Kind == KindFollows {
+		if r.Follows == nil {
+			return nil, false, errors.New("dispatch: follows job without its scope")
+		}
+		mode = ModeFollowers
+		if r.Follows.Direction == ttv1.FollowDirection_FOLLOW_DIRECTION_FOLLOWING {
+			mode = ModeFollowing
+		}
+	}
 	id := r.JobID
 	if id == uuid.Nil {
 		if id, err = uuid.NewV7(); err != nil {
@@ -312,6 +332,9 @@ func (d *Dispatcher) Create(ctx context.Context, r Request, maxRunning int) (*Jo
 	root := task.NewAccount(id.String(), r.Lane, cm, sc, r.Limits)
 	if r.Kind == KindEntry {
 		root = task.NewEntry(id.String(), sc)
+	}
+	if r.Kind == KindFollows {
+		root = task.NewFollows(id.String(), r.Follows)
 	}
 	rec, err := d.Producer.Record(topics.Task(root.Kind, root.Lane), task.ScopeKey(root), root)
 	if err != nil {

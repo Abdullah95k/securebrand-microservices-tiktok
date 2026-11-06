@@ -12,12 +12,15 @@ import (
 
 // Public topics (securebrand.tt.v1 and securebrand.common.v1).
 const (
-	Account        = "tt.account.v1"
-	Post           = "tt.post.v1"
-	PostMetrics    = "tt.post_metrics.v1"
-	Comment        = "tt.comment.v1"
-	Music          = "tt.music.v1"
-	Media          = "tt.media.v1"
+	Account     = "tt.account.v1"
+	Post        = "tt.post.v1"
+	PostMetrics = "tt.post_metrics.v1"
+	Comment     = "tt.comment.v1"
+	Music       = "tt.music.v1"
+	Media       = "tt.media.v1"
+	// Follow carries the people on monitored accounts' following and
+	// followers lists (discovery part D, ADR 0007 §23).
+	Follow         = "tt.follow.v1"
 	MediaReady     = "tt.media.ready.v1"
 	MediaProcessed = "tt.media.processed.v1"
 	MediaDeleted   = "tt.media.deleted.v1"
@@ -54,6 +57,7 @@ var ValueSchemas = map[string]string{
 	Comment:        "securebrand/tt/v1/comment.proto",
 	Music:          "securebrand/tt/v1/music.proto",
 	Media:          "securebrand/tt/v1/media.proto",
+	Follow:         "securebrand/tt/v1/follow.proto",
 	MediaReady:     "securebrand/common/v1/media.proto",
 	MediaProcessed: "securebrand/common/v1/media.proto",
 	MediaDeleted:   "securebrand/common/v1/media.proto",
@@ -70,6 +74,7 @@ var ValueTypes = map[string]string{
 	Comment:        "securebrand.tt.v1.Comment",
 	Music:          "securebrand.tt.v1.Music",
 	Media:          "securebrand.tt.v1.Media",
+	Follow:         "securebrand.tt.v1.Follow",
 	MediaReady:     "securebrand.common.v1.MediaReady",
 	MediaProcessed: "securebrand.common.v1.MediaProcessed",
 	MediaDeleted:   "securebrand.common.v1.MediaDeleted",
@@ -79,7 +84,7 @@ var ValueTypes = map[string]string{
 
 // Entity lists the public entity topics the persister consumes; the job
 // finalizer waits for the persister to catch up on exactly these.
-var Entity = []string{Account, Post, PostMetrics, Comment, Music, Media}
+var Entity = []string{Account, Post, PostMetrics, Comment, Music, Media, Follow}
 
 // RetryTopics are consumed by the retry relay.
 var RetryTopics = []string{Retry30s, Retry5m, Retry1h}
@@ -90,9 +95,9 @@ func Task(kind tkstaskv1.Kind, lane tkstaskv1.Lane) string {
 	switch kind {
 	case tkstaskv1.Kind_KIND_MEDIA:
 		return TaskMedia
-	case tkstaskv1.Kind_KIND_ACCOUNT, tkstaskv1.Kind_KIND_ENTRY:
-		// Entry checks share the account stage's topics and consumers: the
-		// worker runs each by its kind.
+	case tkstaskv1.Kind_KIND_ACCOUNT, tkstaskv1.Kind_KIND_ENTRY, tkstaskv1.Kind_KIND_FOLLOWS:
+		// Entry checks and follow-list reads share the account stage's
+		// topics and consumers: the worker runs each by its kind.
 		stage = "account"
 	case tkstaskv1.Kind_KIND_POST:
 		stage = "post"

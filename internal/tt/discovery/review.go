@@ -285,9 +285,9 @@ func KeywordHits(ctx context.Context, db DB, ids []int64) (map[int64]int64, erro
 }
 
 // JobKinds are the job kinds discovery's own reads run as (dispatch.Kind*):
-// their requests and data are discovery's cost. Part C's sources add
-// theirs (M12).
-var JobKinds = []string{dispatch.KindEntry}
+// their requests and data are discovery's cost: entry checks, and part D's
+// list reads. Part C's sources add theirs (M12).
+var JobKinds = []string{dispatch.KindEntry, dispatch.KindFollows}
 
 // Reads are the jobs of one kind on one day and what they cost.
 type Reads struct {

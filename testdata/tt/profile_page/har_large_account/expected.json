@@ -32,7 +32,8 @@
     "language": "en",
     "status": "ACCOUNT_STATUS_ACTIVE",
     "source": "ACCOUNT_SOURCE_PROFILE_PAGE",
-    "author_key": "1a7SKw=="
+    "author_key": "1a7SKw==",
+    "following_visibility": 2
   },
   "dropped": {},
   "media": [

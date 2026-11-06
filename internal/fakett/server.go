@@ -661,13 +661,23 @@ func (s *Server) userInfo(acc *Account, host string) map[string]any {
 		"user": map[string]any{"id": strconv.FormatInt(acc.UID, 10), "shortId": "", "uniqueId": acc.Username, "nickname": acc.Nickname,
 			"avatarLarger": cdn + "-1080.jpg", "avatarMedium": cdn + "-720.jpg", "avatarThumb": cdn + "-100.jpg", "signature": acc.Bio,
 			"createTime": acc.CreateTime.Unix(), "verified": acc.Verified, "secUid": acc.SecUID, "privateAccount": acc.Private,
-			"bioLink": map[string]any{"link": acc.BioLink, "risk": 3}, "uniqueIdModifyTime": 0, "nickNameModifyTime": 0, "isOrganization": 0},
+			"bioLink": map[string]any{"link": acc.BioLink, "risk": 3}, "uniqueIdModifyTime": 0, "nickNameModifyTime": 0, "isOrganization": 0,
+			"followingVisibility": followingVisibility(acc)},
 		"stats": map[string]any{"followerCount": round(acc.Followers), "followingCount": acc.Following, "heart": round(acc.Hearts),
 			"heartCount": round(acc.Hearts), "videoCount": len(acc.Posts), "diggCount": acc.Diggs, "friendCount": acc.Friends},
 		"statsV2": map[string]any{"followerCount": i64(acc.Followers), "followingCount": i64(acc.Following), "heart": i64(acc.Hearts),
 			"heartCount": i64(acc.Hearts), "videoCount": strconv.Itoa(len(acc.Posts)), "diggCount": i64(acc.Diggs), "friendCount": i64(acc.Friends)},
 		"itemList": []any{},
 	}
+}
+
+// followingVisibility is the profile's followingVisibility: 2 when the
+// following list is hidden, else 1.
+func followingVisibility(acc *Account) int {
+	if acc.FollowingHidden {
+		return 2
+	}
+	return 1
 }
 
 func (s *Server) items(ps []*Post, host string) []any {

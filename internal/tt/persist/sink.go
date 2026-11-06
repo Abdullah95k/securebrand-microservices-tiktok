@@ -45,6 +45,8 @@ func (Sink) New(topic string) proto.Message {
 		return &ttv1.Music{}
 	case topics.Media:
 		return &ttv1.Media{}
+	case topics.Follow:
+		return &ttv1.Follow{}
 	}
 	return nil
 }
@@ -63,12 +65,14 @@ func (Sink) Entity(topic string) string {
 		return "music"
 	case topics.Media:
 		return "media"
+	case topics.Follow:
+		return "follow"
 	}
 	return "unknown"
 }
 
 // Write writes a batch: accounts first, then music and posts (the rows
-// comments and metrics refer to), then the rest.
+// comments and metrics refer to), then the rest, follow links last.
 func (s Sink) Write(ctx context.Context, msgs []proto.Message) error {
 	var (
 		accounts []*ttv1.Account
@@ -77,6 +81,7 @@ func (s Sink) Write(ctx context.Context, msgs []proto.Message) error {
 		comments []*ttv1.Comment
 		music    []*ttv1.Music
 		media    []*ttv1.Media
+		follows  []*ttv1.Follow
 	)
 	for _, m := range msgs {
 		switch m := m.(type) {
@@ -92,6 +97,8 @@ func (s Sink) Write(ctx context.Context, msgs []proto.Message) error {
 			music = append(music, m)
 		case *ttv1.Media:
 			media = append(media, m)
+		case *ttv1.Follow:
+			follows = append(follows, m)
 		}
 	}
 	if err := s.W.Accounts(ctx, accounts); err != nil {
@@ -109,5 +116,8 @@ func (s Sink) Write(ctx context.Context, msgs []proto.Message) error {
 	if err := s.W.Comments(ctx, comments); err != nil {
 		return err
 	}
-	return s.W.Media(ctx, media)
+	if err := s.W.Media(ctx, media); err != nil {
+		return err
+	}
+	return s.W.Follows(ctx, follows)
 }

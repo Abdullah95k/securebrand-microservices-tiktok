@@ -25,6 +25,7 @@ var tables = []string{
 	"api_clients", "jobs", "crawl_cursors", "account_schedule", "account_registrations", "post_refresh",
 	"discovery_keywords", "account_sources", "account_labels", "account_blocks", "import_batches", "import_lines",
 	"operations", "client_params", "canary_runs", "post_status_changes", "discovery_candidates", "discovery_sightings",
+	"follows", "follow_lists",
 }
 
 func tablesIn(t *testing.T, db interface {
@@ -198,6 +199,10 @@ func TestSchemaHoldsData(t *testing.T) {
 		VALUES ('sec:MS4wother', 8, 'dormant', 'private', now(), now(), now() + interval '180 days')`)
 	exec(`INSERT INTO discovery_sightings (how, found_in, via_user_id, user_id, sec_uid, post_id, comment_id, seen_at)
 		VALUES ('commenter', 'comment', 1, 8, 'MS4wother', 7400000000000000001, 7400000000000000009, now())`)
+	exec(`INSERT INTO discovery_sightings (how, found_in, via_user_id, user_id, sec_uid, private, videos, seen_at)
+		VALUES ('follower', 'followers', 7, 8, 'MS4wother', false, 0, now())`)
+	exec(`INSERT INTO follows (user_id, direction, person_user_id, author_key, first_seen_at, last_seen_at) VALUES (7, 'follower', 8, $1, now(), now())`, key)
+	exec(`INSERT INTO follow_lists (user_id, direction, state) VALUES (7, 'following', 'hidden')`)
 	for _, tb := range tables {
 		var rows int
 		if err := db.QueryRow(ctx, "SELECT count(*) FROM "+pgx.Identifier{tb}.Sanitize()).Scan(&rows); err != nil {

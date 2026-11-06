@@ -154,6 +154,16 @@ func (e *Emitter) Comment(ctx context.Context, b *kafka.Batch, src Source, c *tt
 	return b.AddProto(ctx, topics.Comment, strconv.FormatInt(c.PostId, 10), c)
 }
 
+// Follow publishes a person on a monitored account's following or
+// followers list, keyed by the account so its links stay ordered.
+func (e *Emitter) Follow(ctx context.Context, b *kafka.Batch, src Source, f *ttv1.Follow) error {
+	e.people([]*ttv1.Person{f.Person})
+	key := strconv.FormatInt(f.UserId, 10)
+	e.stamp(src, "follow:"+key+":"+f.Direction.String()+":"+strconv.FormatInt(f.Person.GetUserId(), 10), f,
+		func(o *commonv1.Observation) { f.Obs = o })
+	return b.AddProto(ctx, topics.Follow, key, f)
+}
+
 // CommentDeleted publishes that a known comment is no longer served: a
 // Comment with status DELETED and only its keys set. Its event id is the
 // job's, so a comment deleted again after a re-sighting is a new event.
