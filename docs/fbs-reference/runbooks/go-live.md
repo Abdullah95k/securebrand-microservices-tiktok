@@ -86,8 +86,8 @@ The query ids in `configs/queries.seed.yaml` are placeholders, and the parsers w
 | Topic | Notes |
 |---|---|
 | `fb.post.v1`, `fb.post_metrics.v1` | Posts, and engagement samples over time |
-| `fb.comment.v1` | Every observation of a comment. Edits arrive as new versions; deletions as `COMMENT_STATUS_DELETED` records ([contract](../contracts/kafka-schemas.md)). |
-| `fb.media.ready.v1` | Read the object from the media bucket with read-only credentials, then acknowledge it on `fb.media.processed.v1` ([contract](../contracts/media-handoff.md)). Media nobody acknowledges is deleted after `media.ttl` (72h) anyway. |
+| `fb.comment.v1` | Every observation of a comment. Edits arrive as new versions; deletions as `COMMENT_STATUS_DELETED` records ([contract](../../contracts/kafka-schemas.md)). |
+| `fb.media.ready.v1` | Read the object from the media bucket with read-only credentials, then acknowledge it on `fb.media.processed.v1` ([contract](../../contracts/media-handoff.md)). Media nobody acknowledges is deleted after `media.ttl` (72h) anyway. |
 | `fb.job.v1` | One event per finished job, with coverage |
 
 The REST API serves the same data (`/v1/pages/{page}/posts`, `/v1/posts/{post}/comments`, …); see `api/openapi/fbs.v1.yaml`.
@@ -95,7 +95,7 @@ The REST API serves the same data (`/v1/pages/{page}/posts`, `/v1/posts/{post}/c
 ## 6. Deploy and ramp up
 
 1. **Staging.**
-   - Install the chart against fakefb with the staging values (fbs's `deploy/helm/fbs/examples/fakefb.yaml`; tks's chart is [`deploy/helm/tks`](../../deploy/helm/tks/examples/fakett.yaml): [tks-deploy.md](tks-deploy.md)). The file lists the Services and the Secret it expects.
+   - Install the chart against fakefb with the staging values (fbs's `deploy/helm/fbs/examples/fakefb.yaml`; tks's chart is [`deploy/helm/tks`](../../../deploy/helm/tks/examples/fakett.yaml): [tks-deploy.md](../../runbooks/tks-deploy.md)). The file lists the Services and the Secret it expects.
    - Register a few fakefb pages (`brand0`, `brand1`, …) with `fbctl pages import` and check that their backfills complete.
    - `make chart-smoke` rehearses exactly this without a cluster. It runs the chart's hooks and Deployments in Docker, with the rendered config, user, read-only root filesystem and dropped capabilities, and CI runs it on every change.
 2. **Production install.** The hooks run `fbctl migrate up` and `fbctl kafka apply`, and `fbctl schemas apply` when enabled.

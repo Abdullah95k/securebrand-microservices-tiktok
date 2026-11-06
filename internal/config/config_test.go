@@ -158,7 +158,7 @@ func TestTTDefaults(t *testing.T) {
 		t.Fatalf("comments (every comment read, owner 2026-11-01): %+v", tt.Comments)
 	}
 	// tks keeps everything (owner, 2026-11-01): no retention of its own,
-	// whatever the copied pipeline's privacy.retention says.
+	// whatever privacy.retention (the removed Facebook pipeline's) says.
 	if tt.Retention != (Retention{}) || c.Privacy.Retention.CommentsDays == 0 {
 		t.Fatalf("tt.retention %+v (privacy.retention %+v)", tt.Retention, c.Privacy.Retention)
 	}
@@ -167,7 +167,7 @@ func TestTTDefaults(t *testing.T) {
 	if bad.Validate() == nil {
 		t.Fatal("a negative retention passed")
 	}
-	// The copied Facebook section is still there for the copied pipeline.
+	// The fb section stays: tks-spike reads the proxy tiers from fb.proxy.
 	if c.FB.BaseURL != "https://www.facebook.com" {
 		t.Fatalf("fb section lost: %q", c.FB.BaseURL)
 	}
@@ -181,7 +181,7 @@ func TestTTValidate(t *testing.T) {
 		"defaults":           {func(*TT) {}, ""},
 		"no base url":        {func(t *TT) { t.BaseURL = "" }, "tt.base_url"},
 		"missing seed":       {func(t *TT) { t.OperationSeed = "tt/nope.yaml" }, "tt.operation_seed"},
-		"bad seed":           {func(t *TT) { t.OperationSeed = "topics.yaml" }, "tt.operation_seed"},
+		"bad seed":           {func(t *TT) { t.OperationSeed = "fingerprints.yaml" }, "tt.operation_seed"},
 		"bad detect pattern": {func(t *TT) { t.Detect.StaleMessages = []string{"("} }, "tt.detect"},
 		"bad detect status":  {func(t *TT) { t.Detect.Statuses = map[string]string{"403": "nope"} }, "tt.detect"},
 		"identity range":     {func(t *TT) { t.IdentityMaxRequestsMin = 900 }, "identity_max_requests_min"},

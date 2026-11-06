@@ -9,7 +9,7 @@ import (
 )
 
 // Postgres text and jsonb can't hold a NUL character, which is valid
-// UTF-8 and can come in Facebook text. One would make every batch it is in
+// UTF-8 and can come in TikTok text. One would make every batch it is in
 // fail for good, so it is removed from every string before writing.
 
 // StripNUL removes NUL characters from every string of m, nested messages,

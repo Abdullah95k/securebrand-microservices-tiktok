@@ -2,8 +2,7 @@ package media
 
 import "testing"
 
-// The raw bucket's rule covers every object (raw/ and raw-failures/), the
-// media bucket's only media/.
+// The raw bucket's rule covers every object (raw/ and raw-failures/).
 func TestLifecycleRules(t *testing.T) {
 	raw := rawLifecycleConfig(7).Rules[0]
 	if raw.RuleFilter.Prefix != "" || raw.Expiration.Days != 7 || raw.Status != "Enabled" {

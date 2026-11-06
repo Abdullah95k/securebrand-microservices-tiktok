@@ -8,16 +8,43 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	fbv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/store"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/testenv"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/topics"
 )
+
+// rowSink writes each record (an id) as one row of table rows, a batch in
+// one transaction, as a schema's sink does.
+type rowSink struct{ db *pgxpool.Pool }
+
+func (rowSink) Topics() []string { return []string{"rows"} }
+
+func (rowSink) New(topic string) proto.Message {
+	if topic != "rows" {
+		return nil
+	}
+	return &wrapperspb.Int64Value{}
+}
+
+func (rowSink) Entity(string) string { return "row" }
+
+func (s rowSink) Write(ctx context.Context, msgs []proto.Message) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	for _, m := range msgs {
+		if _, err := tx.Exec(ctx, `INSERT INTO rows VALUES ($1) ON CONFLICT DO NOTHING`, m.(*wrapperspb.Int64Value).Value); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
 
 // A record that does not decode, or that Postgres refuses for what it
 // holds, is set aside in the quarantine topic and the rest of its batch is
@@ -29,10 +56,14 @@ func TestBadRecordsAreSetAside(t *testing.T) {
 	db := testenv.Postgres(t)
 	brokers := testenv.Kafka(t)
 	ctx := context.Background()
-	now := time.Now().UTC().Truncate(time.Second)
-	if _, err := store.EnsurePartitions(ctx, db, now, store.PartitionWindow{MonthsBack: 2, MonthsAhead: 1, DaysBack: 1, DaysAhead: 1}); err != nil {
+	// Postgres refuses row 11 and those from 20 on for their data (22023).
+	if _, err := db.Exec(ctx, `CREATE TABLE rows (id bigint PRIMARY KEY);
+		CREATE FUNCTION refuse_some() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN IF NEW.id = 11 OR NEW.id >= 20 THEN RAISE EXCEPTION 'refused' USING ERRCODE = '22023'; END IF; RETURN NEW; END $$;
+		CREATE TRIGGER refuse_some BEFORE INSERT ON rows FOR EACH ROW EXECUTE FUNCTION refuse_some()`); err != nil {
 		t.Fatal(err)
 	}
+	const quarantine = "test.persist.dlq"
 	prefix := testenv.TopicPrefix()
 	kcfg := kafka.ClientConfig{Brokers: brokers, ClientID: "persist-test", TopicPrefix: prefix, Linger: time.Millisecond}
 	p, err := kafka.NewProducer(kcfg)
@@ -40,15 +71,15 @@ func TestBadRecordsAreSetAside(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(p.Close)
-	if err := kafka.EnsureTopics(ctx, p.Client(), prefix, []kafka.TopicSpec{{Name: topics.PersistQuarantine, Partitions: 1}}, 1); err != nil {
+	if err := kafka.EnsureTopics(ctx, p.Client(), prefix, []kafka.TopicSpec{{Name: quarantine, Partitions: 1}}, 1); err != nil {
 		t.Fatal(err)
 	}
-	c, err := NewConsumer(kcfg, &Writer{DB: db}, 100, time.Millisecond)
+	c, err := NewSinkConsumer(kcfg, rowSink{db}, SinkConfig{Group: "test-persister", Quarantine: quarantine}, 100, time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(c.cl.Close)
-	q, err := kgo.NewClient(append(kcfg.Opts(), kgo.ConsumeTopics(prefix+topics.PersistQuarantine),
+	q, err := kgo.NewClient(append(kcfg.Opts(), kgo.ConsumeTopics(prefix+quarantine),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()))...)
 	if err != nil {
 		t.Fatal(err)
@@ -68,47 +99,30 @@ func TestBadRecordsAreSetAside(t *testing.T) {
 		return got
 	}
 
-	// Postgres refuses comment 11 and those from 20 on for their data
-	// (22023). (A NUL character, the refusal seen in practice, is now
-	// stripped before writing: TestBatchesThatPostgresWouldRefuse.)
-	if _, err := db.Exec(ctx, `CREATE FUNCTION refuse_some() RETURNS trigger LANGUAGE plpgsql AS $$
-		BEGIN IF NEW.comment_id = 11 OR NEW.comment_id >= 20 THEN RAISE EXCEPTION 'refused' USING ERRCODE = '22023'; END IF; RETURN NEW; END $$;
-		CREATE TRIGGER refuse_some BEFORE INSERT ON comments FOR EACH ROW EXECUTE FUNCTION refuse_some()`); err != nil {
-		t.Fatal(err)
-	}
-	created := timestamppb.New(now.Add(-time.Hour))
 	offset := int64(0)
-	rec := func(topic string, m proto.Message) *kgo.Record {
+	rec := func(id int64) *kgo.Record {
 		offset++
-		b, _ := proto.Marshal(m)
-		return &kgo.Record{Topic: prefix + topic, Key: []byte("k"), Value: b, Offset: offset}
+		b, _ := proto.Marshal(wrapperspb.Int64(id))
+		return &kgo.Record{Topic: prefix + "rows", Key: []byte("k"), Value: b, Offset: offset}
 	}
-	comment := func(id int64, text string) *fbv1.Comment {
-		return &fbv1.Comment{Obs: obs(now, text), CommentId: id, PostId: 1, PageId: 9, PostCreatedAt: created, Text: text,
-			Author: &fbv1.Author{AuthorKey: []byte{byte(id)}}}
-	}
-	bad := &kgo.Record{Topic: prefix + topics.Post, Key: []byte("k"), Value: []byte{0xff, 0xff}, Offset: 99}
-	b := c.decode([]*kgo.Record{
-		rec(topics.Post, &fbv1.Post{Obs: obs(now, "p"), PostId: 1, PageId: 9, CreatedAt: created}),
-		bad,
-		rec(topics.Comment, comment(10, "kept")),
-		rec(topics.Comment, comment(11, "refused")),
-		rec(topics.Comment, comment(12, "kept too")),
-	})
+	bad := &kgo.Record{Topic: prefix + "rows", Key: []byte("k"), Value: []byte{0xff, 0xff}, Offset: 99}
+	b := c.decode([]*kgo.Record{rec(1), bad, rec(10), rec(11), rec(12)})
 	if err := c.persist(ctx, b); err != nil {
 		t.Fatal(err)
 	}
-	for q, want := range map[string]int{
-		`SELECT count(*) FROM posts WHERE post_id = 1`:                   1,
-		`SELECT count(*) FROM comments WHERE comment_id IN (10, 12)`:     2,
-		`SELECT count(*) FROM comments WHERE comment_id = 11`:            0,
-		`SELECT count(*) FROM posts WHERE post_id <> 1 OR page_id <> 9`:  0, // nothing of the undecodable record
-		`SELECT count(*) FROM comment_authors WHERE author_key = '\x0b'`: 0,
-	} {
-		var n int
-		if err := db.QueryRow(ctx, q).Scan(&n); err != nil || n != want {
-			t.Fatalf("%s = %d (%v), want %d", q, n, err, want)
-		}
+	var ids []int64
+	rows, err := db.Query(ctx, `SELECT id FROM rows ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id int64
+		_ = rows.Scan(&id)
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if len(ids) != 3 || ids[0] != 1 || ids[1] != 10 || ids[2] != 12 {
+		t.Fatalf("written %v, want [1 10 12]", ids)
 	}
 	got := quarantined(2)
 	reasons := map[string]string{}
@@ -131,7 +145,7 @@ func TestBadRecordsAreSetAside(t *testing.T) {
 	// systematic error; the batch fails and is retried by the caller.
 	var many []*kgo.Record
 	for i := range maxRefused + 1 {
-		many = append(many, rec(topics.Comment, comment(int64(20+i), "refused "+string(rune('a'+i)))))
+		many = append(many, rec(int64(20+i)))
 	}
 	err = c.persist(ctx, c.decode(many))
 	if err == nil || !strings.Contains(err.Error(), "refused") {

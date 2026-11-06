@@ -16,45 +16,23 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/pg"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/store"
 )
 
-// Postgres creates a fresh database for the test, migrates it and returns
-// a pool. Requires TKS_TEST_PG_DSN (a DSN to an admin database).
+// Postgres creates a fresh, empty database for the test and returns a pool
+// on it. Requires TKS_TEST_PG_DSN (a DSN to an admin database). Tests of
+// schema tt migrate it themselves (internal/tt/ttstore).
 func Postgres(t testing.TB) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("TKS_TEST_PG_DSN")
-	if dsn == "" {
-		t.Skip("TKS_TEST_PG_DSN not set")
-	}
-	ctx := context.Background()
-	admin, err := pg.Open(ctx, dsn, 2)
+	pool, err := pg.Open(context.Background(), EmptyPostgres(t), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	name := fmt.Sprintf("fbs_test_%d", rand.Int64N(1<<40))
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatal(err)
-	}
-	testDSN := replaceDB(dsn, name)
-	pool, err := pg.Open(ctx, testDSN, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		pool.Close()
-		_, _ = admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
-		admin.Close()
-	})
-	if err := store.MigrateUp(ctx, pool); err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(pool.Close)
 	return pool
 }
 
 // EmptyPostgres creates a fresh, empty database for the test and returns
-// its DSN: for schemas that migrate themselves (tks's tt, through
-// internal/tt/ttstore). Requires TKS_TEST_PG_DSN.
+// its DSN. Requires TKS_TEST_PG_DSN.
 func EmptyPostgres(t testing.TB) string {
 	t.Helper()
 	dsn := os.Getenv("TKS_TEST_PG_DSN")

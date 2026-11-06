@@ -2,8 +2,8 @@
 // It is internal/crawl/task on tks's envelope: the same deterministic ids,
 // continuations and retries, with TikTok's scopes (account, post, thread,
 // media) and account references (u:<username>, sec:<secUid>, id:<user id>;
-// docs/tiktok ADR 0007 §1). The copied Facebook package stays until M9 removes
-// the Facebook code; a fix to one belongs in both until then.
+// docs/tiktok ADR 0007 §1). The copied Facebook package was removed in M9c2;
+// fbs's fixes to it are ported here by hand (UPSTREAM.md).
 package task
 
 import (
@@ -148,7 +148,7 @@ func NewMedia(jobID string, m *ttv1.Media) *tkstaskv1.Task {
 
 // DefaultLimits builds a job's limits from config. Media downloads follow
 // tt.media.include, off by default (build brief D5), not the shared
-// limits.include_media the copied Facebook pipeline still uses; the age
+// limits.include_media the removed Facebook pipeline used; the age
 // window is tt.freshness.backfill_days.
 func DefaultLimits(c config.Limits, tt config.TT, backfill bool) *tkstaskv1.Limits {
 	vp := c.VideoPolicy

@@ -16,7 +16,7 @@ import (
 	"testing/fstest"
 
 	protosrc "github.com/abdullah95k/securebrand-microservices-tiktok/api/proto"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/topics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/topics"
 )
 
 func TestImports(t *testing.T) {
@@ -106,7 +106,7 @@ func TestApplyGatesIncompatibleChanges(t *testing.T) {
 			t.Fatalf("%s: version %d", r.Subject, r.Version)
 		}
 	}
-	if len(ids) != len(topics.ValueSchemas)+1 { // every topic, and common.proto
+	if len(ids) != len(topics.ValueSchemas)+2 { // every topic, and the two common.proto
 		t.Fatalf("subjects %v", ids)
 	}
 	if lvl, err := c.Compatibility(ctx, prefix+topics.Comment+"-value"); err != nil || lvl != BackwardTransitive {
@@ -127,7 +127,7 @@ func TestApplyGatesIncompatibleChanges(t *testing.T) {
 	// Changing a field's type breaks consumers: the check reports it and
 	// apply refuses it.
 	broken := copyFS(t)
-	edit(t, broken, "securebrand/fb/v1/comment.proto", "string text = 11;", "int64 text = 11;")
+	edit(t, broken, "securebrand/tt/v1/comment.proto", "string text = 10;", "int64 text = 10;")
 	if _, err := Apply(ctx, c, broken, prefix, topics.ValueSchemas, true); err == nil {
 		t.Fatal("check accepted a type change")
 	}
@@ -137,7 +137,7 @@ func TestApplyGatesIncompatibleChanges(t *testing.T) {
 
 	// Adding a field is compatible: a new version.
 	grown := copyFS(t)
-	edit(t, grown, "securebrand/fb/v1/comment.proto", "string extra_json = 22;", "string extra_json = 22;\n  string language = 1000;")
+	edit(t, grown, "securebrand/tt/v1/comment.proto", "bool redacted = 22;", "bool redacted = 22;\n  string grown = 1000;")
 	if _, err := Apply(ctx, c, grown, prefix, topics.ValueSchemas, true); err != nil {
 		t.Fatalf("check refused an added field: %v", err)
 	}
@@ -152,11 +152,11 @@ func TestApplyGatesIncompatibleChanges(t *testing.T) {
 	// A breaking change hidden behind a new import is still caught: the
 	// check stages the new file under a temporary subject.
 	hidden := copyFS(t)
-	hidden["securebrand/fb/v1/lang.proto"] = &fstest.MapFile{Data: []byte("syntax = \"proto3\";\npackage securebrand.fb.v1;\nmessage Lang { string code = 1; }\n")}
-	edit(t, hidden, "securebrand/fb/v1/comment.proto", `import "securebrand/fb/v1/common.proto";`,
-		"import \"securebrand/fb/v1/common.proto\";\nimport \"securebrand/fb/v1/lang.proto\";")
-	edit(t, hidden, "securebrand/fb/v1/comment.proto", "string text = 11;", "int64 text = 11;\n  Lang lang = 24;")
-	edit(t, hidden, "securebrand/fb/v1/comment.proto", "string extra_json = 22;", "string extra_json = 22;\n  string language = 1000;")
+	hidden["securebrand/tt/v1/lang.proto"] = &fstest.MapFile{Data: []byte("syntax = \"proto3\";\npackage securebrand.tt.v1;\nmessage Lang { string code = 1; }\n")}
+	edit(t, hidden, "securebrand/tt/v1/comment.proto", `import "securebrand/tt/v1/common.proto";`,
+		"import \"securebrand/tt/v1/common.proto\";\nimport \"securebrand/tt/v1/lang.proto\";")
+	edit(t, hidden, "securebrand/tt/v1/comment.proto", "string text = 10;", "int64 text = 10;\n  Lang lang = 1001;")
+	edit(t, hidden, "securebrand/tt/v1/comment.proto", "bool redacted = 22;", "bool redacted = 22;\n  string grown = 1000;")
 	if _, err := Apply(ctx, c, hidden, prefix, topics.ValueSchemas, true); err == nil {
 		t.Fatal("check passed a type change made alongside a new import")
 	}
@@ -165,10 +165,10 @@ func TestApplyGatesIncompatibleChanges(t *testing.T) {
 	// check resolves the dependent against the new import, then apply
 	// registers both.
 	shared := copyFS(t)
-	edit(t, shared, "securebrand/fb/v1/comment.proto", "string extra_json = 22;", "string extra_json = 22;\n  string language = 1000;")
-	shared["securebrand/fb/v1/common.proto"] = &fstest.MapFile{Data: append(shared["securebrand/fb/v1/common.proto"].Data,
+	edit(t, shared, "securebrand/tt/v1/comment.proto", "bool redacted = 22;", "bool redacted = 22;\n  string grown = 1000;")
+	shared["securebrand/tt/v1/common.proto"] = &fstest.MapFile{Data: append(shared["securebrand/tt/v1/common.proto"].Data,
 		[]byte("\nmessage Geo {\n  double lat = 1;\n  double lng = 2;\n}\n")...)}
-	edit(t, shared, "securebrand/fb/v1/post.proto", "message Post {", "message Post {\n  Geo geo = 99;")
+	edit(t, shared, "securebrand/tt/v1/post.proto", "message Post {", "message Post {\n  Geo geo = 1000;")
 	if res, err := Apply(ctx, c, shared, prefix, topics.ValueSchemas, true); err != nil {
 		t.Fatalf("check refused a compatible change to the shared import: %v %+v", err, res)
 	}
@@ -178,11 +178,11 @@ func TestApplyGatesIncompatibleChanges(t *testing.T) {
 	for k, v := range shared {
 		mixed[k] = v
 	}
-	edit(t, mixed, "securebrand/fb/v1/job.proto", "message JobEvent {", "message JobEventRenamed {")
+	edit(t, mixed, "securebrand/common/v1/job.proto", "message JobEvent {", "message JobEventRenamed {")
 	if _, err := Apply(ctx, c, mixed, prefix, topics.ValueSchemas, false); err == nil {
 		t.Fatal("apply accepted a removed message")
 	}
-	if v, _ := c.Lookup(ctx, prefix+"securebrand/fb/v1/common.proto", Schema{Schema: string(shared["securebrand/fb/v1/common.proto"].Data), SchemaType: "PROTOBUF"}); v != 0 {
+	if v, _ := c.Lookup(ctx, prefix+"securebrand/tt/v1/common.proto", Schema{Schema: string(shared["securebrand/tt/v1/common.proto"].Data), SchemaType: "PROTOBUF"}); v != 0 {
 		t.Fatalf("a failed apply registered the shared import (version %d)", v)
 	}
 	// An operator's own level is kept.
@@ -193,7 +193,7 @@ func TestApplyGatesIncompatibleChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version(t, res, prefix+"securebrand/fb/v1/common.proto") != 2 || version(t, res, prefix+topics.Post+"-value") != 2 {
+	if version(t, res, prefix+"securebrand/tt/v1/common.proto") != 2 || version(t, res, prefix+topics.Post+"-value") != 2 {
 		t.Fatalf("shared change not registered: %+v", res)
 	}
 	if lvl, _ := c.Compatibility(ctx, prefix+topics.Job+"-value"); lvl != "NONE" {

@@ -6,7 +6,7 @@ It joins two scrapers built the same way:
 - **fbs**, logged-out Facebook pages: [`Abdullah95k/securebrand-microservices`](https://github.com/Abdullah95k/securebrand-microservices);
 - **igs**, logged-out Instagram profiles: [`Abdullah95k/securebrand-microservices-igs`](https://github.com/Abdullah95k/securebrand-microservices-igs).
 
-**Status:** building the probe (milestone M1). The code is a copy of igs's (and through it fbs's), seeded on 2026-10-31: see [`UPSTREAM.md`](UPSTREAM.md). The copied pipeline's own README is [`docs/fbs-readme.md`](docs/fbs-readme.md). The plan, the evidence behind it, and the prompt that starts every build session are in [`docs/tiktok/`](docs/tiktok/build-brief.md):
+**Status:** the pipeline, its deployment and its tests are built (milestones M1 to M9c); staging and the canary (C5) remain. The code started as a copy of igs's (and through it fbs's) on 2026-10-31; the copied Facebook pipeline was removed in M9c2: see [`UPSTREAM.md`](UPSTREAM.md). fbs's README, kept for reference, is [`docs/fbs-readme.md`](docs/fbs-readme.md); the runbooks are in [`docs/runbooks/`](docs/runbooks/tks-operations.md) (`tks-*.md`). The plan, the evidence behind it, and the prompt that starts every build session are in [`docs/tiktok/`](docs/tiktok/build-brief.md):
 
 | Document | What it holds |
 |---|---|

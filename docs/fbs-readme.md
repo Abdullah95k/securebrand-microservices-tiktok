@@ -7,7 +7,7 @@
 `fbs` scrapes public Facebook pages and collects:
 
 - every post in a configurable window;
-- every comment and reply (nested to `max_depth`), with edits counted and deletions detected on full re-reads ([runbook](../docs/runbooks/operations.md#comment-edits-and-deletions));
+- every comment and reply (nested to `max_depth`), with edits counted and deletions detected on full re-reads ([runbook](fbs-reference/runbooks/operations.md#comment-edits-and-deletions));
 - all media, with as much metadata as Facebook exposes.
 
 It runs self-hosted, on Kubernetes or Docker Compose, and is built for hundreds of thousands of pages per day:
@@ -24,7 +24,7 @@ It runs self-hosted, on Kubernetes or Docker Compose, and is built for hundreds 
 
 | Verified in this repository | Not verified yet |
 |---|---|
-| Full pipeline (API → crawler → Kafka → persister → Postgres, finaliser, media download/ack/delete, TTL sweep, incremental re-scrape, erasure that survives re-scrapes, retries on blocked identities) end to end against **fakefb**, a synthetic Facebook, with real Postgres 18, Redpanda and Valkey (`make e2e`), and as a Docker Compose stack | Behaviour against **real Facebook**. `configs/queries.seed.yaml` contains **placeholder doc_ids**, and response shapes are modelled on publicly observed structures. Run [Phase 0](../docs/runbooks/phase0-spike.md) (`make phase0`) with your proxies first. |
+| Full pipeline (API → crawler → Kafka → persister → Postgres, finaliser, media download/ack/delete, TTL sweep, incremental re-scrape, erasure that survives re-scrapes, retries on blocked identities) end to end against **fakefb**, a synthetic Facebook, with real Postgres 18, Redpanda and Valkey (`make e2e`), and as a Docker Compose stack | Behaviour against **real Facebook**. `configs/queries.seed.yaml` contains **placeholder doc_ids**, and response shapes are modelled on publicly observed structures. Run [Phase 0](fbs-reference/runbooks/phase0-spike.md) (`make phase0`) with your proxies first. |
 | Parsers against golden fixtures, including handcrafted variant shapes | Real fixtures (capture them with `fbs-spike capture`) |
 | Helm chart: lint, renders validated against the Kubernetes and CRD schemas (`make chart-check`), and every hook and Deployment run in Docker exactly as rendered, through real backfills against fakefb (`make chart-smoke`) | A real cluster deployment (Services, probes, KEDA, PodDisruptionBudgets) |
 
@@ -48,7 +48,7 @@ fbs-crawler --stages page ─PostTask─▶ post ─ThreadTask─▶ thread     
 | `fbs-crawler --stages page,post,thread,retry` | Fetch, parse and emit. Run one Deployment per stage. |
 | `fbs-persister` | Writes `fb.*` topics into partitioned Postgres (COPY + no-op upserts) |
 | `fbs-media-downloader` / `fbs-media-janitor` | Temporary media lifecycle ([contract](../docs/contracts/media-handoff.md)) |
-| `fbs-registry-sync` | Follows Facebook's doc_id rotations. It scans canary pages' bundles, checks new ids with real requests and promotes working ones ([runbook](../docs/runbooks/operations.md#registry-stale-doc_id-rotated)). |
+| `fbs-registry-sync` | Follows Facebook's doc_id rotations. It scans canary pages' bundles, checks new ids with real requests and promotes working ones ([runbook](fbs-reference/runbooks/operations.md#registry-stale-doc_id-rotated)). |
 | `fbctl` | Migrations, topics, Schema Registry, API keys, query registry, DLQ replay, raw-response replay against the current parsers, fixture scrub, dev media acks |
 | `fbs-spike` | Phase 0 harness against real Facebook: `phase0` runs everything; also `preflight`, `docids`, `har`, `capture`, `check-fixtures`, `run`, `report` (no infrastructure needed) |
 | `fakefb`, `devs3` | Synthetic Facebook and in-memory S3, for development and tests |
@@ -182,7 +182,7 @@ make phase0 PHASE0_TIERS=isp,residential
 
 It runs these steps in order: preflight (proxy exits, a test page load), doc_id discovery, fixture capture with a parser check, a smoke run with a time and cost estimate, the measurement run (resumable), the report and the bundle.
 
-See [docs/runbooks/phase0-spike.md](../docs/runbooks/phase0-spike.md), including how to read the report.
+See [docs/runbooks/phase0-spike.md](fbs-reference/runbooks/phase0-spike.md), including how to read the report.
 
 ### Running in Kubernetes
 
@@ -202,7 +202,7 @@ The Helm chart is at `deploy/helm/fbs`.
 
 **Images and releases:** pushing a tag `vX.Y.Z` publishes `ghcr.io/abdullah95k/fbs:X.Y.Z`, `X.Y.Z-browser` and the chart (`oci://ghcr.io/abdullah95k/charts/fbs`); the chart's image tag defaults to its app version.
 
-Before the first production install, work through [docs/runbooks/go-live.md](../docs/runbooks/go-live.md). Operational guidance is in [docs/runbooks/operations.md](../docs/runbooks/operations.md). Load tests and measured pipeline throughput are in [docs/runbooks/load-testing.md](../docs/runbooks/load-testing.md). Proxy cost, how to measure it and the settings that move it are in [docs/runbooks/cost-tuning.md](../docs/runbooks/cost-tuning.md).
+Before the first production install, work through [docs/runbooks/go-live.md](fbs-reference/runbooks/go-live.md). Operational guidance is in [docs/runbooks/operations.md](fbs-reference/runbooks/operations.md). Load tests and measured pipeline throughput are in [docs/runbooks/load-testing.md](fbs-reference/runbooks/load-testing.md). Proxy cost, how to measure it and the settings that move it are in [docs/runbooks/cost-tuning.md](fbs-reference/runbooks/cost-tuning.md).
 
 **Rough sizing** for about 300k pages/day incremental plus 2k new pages/day backfilled to 365 days. These are estimates until Phase 0 measures real numbers.
 
@@ -235,8 +235,8 @@ Commenter data is personal data.
 | `make test` | Unit tests, including the full client layer against fakefb and parser goldens |
 | `make infra-up && make test-integration` | Persister, e2e, spike, registry-sync and Schema Registry tests against real Postgres, Redpanda and Valkey |
 | `make e2e` | The whole pipeline in-process |
-| `make loadtest` | Opt-in load tests: many concurrent backfills through the whole pipeline, and the persister alone ([results](../docs/runbooks/load-testing.md)) |
-| `make soak` | Opt-in soak test: scheduled crawls of a changing world (new comments, edits, deletions) with component restarts, ending with an exact comparison ([how](../docs/runbooks/load-testing.md#soak-and-chaos-tests)) |
+| `make loadtest` | Opt-in load tests: many concurrent backfills through the whole pipeline, and the persister alone ([results](fbs-reference/runbooks/load-testing.md)) |
+| `make soak` | Opt-in soak test: scheduled crawls of a changing world (new comments, edits, deletions) with component restarts, ending with an exact comparison ([how](fbs-reference/runbooks/load-testing.md#soak-and-chaos-tests)) |
 | `make golden` | Regenerate parser `expected.json` after an intended change |
 | `make fixtures` | Regenerate the synthetic fakefb fixtures |
 | `make generate` | Regenerate protobuf Go code (`buf generate`) |

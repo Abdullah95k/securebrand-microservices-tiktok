@@ -320,7 +320,7 @@ func TestLoadPersister(t *testing.T) {
 				c := &ttv1.Comment{CommentId: int64(7_100_000_000_000_000_000 + j), PostId: post, UserId: user,
 					PostCreatedAt: timestamppb.New(postCreated), Text: "load test comment " + strconv.Itoa(j), LikeCount: &likes,
 					CreatedAt: timestamppb.New(postCreated.Add(time.Duration(j) * time.Second)),
-					Author: &ttv1.Person{UserId: &author, Username: "author_" + strconv.Itoa(j%5000)}}
+					Author:    &ttv1.Person{UserId: &author, Username: "author_" + strconv.Itoa(j%5000)}}
 				if j%4 == 3 { // a reply to the comment before it
 					parent := c.CommentId - 1
 					c.Depth, c.ParentCommentId = 1, &parent

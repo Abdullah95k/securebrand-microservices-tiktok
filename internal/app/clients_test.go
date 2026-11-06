@@ -26,7 +26,7 @@ func TestKafkaClientSecurity(t *testing.T) {
 		t.Fatal(err)
 	}
 	kc, err := KafkaClient(cfg, "-x")
-	if err != nil || kc.TLS != nil || kc.SASL != nil || kc.ClientID != "fbs-x" {
+	if err != nil || kc.TLS != nil || kc.SASL != nil || kc.ClientID != "tks-x" {
 		t.Fatalf("plain client: %+v, %v", kc, err)
 	}
 	for mech, name := range map[string]string{"plain": "PLAIN", "scram-sha-256": "SCRAM-SHA-256", "scram-sha-512": "SCRAM-SHA-512"} {
@@ -95,7 +95,7 @@ func TestSecureEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	topic := "fbs-secure-test-" + time.Now().Format("150405.000")
+	topic := "tks-secure-test-" + time.Now().Format("150405.000")
 	cl, err := kgo.NewClient(append(kc.Opts(), kgo.AllowAutoTopicCreation(), kgo.ConsumeTopics(topic),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()))...)
 	if err != nil {
@@ -130,7 +130,7 @@ func TestSecureEndpoints(t *testing.T) {
 			t.Fatalf("redis over TLS: %v", err)
 		}
 		defer func() { _ = rdb.Close() }()
-		if err := rdb.Set(ctx, "fbs-secure-test", "ok", time.Minute).Err(); err != nil {
+		if err := rdb.Set(ctx, "tks-secure-test", "ok", time.Minute).Err(); err != nil {
 			t.Fatal(err)
 		}
 		cfg.Redis.TLS = config.TLS{}

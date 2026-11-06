@@ -1,7 +1,7 @@
 // Package connect builds the Kafka and Valkey clients of a service from its
 // configuration. It holds no platform code, so every service's composition
-// root (internal/app for the copied Facebook pipeline, internal/tt/app for
-// tks's) shares it.
+// root (internal/app's helpers for tks-api, tks-scheduler and tksctl,
+// internal/tt/app for the crawler, persister, canary and media) shares it.
 package connect
 
 import (

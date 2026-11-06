@@ -1,6 +1,7 @@
-// Package rawsink batches raw Facebook responses into zstd-compressed JSONL
+// Package rawsink batches raw TikTok responses into zstd-compressed JSONL
 // objects in S3 so payloads can be re-parsed after a parser fix
-// (fbctl replay). Failures go under raw-failures/, everything else under raw/.
+// or a question about one. Failures go under raw-failures/, everything else
+// under raw/.
 package rawsink
 
 import (

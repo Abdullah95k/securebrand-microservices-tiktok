@@ -28,7 +28,7 @@ redis:
 
 kafka:
   brokers: ["localhost:19092"]
-  client_id: fbs
+  client_id: tks
   topic_prefix: ""        # prepended to every topic name (useful for shared clusters)
   produce_linger: 5ms
   compression: zstd

@@ -218,7 +218,7 @@ tt:
   # Retention of what tks stores, in days; 0 keeps it for good. The owner
   # chose (2026-11-01) that tks deletes nothing, so every value is 0; a
   # positive one turns that step back on (ADR 0007 §14). privacy.retention
-  # is the copied Facebook pipeline's and tks does not read it.
+  # was the removed Facebook pipeline's and tks does not read it.
   retention:
     comments_days: 0          # comment partitions
     metrics_days: 0           # post_metrics and account_snapshots partitions
