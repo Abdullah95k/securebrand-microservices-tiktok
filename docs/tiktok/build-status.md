@@ -385,7 +385,7 @@ From the kickoff research (public sources only; details and citations in [`metho
 
 **tks is onboarded on the platform** (the master, 2026-11-06):
 - **What's set up:**
-  - Argo CD app `svc-tks`, pinned to `3bca5c0b379c62904f64ad03dac736856cc80c98`;
+  - Argo CD app `svc-tks`, pinned to `53300f28ca35090058dd2477a4f4e0f4c75338e8` (moved from `3bca5c0` on 2026-11-06 for the canary accounts);
   - the three images, built by the platform;
   - `values-production.yaml`, with monitoring, alerts and dashboards on;
   - the five roles and `S3_BUCKET_BACKUPS`;
@@ -395,8 +395,8 @@ From the kickoff research (public sources only; details and citations in [`metho
   - `tt.subtitles.include` (after the first healthy day);
   - `tt.content.enabled` (after the canary checks).
 - **Given (2026-11-06):**
-  - **your canary accounts:** in `values-production.yaml` (public accounts, by your choice; no GitHub secret). The master moves the pin to the commit that has them;
-  - **backups:** 30 days kept; the platform adds the expiry rule on `tks/postgres/`.
+  - **your canary accounts:** in `values-production.yaml` (public accounts, by your choice; no GitHub secret); the master pinned the commit that has them;
+  - **backups:** 30 days kept (the master's D-028): a lifecycle rule on the backups bucket expires `tks/postgres/` dumps 30 days after they are written, and the bucket's versioning keeps an expired dump recoverable 7 more days.
 - **What the platform still needs from you:** **your proxies** (the Secret `proxies`), from the IPs you buy, with each tier's `country`.
 - **Then the first run:** 50 to 100 accounts, by [`tks-production.md`](../runbooks/tks-production.md).
 - **The first-run report's Prometheus:** `http://prometheus-operated.monitoring.svc:9090`.
@@ -432,6 +432,7 @@ From the kickoff research (public sources only; details and citations in [`metho
 
 ## Log
 
+- **2026-11-06 (M6c build session):** the master pinned `53300f28ca35090058dd2477a4f4e0f4c75338e8` (images built at that SHA at the first apply), took `TKS_TT__CANARY__ACCOUNTS` out of `tks-env` and its bootstrap, and added the 30-day lifecycle rule on `tks/postgres/` after the owner confirmed it directly (D-028; versioned bucket: 7 more days to recover). Production is being created. Hand-over §1 now names the new pin.
 - **2026-11-06 (M6c build session):** the owner's two answers: the canary accounts go in `values-production.yaml` (public influencer accounts; no GitHub secret, no `TKS_TT__CANARY__ACCOUNTS` in `tks-env`), with a CI check that production's list has 3 or more bare usernames; backups kept 30 days (the platform's rule on `tks/postgres/`). Hand-over §4 and §9, `tks-canary.md`, `tks-backup.md` and `tks-deploy.md` updated. The master is told and moves the pin. Left for the owner: the proxies.
 - **2026-11-06 (M6c build session):** the hand-over went to the master; the master onboarded tks on the platform (Argo CD `svc-tks`, pinned to M16's `3bca5c0`, the three images, five roles, every topic). Subtitles and the contract stay off until the master says. The owner gives the canary accounts, the proxies, and the backup-expiry choice.
 - **2026-11-06 (build session, M12):** built discovery part C ([#74](https://github.com/Abdullah95k/securebrand-microservices-tiktok/pull/74); ADR 0007 §27; T43), the last milestone in the queue. From C6 run 2's findings and the fakett shapes (no raw bundle needed); fbs's keyword discovery read at fbs main `f87d6ae` (public; one keyword a search every `discovery.interval`, 1 h, with `last_queued_at` and `last_searched_at`, which tks stamps too) and followed, nothing copied (`UPSTREAM.md`); igs not needed. Search built off until an Iraq-placed tier exists (T37). Tested locally against Postgres 18, Redpanda v24.2.7 and Valkey 8 in Docker (`mirror.gcr.io`): `go vet ./...`, `make test-integration` over every package (the unit, integration and e2e suites), `golangci-lint` v2.15.0 built with Go 1.27 (0 issues), `buf generate` (no diff after), the doc link check. No TikTok request. Dependabot PRs #62–#64, #66, #67 left as they are. No next session started: the queue is empty.
