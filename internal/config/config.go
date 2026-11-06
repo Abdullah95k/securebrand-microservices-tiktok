@@ -307,6 +307,8 @@ type TT struct {
 	Comments  TTComments `koanf:"comments"`
 	Posts     TTPosts    `koanf:"posts"`
 	Media     TTMedia    `koanf:"media"`
+	// Subtitles fetches videos' subtitle texts (M17).
+	Subtitles TTSubtitles `koanf:"subtitles"`
 	// Retention is tks's own (privacy.retention was the removed Facebook
 	// pipeline's): every value 0 by default, so tks keeps everything it
 	// collects (owner, 2026-11-01; docs/tiktok ADR 0007 §14). A positive
@@ -505,6 +507,22 @@ type TTMedia struct {
 	// .tiktok.com, which reaches the video hosts (T18). Redirects to other
 	// hosts go without it.
 	CookieDomains []string `koanf:"cookie_domains"`
+}
+
+// TTSubtitles is tt.subtitles: videos' subtitle tracks (video.subtitleInfos:
+// TikTok's speech-to-text and its machine translations), whose WebVTT files
+// the account stage fetches before their links expire and publishes on
+// tt.subtitle.v1 (M17). A track already stored is not fetched again.
+type TTSubtitles struct {
+	// Include fetches the files (on by default); the tracks' languages
+	// are published on the post either way.
+	Include bool `koanf:"include"`
+	// MaxBytes caps one file; a larger one is recorded without its text.
+	MaxBytes int64 `koanf:"max_bytes"`
+	// MaxTracks caps the tracks fetched per post, speech-to-text first.
+	MaxTracks int `koanf:"max_tracks"`
+	// Timeout bounds one file's fetch.
+	Timeout time.Duration `koanf:"timeout"`
 }
 
 // Signer modes.
@@ -1199,6 +1217,9 @@ func (t TT) validate() []error {
 		if d == "" || strings.HasPrefix(d, ".") || strings.ContainsAny(d, "/:* ") || strings.ToLower(d) != d {
 			errs = append(errs, fmt.Errorf("tt.media.cookie_domains: %q must be a lower-case host name without a leading dot", d))
 		}
+	}
+	if t.Subtitles.Include && (t.Subtitles.MaxBytes < 1 || t.Subtitles.MaxTracks < 1 || t.Subtitles.Timeout <= 0) {
+		errs = append(errs, errors.New("tt.subtitles: max_bytes, max_tracks and timeout must be > 0 when include is on"))
 	}
 	if t.Media.Include && len(t.Media.CookieDomains) == 0 {
 		errs = append(errs, errors.New("tt.media.cookie_domains must name the video hosts' domain when tt.media.include is on"))

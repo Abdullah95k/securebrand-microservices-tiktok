@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package securebrand.tt.v1;
+
+import "google/protobuf/timestamp.proto";
+import "securebrand/common/v1/common.proto";
+import "securebrand/tt/v1/common.proto";
+
+option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1;ttv1";
+
+// PostSubtitles is published on tt.subtitle.v1, keyed by post_id, when a
+// read fetched a video's subtitle tracks (video.subtitleInfos: TikTok's
+// speech-to-text and its machine translations, as WebVTT files behind
+// links that expire; M17). It carries every track the read fetched; a
+// track already stored is fetched again only with the post's others, when
+// one of them is new.
+message PostSubtitles {
+  securebrand.common.v1.Observation obs = 1;
+  int64 post_id = 2;
+  // The monitored account.
+  int64 user_id = 3;
+  google.protobuf.Timestamp post_created_at = 4;
+  repeated Subtitle tracks = 5;
+}
+
+// Subtitle is one track with its file.
+message Subtitle {
+  SubtitleInfo info = 1;
+  // The file as served (WebVTT, UTF-8): the speech of the post's account,
+  // personal data like its caption (ADR 0007 §6). Empty when skipped.
+  string body = 2;
+  // Why body is empty: "too_large" (over tt.subtitles.max_bytes).
+  string skipped = 3;
+}

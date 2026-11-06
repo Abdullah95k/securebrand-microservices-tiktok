@@ -68,7 +68,7 @@ func TestMappedEventsConform(t *testing.T) {
 		&ttv1.Media{Obs: obs(t0), MediaId: "33333333-3333-5333-8333-333333333333", Kind: ttv1.MediaKind_MEDIA_KIND_VIDEO, PostId: proto.Int64(7400000000000000001), UserId: 6900000000000000001, Bitrate: 1000},
 		&ttv1.Media{Obs: obs(t0), MediaId: "44444444-4444-5444-8444-444444444444", Kind: ttv1.MediaKind_MEDIA_KIND_AVATAR, UserId: 6900000000000000001},
 	}
-	evs := Map(msgs, map[int64]*Owner{6900000000000000001: {Username: "fake.user"}})
+	evs := Map(msgs, map[int64]*Owner{6900000000000000001: {Username: "fake.user"}}, nil)
 	kinds := map[string]int{}
 	for _, e := range evs {
 		e.Edited(t0)
@@ -87,7 +87,7 @@ func TestMappedEventsConform(t *testing.T) {
 }
 
 func TestPostMapping(t *testing.T) {
-	evs := Post(post(t0, "#fake @other", 15000), &Owner{Username: "fake.user", SecUID: "MS4wfake"})
+	evs := Post(post(t0, "#fake @other", 15000), &Owner{Username: "fake.user", SecUID: "MS4wfake"}, nil)
 	m := evs[0].Msg.(*contentv1.Post)
 	if m.Url != "https://www.tiktok.com/@fake.user/video/7400000000000000001" || m.Type != contentv1.PostType_POST_TYPE_SHORT_VIDEO {
 		t.Fatalf("url %q type %v", m.Url, m.Type)
@@ -106,11 +106,11 @@ func TestPostMapping(t *testing.T) {
 		t.Fatalf("extras %v", m.Extras)
 	}
 	// Counts are not content; the caption is.
-	again := Post(post(t0.Add(time.Hour), "#fake @other", 20000), &Owner{Username: "fake.user", SecUID: "MS4wfake"})[0]
+	again := Post(post(t0.Add(time.Hour), "#fake @other", 20000), &Owner{Username: "fake.user", SecUID: "MS4wfake"}, nil)[0]
 	if !bytes.Equal(again.Hash, evs[0].Hash) {
 		t.Fatal("a change of counts alone changed the content hash")
 	}
-	edited := Post(post(t0.Add(time.Hour), "#fake @other edited", 15000), &Owner{Username: "fake.user", SecUID: "MS4wfake"})[0]
+	edited := Post(post(t0.Add(time.Hour), "#fake @other edited", 15000), &Owner{Username: "fake.user", SecUID: "MS4wfake"}, nil)[0]
 	if bytes.Equal(edited.Hash, evs[0].Hash) || bytes.Equal(edited.TextHash, evs[0].TextHash) {
 		t.Fatal("a caption change kept the hashes")
 	}
@@ -119,8 +119,8 @@ func TestPostMapping(t *testing.T) {
 // The event id is the same for a redelivered record, and differs for a
 // later observation of the same content.
 func TestEventID(t *testing.T) {
-	a, b := Post(post(t0, "x", 1), nil)[0], Post(post(t0, "x", 1), nil)[0]
-	later := Post(post(t0.Add(time.Second), "x", 1), nil)[0]
+	a, b := Post(post(t0, "x", 1), nil, nil)[0], Post(post(t0, "x", 1), nil, nil)[0]
+	later := Post(post(t0.Add(time.Second), "x", 1), nil, nil)[0]
 	for _, e := range []*Event{a, b, later} {
 		e.Seal()
 	}

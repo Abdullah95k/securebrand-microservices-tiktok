@@ -97,6 +97,9 @@ func TestChartConfigLoads(t *testing.T) {
 	if c.TT.Media.Include {
 		t.Error("media downloads on by default (D5)")
 	}
+	if !c.TT.Subtitles.Include {
+		t.Error("subtitles off by default (M17: on)")
+	}
 	if !strings.HasPrefix(c.S3.MediaBucket, "securebrand-tks-") || !strings.HasPrefix(c.S3.RawBucket, "securebrand-tks-") {
 		t.Errorf("buckets %q, %q: tks's own names (D6)", c.S3.MediaBucket, c.S3.RawBucket)
 	}
@@ -172,6 +175,10 @@ func TestChartProductionConfigLoads(t *testing.T) {
 	}
 	if c.TT.CaptureRaw != "sample" || c.TT.CaptureRawSample != 0.01 || c.TT.Cost.BudgetPerAccountUSD != 0.0019 {
 		t.Errorf("tt: capture %q %v, budget %v", c.TT.CaptureRaw, c.TT.CaptureRawSample, c.TT.Cost.BudgetPerAccountUSD)
+	}
+	// tt.subtitle.v1 is the platform's to make first (hand-over §6).
+	if c.TT.Subtitles.Include {
+		t.Error("tt.subtitles.include on in production before the platform has made tt.subtitle.v1")
 	}
 	if c.Service.Env != "prod" || c.TT.Proxy.Tiers[0].Country != "US" {
 		t.Errorf("env %q, tiers %+v", c.Service.Env, c.TT.Proxy.Tiers)

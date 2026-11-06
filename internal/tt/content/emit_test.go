@@ -112,7 +112,7 @@ func TestGate(t *testing.T) {
 	p.fail = false
 	got = step("retried", withMetrics(post(t0.Add(28*time.Hour), "third caption", 200)), map[string]int{topicPost: 1})
 	again := []proto.Message{post(t0.Add(28*time.Hour), "third caption", 200)}
-	evs := latest(Map(again, nil))
+	evs := latest(Map(again, nil, nil))
 	evs[0].Seal()
 	if err := proto.Unmarshal(got[topicPost][0].Value, &m); err != nil {
 		t.Fatal(err)

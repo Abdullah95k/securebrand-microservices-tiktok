@@ -118,6 +118,7 @@ var (
 	// Media.
 	MediaDiscoveryToStored = histVec("media_discovery_to_stored_seconds", "Time from media discovery to object stored.", prometheus.ExponentialBuckets(1, 2, 14), "kind")
 	MediaOutcome           = counterVec("media_download_total", "Media downloads by outcome.", "kind", "outcome")
+	SubtitleFetches        = counterVec("subtitle_fetches_total", "Videos' subtitle files the crawlers fetched (M17), by result: fetched; failed (an error, a refusal or not WebVTT); expired (the link had expired); too_large (over tt.subtitles.max_bytes, recorded without its text).", "result")
 	MediaDeleted           = counterVec("media_deleted_total", "Media objects deleted by reason.", "reason")
 
 	// Persistence and jobs.

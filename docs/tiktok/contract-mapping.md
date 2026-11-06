@@ -130,7 +130,7 @@ Notes on the tables:
 | `kind` video / photo | `type` SHORT_VIDEO, subtype `video` / `type` POST, subtype `photo` | agree (as the rules table) |
 | — | `url` = `https://www.tiktok.com/@<username>/video/<id>` (`/photo/` for photo posts) | agree (built) |
 | `created_at` | `published_at` (EXACT; a scheduled post: when it went public) | agree |
-| photo posts' `imagePost.title` (served, not read) | `title` | **X**: tks doesn't read it yet; small |
+| photo posts' `imagePost.title` | `title` | **done in M17** (ADR 0007 §26) |
 | `caption` | `text.text` | agree |
 | `text_language` | `text.platform_language` (`un` → empty) | agree |
 | `text_ranges` | `text.spans` (UTF-16), mention spans with `AccountRef` (`user_id`, `sec_uid`, handle) | agree |
@@ -141,7 +141,7 @@ Notes on the tables:
 | `duration_ms`, `width`, `height` | `video.duration_ms`, `width`, `height` | agree |
 | `cover_media_id`, `photos` | `media[]` (roles: Q7) | agree |
 | `labels.ai_generated` | `labels.ai_generated` | agree |
-| (served, not read) `AIGCDescription` | `labels.ai_label_text` | **X** |
+| `AIGCDescription` | `labels.ai_label_text` | **done in M17** |
 | `labels.aigc_label_type` | extras `tt.aigc_label_type` | agree |
 | `labels.warnings` | `labels.warnings` | agree. The matrix lists them under age_restricted/members_only/family_safe; they belong only in `warnings` |
 | `labels.anchors_json` | extras `tt.anchors` | agree |
@@ -154,7 +154,7 @@ Notes on the tables:
 | `status`, `status_code` | `status.availability`, `status.reason`, `status.since` | agree (Q6); **drop extras `tt.status_code`** |
 | `discovered_via` | extras `tt.discovered_via` | agree |
 | `comments_state`, `comments_collected`, `replies_collected`, `completeness`, `comment_count_read`, `comments_synced_at` | `coverage` (`comments_state`, collected, reported, completeness, `replies_collected`, `synced_at`; `replies_available = true`) | agree; `comments_disabled` → `COMMENTS_STATE_DISABLED` |
-| (served, not read) `video.subtitleInfos` | `captions[]` | **X**, and a proposed field (§4) |
+| `video.subtitleInfos` | `captions[]` (with its `source`) and `video.caption_languages` | **done in M17**: fetched, stored, and sent on full post events and as partial post events |
 | — | `relevance` | agree. The mapper sets `region-IQ` from `created_in_country` and language rules (`lang-ckb`). Keyword ids need the shared list |
 | — | `tagged`, `coauthors`, `links`, `uploader_tags`, `platform_topics`, `poll`, `video.live_status`, `chapters` | not on TikTok logged out: unset |
 | — | `reshare` (duet, stitch) | **unknown**, not X: no duet or stitch source id was seen in 253 posts (only `duetEnabled`, `duetDisplay`…) |

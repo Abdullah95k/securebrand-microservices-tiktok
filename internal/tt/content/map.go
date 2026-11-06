@@ -397,8 +397,9 @@ func PostURL(username string, postID int64, photo bool) string {
 // not content: a post whose counts alone changed is not sent again (its
 // counts go on content.metrics.v1). An unavailable or private post is a
 // partial event with the status and TikTok's code, never DELETED (a
-// logged-out reader cannot tell deleted from removed).
-func Post(p *ttv1.Post, owner *Owner) []*Event {
+// logged-out reader cannot tell deleted from removed). captions are the
+// post's stored subtitle tracks (M17); a photo post's title is its own.
+func Post(p *ttv1.Post, owner *Owner, captions []*contentv1.CaptionTrack) []*Event {
 	if p.PostId == 0 {
 		return nil
 	}
@@ -440,6 +441,17 @@ func Post(p *ttv1.Post, owner *Owner) []*Event {
 		if p.Width > 0 && p.Height > 0 {
 			m.Video.Width, m.Video.Height = proto.Int32(p.Width), proto.Int32(p.Height)
 		}
+		langs := map[string]bool{}
+		for _, si := range p.Subtitles {
+			if l := SubtitleLanguage(si.Language); l != "" && !langs[l] {
+				langs[l] = true
+				m.Video.CaptionLanguages = append(m.Video.CaptionLanguages, l)
+			}
+		}
+		m.Captions = captions
+	}
+	if p.Title != "" {
+		m.Title = &contentv1.Text{Text: p.Title, PlatformLanguage: language(p.TextLanguage)}
 	}
 	acct := &contentv1.AccountRef{Id: m.AccountId, Platform: Platform, NativeId: strconv.FormatInt(p.UserId, 10)}
 	if owner != nil {
@@ -481,6 +493,7 @@ func Post(p *ttv1.Post, owner *Owner) []*Event {
 	x := map[string]any{}
 	if l := p.Labels; l != nil {
 		m.Labels.AiGenerated = l.AiGenerated
+		m.Labels.AiLabelText = l.AiDescription
 		m.Labels.Warnings = l.Warnings
 		if l.AigcLabelType != nil {
 			x["tt.aigc_label_type"] = float64(*l.AigcLabelType)

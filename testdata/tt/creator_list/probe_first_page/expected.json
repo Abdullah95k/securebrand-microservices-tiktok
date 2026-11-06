@@ -697,8 +697,34 @@
           "reposts": "0"
         },
         "status": "POST_STATUS_VISIBLE",
-        "discovered_via": "DISCOVERED_VIA_LIST"
-      }
+        "discovered_via": "DISCOVERED_VIA_LIST",
+        "subtitles": [
+          {
+            "language": "eng-US",
+            "language_id": "2",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:big_caption",
+            "format": "webvtt",
+            "size_bytes": "1096"
+          }
+        ]
+      },
+      "subtitles": [
+        {
+          "expires": "2026-11-03T07:14:51Z",
+          "info": {
+            "language": "eng-US",
+            "language_id": "2",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:big_caption",
+            "format": "webvtt",
+            "size_bytes": "1096"
+          },
+          "url": "https://v16m-webapp.tiktokcdn-us.com/scrubbed/932cb6e68731"
+        }
+      ]
     },
     {
       "media": [
@@ -1321,8 +1347,34 @@
           "reposts": "0"
         },
         "status": "POST_STATUS_VISIBLE",
-        "discovered_via": "DISCOVERED_VIA_LIST"
-      }
+        "discovered_via": "DISCOVERED_VIA_LIST",
+        "subtitles": [
+          {
+            "language": "ara-SA",
+            "language_id": "34",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:whisper_lid",
+            "format": "webvtt",
+            "size_bytes": "3380"
+          }
+        ]
+      },
+      "subtitles": [
+        {
+          "expires": "2026-11-03T07:15:49Z",
+          "info": {
+            "language": "ara-SA",
+            "language_id": "34",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:whisper_lid",
+            "format": "webvtt",
+            "size_bytes": "3380"
+          },
+          "url": "https://v16m-webapp.tiktokcdn-us.com/scrubbed/3fbe64a01a46"
+        }
+      ]
     }
   ],
   "status_code": 0

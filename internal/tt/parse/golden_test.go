@@ -136,5 +136,13 @@ func run(k scrub.Kind, body []byte) (map[string]any, parse.Report) {
 }
 
 func bundle(b parse.PostBundle) map[string]any {
-	return map[string]any{"post": pj(b.Post), "metrics": pj(b.Metrics), "music": pj(b.Music), "media": pjs(b.Media)}
+	out := map[string]any{"post": pj(b.Post), "metrics": pj(b.Metrics), "music": pj(b.Music), "media": pjs(b.Media)}
+	if len(b.Subtitles) > 0 {
+		var subs []any
+		for _, st := range b.Subtitles {
+			subs = append(subs, map[string]any{"info": pj(st.Info), "url": st.URL, "expires": st.Expires})
+		}
+		out["subtitles"] = subs
+	}
+	return out
 }
