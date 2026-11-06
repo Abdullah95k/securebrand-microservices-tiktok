@@ -154,7 +154,7 @@ Notes on the tables:
 | `status`, `status_code` | `status.availability`, `status.reason`, `status.since` | agree (Q6); **drop extras `tt.status_code`** |
 | `discovered_via` | extras `tt.discovered_via` | agree |
 | `comments_state`, `comments_collected`, `replies_collected`, `completeness`, `comment_count_read`, `comments_synced_at` | `coverage` (`comments_state`, collected, reported, completeness, `replies_collected`, `synced_at`; `replies_available = true`) | agree; `comments_disabled` → `COMMENTS_STATE_DISABLED` |
-| `video.subtitleInfos` | `captions[]` (with `source`, contract v1.1.0) and `video.caption_languages` | **done in M17**: fetched, stored, and sent on full post events and as partial post events |
+| `video.subtitleInfos` | `captions[]` (with its `source`) and `video.caption_languages` | **done in M17**: fetched, stored, and sent on full post events and as partial post events |
 | — | `relevance` | agree. The mapper sets `region-IQ` from `created_in_country` and language rules (`lang-ckb`). Keyword ids need the shared list |
 | — | `tagged`, `coauthors`, `links`, `uploader_tags`, `platform_topics`, `poll`, `video.live_status`, `chapters` | not on TikTok logged out: unset |
 | — | `reshare` (duet, stitch) | **unknown**, not X: no duet or stitch source id was seen in 253 posts (only `duetEnabled`, `duetDisplay`…) |
