@@ -98,6 +98,16 @@ M10a (2026-11-05) copied fbs's keyword discovery basics from fbs main `4816736` 
 | `cmd/tksctl/discovery.go` | `cmd/fbctl/discovery.go` | tksctl's shape (returns its result), schema tt |
 | `migrations/tt/00006_discovery_foundations.sql` (`discovery_keywords`) | `migrations/00008_discovery.sql` | Only the keyword table; tks records where accounts came from in `account_sources` instead of `page_schedule.source` |
 
+## The copied Facebook code removed (M9c2, 2026-11-06)
+
+tks's own suites (`internal/tt/...`: the stages, the e2e, chaos, load and soak tests against `fakett`) now cover the pipeline, so the Facebook pipeline copied from igs at the seed is gone: fbs's binaries (`cmd/fbs-*`, `cmd/fbctl`, `cmd/fakefb`), `internal/fb`, `internal/fakefb`, the Facebook e2e suite (`internal/e2e`), `internal/{api,dispatch,registrysync,replay,spike,pilot,fixtures,gdpr,topics}`, `internal/crawl/{stage,emit,task,shadow}`, `internal/app`'s crawler, fbs's schema (`migrations/*.sql`, `store.Migrate*`), `testdata/fb`, `configs/topics.yaml`, fbs's Phase 0 kit (`phase0/dryrun*`, `pages.example.csv`, `make phase0*`, `spike-report`, `spike-bin`, `golden`, `fixtures`). fbs's runbooks moved to [`docs/fbs-reference/runbooks/`](docs/fbs-reference/runbooks/). No Facebook topic, schema or endpoint was used by anyone but this copy (no tks binary ran the Facebook pipeline since M9b2's chart).
+
+**What stays shared, pruned to what tks uses:** `internal/app` (`KafkaClient`, `OpenRedis`), `internal/scheduler` (`Every`, `LagGauges`), `internal/persist` (the consumer with a schema's `Sink`, its quarantine and bisection, `StripNUL`, `JSONBSafe`), `internal/media` (`RawLifecycle` only: tks sets no media TTL, D5), `internal/store` (partition maintenance for `store.Tables`), `internal/crawl/{jobs,checkpoint,lanes,rawsink}` (all used by `internal/tt`), `internal/testenv` (`Postgres` is now an empty database: tks's tests migrate schema tt themselves). Their tests that ran on fbs's schema now run on their own tables (`TestBadRecordsAreSetAside` on a stub sink, `internal/store`'s partition tests, the Schema Registry test on tks's `tt.v1` contract).
+
+**Kept on purpose:** `api/proto/securebrand/{fb,fbs}` and their generated Go, as fbs's frozen contracts for `api/proto/contract_test.go`: a task of fbs's on a tks topic, or tks's on fbs's, decodes with an unknown kind and no scope and is dead-lettered, which matters while staging shares fbs's Kafka (D6). `configs/default.yaml`'s Facebook-named sections stay (`fb.proxy` holds the proxy tiers `tks-spike` reads from the owner's `phase0/proxies.yaml`; renaming it would break that file); `configs/queries.seed.yaml` stays with them (the `fb.registry_seed` default and the shared `registry` package's tests read it).
+
+**Porting from now on:** fbs or igs fixes to the removed packages have no tks path to cherry-pick onto; port them by hand into tks's own copies (the table above maps each to its source).
+
 ## tks fixes igs or fbs may want
 
 Fixes made in tks's copy of shared code that igs or fbs still lack. Their own sessions decide whether to port them.

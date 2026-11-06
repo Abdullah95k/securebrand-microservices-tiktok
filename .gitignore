@@ -16,9 +16,5 @@ __pycache__/
 # files and backups of proxies.yaml (which hold credentials) can't be
 # committed either.
 /phase0/*
-!/phase0/dryrun-pages.csv
-!/phase0/dryrun.sh
-!/phase0/dryrun.yaml
-!/phase0/pages.example.csv
 !/phase0/proxies.example.yaml
 !/phase0/tt-accounts.example.txt

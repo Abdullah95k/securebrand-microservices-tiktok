@@ -9,8 +9,6 @@
 //	tksctl accounts import               register a list of accounts for a client, with a report (M10a)
 //	tksctl discovery keywords seed|import|list   discovery keywords (seed: the Iraq list; M10a)
 //	tksctl dlq replay                    send dead letters back: tasks to run again, set-aside records as they were (M9c)
-//
-// The copied Facebook pipeline keeps fbctl until M9 removes it.
 package main
 
 import (

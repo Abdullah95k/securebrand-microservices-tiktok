@@ -317,7 +317,7 @@ func (w *Worker) deadLetter(ctx context.Context, t *tkstaskv1.Task, reason, deta
 	}
 	w.markIncomplete(ctx, t)
 	// Marked done like a finished task, so a redelivery or a parked copy is
-	// skipped; a replay of the dead letter (fbctl dlq replay, through a
+	// skipped; a replay of the dead letter (tksctl dlq replay, through a
 	// Replayer) clears the mark.
 	return w.finish(ctx, t, c)
 }

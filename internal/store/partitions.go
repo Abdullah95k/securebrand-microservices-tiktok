@@ -1,3 +1,6 @@
+// Package store holds the partition maintenance of tks's schema (its
+// tables are named by internal/tt/ttstore): partitions created ahead and
+// dropped, each DDL statement under a lock timeout.
 package store
 
 import (
@@ -32,16 +35,6 @@ type Tables struct {
 	LZ4 map[string][]string
 }
 
-// FBTables are the copied Facebook schema's partitioned tables.
-var FBTables = Tables{
-	Monthly: []string{"posts", "comments", "page_snapshots"},
-	Daily:   []string{"post_metrics"},
-	LZ4: map[string][]string{
-		"posts":    {"text", "text_ranges", "links", "extra"},
-		"comments": {"text", "text_ranges", "attachments", "extra"},
-	},
-}
-
 // PartitionWindow describes which partitions must exist.
 type PartitionWindow struct {
 	MonthsBack  int // monthly tables: how many months before now
@@ -57,12 +50,6 @@ type PartitionWindow struct {
 func (w PartitionWindow) wanted(table string, end time.Time) bool {
 	nb, ok := w.NotBefore[table]
 	return !ok || end.After(nb)
-}
-
-// EnsurePartitions creates every missing partition of the copied Facebook
-// schema's tables inside the window.
-func EnsurePartitions(ctx context.Context, pool *pgxpool.Pool, now time.Time, w PartitionWindow) (int, error) {
-	return FBTables.Ensure(ctx, pool, now, w)
 }
 
 // Ensure creates every missing partition of t's tables inside the window.
@@ -102,12 +89,6 @@ func (t Tables) Ensure(ctx context.Context, pool *pgxpool.Pool, now time.Time, w
 		}
 	}
 	return created, nil
-}
-
-// EnsurePartitionFor creates the partition of table that holds ts. The
-// persister calls it when an insert fails with "no partition".
-func EnsurePartitionFor(ctx context.Context, pool *pgxpool.Pool, table string, ts time.Time) error {
-	return FBTables.EnsureFor(ctx, pool, table, ts)
 }
 
 // EnsureFor creates the partition of one of t's tables that holds ts.

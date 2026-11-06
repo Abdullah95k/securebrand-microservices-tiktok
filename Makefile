@@ -6,7 +6,7 @@ PG_DSN ?= postgres://tks:tks@localhost:5432/tks?sslmode=disable
 TEST_ENV = TKS_TEST_PG_DSN="$(PG_DSN)" TKS_TEST_REDIS_ADDR=localhost:6379 TKS_TEST_KAFKA_BROKERS=localhost:19092 TKS_TEST_SCHEMA_REGISTRY=http://localhost:18081
 COMPOSE = docker compose -f deploy/compose/docker-compose.yml
 
-.PHONY: all build test lint vet generate golden fixtures infra-up infra-down test-integration e2e loadtest soak docker docker-prebuilt compose-up compose-down spike-report phase0 phase0-dryrun phase0-trim phase0-rate spike-bin tks-probe tks-probe-all tks-probe-dryrun tks-browser-check tks-phase0 tks-phase0-dryrun tks-signers tks-signers-dryrun tks-signers-browsers tks-discover tks-discover-dryrun tks-spike-bin chart-check chart-smoke clean
+.PHONY: all build test lint vet generate infra-up infra-down test-integration e2e loadtest soak docker docker-prebuilt compose-up compose-down tks-probe tks-probe-all tks-probe-dryrun tks-browser-check tks-phase0 tks-phase0-dryrun tks-signers tks-signers-dryrun tks-signers-browsers tks-discover tks-discover-dryrun tks-spike-bin chart-check chart-smoke clean
 
 all: generate build test
 
@@ -27,14 +27,6 @@ lint: vet
 ## Regenerate protobuf code (requires buf + protoc-gen-go).
 generate:
 	buf generate
-
-## Regenerate parser golden files after an intended parser change.
-golden:
-	$(GO) test ./internal/fb/parse -run TestGolden -update
-
-## Regenerate the synthetic fakefb fixtures.
-fixtures:
-	$(GO) test -tags fixturegen ./internal/fakefb -run TestWriteFixtures
 
 ## Start Postgres, Redpanda and Valkey for integration tests.
 infra-up:
@@ -104,53 +96,8 @@ compose-up: docker
 compose-down:
 	$(COMPOSE) down -v
 
-spike-report:
-	$(GO) run ./cmd/fbs-spike report --in spike-results.jsonl
-
+# The owner's proxy tiers (phase0/proxies.example.yaml), for every run below.
 PHASE0_CONFIG ?= phase0/proxies.yaml
-PHASE0_PAGES ?= phase0/pages.csv
-PHASE0_TIERS ?= isp,residential
-PHASE0_OUT ?= phase0/out
-PHASE0_ARGS ?=
-
-## Phase 0 against real Facebook (docs/runbooks/phase0-spike.md). Fill in
-## phase0/proxies.yaml and phase0/pages.csv first. Resume with PHASE0_ARGS="--from run".
-phase0:
-	@test -f $(PHASE0_CONFIG) || { echo "missing $(PHASE0_CONFIG): cp phase0/proxies.example.yaml $(PHASE0_CONFIG), fill it in, chmod 600"; exit 2; }
-	@test -f $(PHASE0_PAGES) || { echo "missing $(PHASE0_PAGES): cp phase0/pages.example.csv $(PHASE0_PAGES) and fill it in"; exit 2; }
-	$(GO) run ./cmd/fbs-spike phase0 --config $(PHASE0_CONFIG) --pages $(PHASE0_PAGES) --tiers $(PHASE0_TIERS) --out-dir $(PHASE0_OUT) $(PHASE0_ARGS)
-
-TRIM_TIER ?= isp
-TRIM_ARGS ?=
-## Payload experiment: what each change to the timeline and comments queries'
-## variables does to response size and parsing, on the first 3 pages
-## (docs/runbooks/phase0-spike.md, "Cost experiments"). TRIM_ARGS="--each" also
-## measures every provider flag alone.
-phase0-trim:
-	$(GO) run ./cmd/fbs-spike trim --config $(PHASE0_CONFIG) --pages $(PHASE0_PAGES) --registry $(PHASE0_OUT)/registry.yaml \
-	  --tier $(TRIM_TIER) --out $(PHASE0_OUT)/trim.jsonl $(TRIM_ARGS)
-
-RATE_TIER ?= isp
-RATES ?= 0.5 1.0
-RATE_PAGES ?= 30
-RATE_ARGS ?= --orderings comments --timeline-pages 10
-## Rate experiment: the same RATE_PAGES pages at each per-identity rate in
-## RATES (requests per second per IP), one result file and report each.
-phase0-rate:
-	@mkdir -p $(PHASE0_OUT)
-	@grep -v '^#' $(PHASE0_PAGES) | grep -v '^[[:space:]]*$$' \
-	  | awk -F, -v n=$(RATE_PAGES) 'NR == 1 && tolower($$1) == "page" { print; next } c < n { print; c++ }' > $(PHASE0_OUT)/rate-pages.csv
-	@for r in $(RATES); do \
-	  echo "== $(RATE_TIER) at $$r requests/s per IP"; \
-	  $(GO) run ./cmd/fbs-spike run --config $(PHASE0_CONFIG) --pages $(PHASE0_OUT)/rate-pages.csv \
-	    --registry $(PHASE0_OUT)/registry.yaml --tier $(RATE_TIER) --rps $$r --out $(PHASE0_OUT)/rate-$$r.jsonl $(RATE_ARGS) || exit 1; \
-	  $(GO) run ./cmd/fbs-spike report --in $(PHASE0_OUT)/rate-$$r.jsonl > $(PHASE0_OUT)/rate-$$r.txt; \
-	  grep -E 'block rate|bootstrap|VERDICT|requests' $(PHASE0_OUT)/rate-$$r.txt | head -n 8; \
-	done
-
-## Rehearse Phase 0 against a local fakefb (no proxies, no Facebook, about a minute).
-phase0-dryrun:
-	GO=$(GO) phase0/dryrun.sh
 
 TKS_PROBE_ACCOUNTS ?= phase0/tt-accounts.txt
 TKS_PROBE_ACCOUNTS_ALL ?= phase0/tt-accounts-all.txt
@@ -293,16 +240,6 @@ tks-spike-bin:
 	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath \
 	    -ldflags="-s -w -X main.version=$$(git describe --always --dirty 2>/dev/null || echo dev)" \
 	    -o bin/tks-spike-$$os-$$arch ./cmd/tks-spike || exit 1; \
-	done
-
-## Static fbs-spike binaries in bin/, to run Phase 0 on a machine without Go or Docker.
-spike-bin:
-	@for t in linux/amd64 linux/arm64 darwin/arm64 darwin/amd64; do \
-	  os=$${t%/*}; arch=$${t#*/}; \
-	  echo "bin/fbs-spike-$$os-$$arch"; \
-	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath \
-	    -ldflags="-s -w -X main.version=$$(git describe --always --dirty 2>/dev/null || echo dev)" \
-	    -o bin/fbs-spike-$$os-$$arch ./cmd/fbs-spike || exit 1; \
 	done
 
 clean:

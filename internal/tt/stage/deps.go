@@ -6,9 +6,8 @@
 // envelope (securebrand.tks.task.v1) and TikTok's records (tt.v1): the same
 // duplicate suppression, stream leases, checkpoints, retries, dead letters and
 // job accounting, with the same Redis stores (internal/crawl/checkpoint and
-// jobs). The copied Facebook stages stay in internal/crawl/stage until M9
-// removes the Facebook code; a fix to the lifecycle belongs in both until
-// then (UPSTREAM.md).
+// jobs). The copied Facebook stages were removed in M9c2; fbs's fixes to
+// the lifecycle are ported here by hand (UPSTREAM.md).
 package stage
 
 import (

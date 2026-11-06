@@ -39,13 +39,10 @@ jobs:
           fi
       - name: Fixtures contain no real signed URLs
         run: |
-          if grep -rlE 'oh=00_|_nc_cat=' testdata/; then
-            echo "fixtures with real fbcdn signatures: run fbctl fixtures scrub"; exit 1
-          fi
           if grep -rlE 'x-signature=|[?&]signature=|[?&]policy=|tt_chain_token' testdata/tt; then
             echo "TikTok fixtures with signed links: add them with tksctl fixtures add"; exit 1
           fi
-      - name: Unit tests (parsers, fake Facebook client layer, accounting)
+      - name: Unit tests (parsers, the fake TikTok, accounting)
         env: {TKS_BROWSER_NO_SANDBOX: "1"} # runners may not allow the Chromium sandbox
         run: go test -race -count=1 ./...
       - uses: golangci/golangci-lint-action@v8
@@ -57,9 +54,9 @@ jobs:
     services:
       postgres:
         image: postgres:18-alpine
-        env: {POSTGRES_USER: fbs, POSTGRES_PASSWORD: fbs, POSTGRES_DB: fbs}
+        env: {POSTGRES_USER: tks, POSTGRES_PASSWORD: tks, POSTGRES_DB: tks}
         ports: ["5432:5432"]
-        options: --health-cmd "pg_isready -U fbs" --health-interval 2s --health-retries 30
+        options: --health-cmd "pg_isready -U tks" --health-interval 2s --health-retries 30
       valkey:
         image: valkey/valkey:8-alpine
         ports: ["6379:6379"]
@@ -79,7 +76,7 @@ jobs:
           for i in $(seq 1 60); do docker exec redpanda rpk cluster health --exit-when-healthy && break; sleep 2; done
       - name: Integration and end-to-end tests
         env:
-          TKS_TEST_PG_DSN: postgres://fbs:fbs@localhost:5432/fbs?sslmode=disable
+          TKS_TEST_PG_DSN: postgres://tks:tks@localhost:5432/tks?sslmode=disable
           TKS_TEST_REDIS_ADDR: localhost:6379
           TKS_TEST_KAFKA_BROKERS: localhost:19092
           TKS_TEST_SCHEMA_REGISTRY: http://localhost:18081

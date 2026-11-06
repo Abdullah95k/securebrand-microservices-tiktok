@@ -2,6 +2,8 @@ package emit
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -9,15 +11,17 @@ import (
 
 	commonv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/common/v1"
 	ttv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/gdpr"
 )
 
 var secret = []byte("test-secret")
 
-// tks's key is domain-separated from fbs's on the same id and secret.
+// tks's key is domain-separated from fbs's (HMAC-SHA256 of the bare id) on
+// the same id and secret.
 func TestAuthorKey(t *testing.T) {
 	k := AuthorKey(secret, 42)
-	if len(k) != 32 || bytes.Equal(k, gdpr.AuthorKey(secret, "42")) || !bytes.Equal(k, AuthorKey(secret, 42)) {
+	fbs := hmac.New(sha256.New, secret)
+	fbs.Write([]byte("42"))
+	if len(k) != 32 || bytes.Equal(k, fbs.Sum(nil)) || !bytes.Equal(k, AuthorKey(secret, 42)) {
 		t.Fatalf("key %x", k)
 	}
 	if AuthorKey(secret, 0) != nil {

@@ -20,7 +20,7 @@ This folder describes how `fbs`, the Facebook public-page scraper in this reposi
 
 To start the Instagram project, use the [kickoff brief](https://github.com/Abdullah95k/securebrand-microservices-igs/blob/9463b91/docs/instagram/kickoff-brief.md): what the owner must decide and provide, the brief for a planning session, and the prompt that starts it.
 
-Existing project docs complement this reference: the [README](../../README.md), ADRs [0001](../adr/0001-logged-out-graphql-scraping.md), [0002](../adr/0002-kafka-postgres-valkey.md) and [0003](../adr/0003-temporary-media.md), the contracts ([Kafka schemas](../contracts/kafka-schemas.md), [media handoff](../contracts/media-handoff.md)) and the runbooks ([operations](../runbooks/operations.md), [Phase 0](../runbooks/phase0-spike.md), [go-live](../runbooks/go-live.md), [load testing](../runbooks/load-testing.md), [cost tuning](../runbooks/cost-tuning.md)).
+Existing project docs complement this reference: the [README](../../README.md), ADRs [0001](../adr/0001-logged-out-graphql-scraping.md), [0002](../adr/0002-kafka-postgres-valkey.md) and [0003](../adr/0003-temporary-media.md), the contracts ([Kafka schemas](../contracts/kafka-schemas.md), [media handoff](../contracts/media-handoff.md)) and the runbooks ([operations](runbooks/operations.md), [Phase 0](runbooks/phase0-spike.md), [go-live](runbooks/go-live.md), [load testing](runbooks/load-testing.md), [cost tuning](runbooks/cost-tuning.md)).
 
 ---
 

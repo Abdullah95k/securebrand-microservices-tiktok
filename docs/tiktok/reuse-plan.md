@@ -23,7 +23,7 @@ TikTok behaviour named below is a hypothesis with its T-number ([open-questions.
 | Crawl pipeline (`internal/crawl/*`) | lanes | worker, task, checkpoint, jobs, emit, rawsink, shadow (as igs's matrix §4, on tks's envelope) | account and post stages | — |
 | Backend (`api`, `persist`, `scheduler`, `media`, `gdpr`, `store`, `dispatch`) | — | the cores igs's matrix §5 names | writer, planner, data routes, eraser | — |
 | Platform (`internal/platform/*`, `config`) | breaker, config loader, leader, log, pg, redisx, run, s3x, schemareg | metrics namespace, kafka header, config root | — | — |
-| Contracts | `common.v1` (byte-identical to igs's, once igs's M3 lands) | — | `tt.v1`, `tks.task.v1`, `migrations/tt`, `configs/tt/` | `fb.v1`, `fbs.task.v1` (go with the copied Facebook code) |
+| Contracts | `common.v1` (byte-identical to igs's, once igs's M3 lands) | — | `tt.v1`, `tks.task.v1`, `migrations/tt`, `configs/tt/` | `fb.v1`, `fbs.task.v1` (kept in M9c2 as frozen references for the cross-service contract test only) |
 | Tools and tests | — | Phase 0 orchestration (`internal/spike`, igs's M8 `Measurer`) | `fakett`, e2e stack, `tksctl`, `cmd/tks-*`, Helm chart | `registrysync`'s doc_id discovery (replaced by a canary check) |
 
 **What no TikTok code can avoid:** the page data and its tokens, the GET request format and its signatures, detect rules, entity parsers, stage bodies, the data model, `fakett`, the probe and the Phase 0 measurement. Everything else is shared.

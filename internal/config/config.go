@@ -30,7 +30,9 @@ type Config struct {
 	S3       S3       `koanf:"s3"`
 	FB       FB       `koanf:"fb"`
 	// TT is tks's TikTok client and freshness (configs/tt/default.yaml).
-	// FB stays for the copied Facebook pipeline until M9 removes it.
+	// FB is named for the Facebook pipeline tks was copied from (removed in
+	// M9c2): tks-spike reads the owner's proxy tiers from fb.proxy
+	// (phase0/proxies.yaml); the rest is unread.
 	TT        TT        `koanf:"tt"`
 	Crawler   Crawler   `koanf:"crawler"`
 	Limits    Limits    `koanf:"limits"`
@@ -110,7 +112,7 @@ type Kafka struct {
 	Compression   string        `koanf:"compression"`
 	TLS           TLS           `koanf:"tls"`
 	SASL          SASL          `koanf:"sasl"`
-	// SchemaRegistry receives the fb.v1 schemas (`fbctl schemas apply`).
+	// SchemaRegistry receives the tt.v1 schemas (`tksctl schemas apply`).
 	SchemaRegistry SchemaRegistry `koanf:"schema_registry"`
 }
 
@@ -217,7 +219,7 @@ type TT struct {
 	Comments  TTComments `koanf:"comments"`
 	Posts     TTPosts    `koanf:"posts"`
 	Media     TTMedia    `koanf:"media"`
-	// Retention is tks's own (privacy.retention stays the copied Facebook
+	// Retention is tks's own (privacy.retention was the removed Facebook
 	// pipeline's): every value 0 by default, so tks keeps everything it
 	// collects (owner, 2026-11-01; docs/tiktok ADR 0007 §14). A positive
 	// value turns that retention step back on.

@@ -1,6 +1,6 @@
 # tks operations
 
-How tks's crawler, scheduler and their queues behave in day-to-day running. The other `tks-*` runbooks cover each part in depth: the API ([`tks-api.md`](tks-api.md)), the canary ([`tks-canary.md`](tks-canary.md)), the objectives and their alerts ([`tks-objectives.md`](tks-objectives.md)), media ([`tks-media.md`](tks-media.md)), imports ([`tks-import.md`](tks-import.md)) and discovery ([`tks-discovery.md`](tks-discovery.md)). [`operations.md`](operations.md) is fbs's, for the copied Facebook pipeline.
+How tks's crawler, scheduler and their queues behave in day-to-day running. The other `tks-*` runbooks cover each part in depth: the API ([`tks-api.md`](tks-api.md)), the canary ([`tks-canary.md`](tks-canary.md)), the objectives and their alerts ([`tks-objectives.md`](tks-objectives.md)), media ([`tks-media.md`](tks-media.md)), imports ([`tks-import.md`](tks-import.md)) and discovery ([`tks-discovery.md`](tks-discovery.md)). fbs's runbooks, for the Facebook pipeline tks was copied from, are in [`docs/fbs-reference/runbooks/`](../fbs-reference/runbooks/).
 
 ## Restarts
 
@@ -26,3 +26,16 @@ The canary keeps its own identities and saves none.
 The reaper (in `tks-scheduler`) closes a job that stopped making progress: `partial` when its tasks look lost, `failed` when its accounting is gone, and past `scheduler.reaper_max_age` (24 h) even if tasks still wait in its lane. It then **cancels** the job, so its tasks still waiting (on the retry topics, or behind a backlog) stop when they come back instead of cycling for a job that is over; the account's next check starts its own.
 
 The crawl task topics (`tks.task.account.*`, `tks.task.post.*`, `tks.task.thread.*`) therefore keep their tasks for a day, as long as a job can live; **raise `scheduler.reaper_max_age` and their retention together**. The retry topics keep 6 hours (the 1-hour one 12 hours): a retry relay (the crawler's `retry` stage) down for longer loses the retries it had not forwarded, and their jobs end `partial`. Apply a retention change with `tksctl kafka apply`.
+
+## Replaying dead letters
+
+Two topics hold what tks could not finish: **`tks.task.dlq`** (kept 14 days), the crawl tasks that used up their attempts, and **`tks.persist.dlq`** (kept 7 days), the records the persister set aside (undecodable, or refused by Postgres for what they hold; its log gives each one's SQLSTATE). The alerts `TksDLQGrowing` and `TksPersisterQuarantine` point here ([`tks-deploy.md`](tks-deploy.md#stuck-jobs)).
+
+1. **Find the cause** from the records' `x-reason` and `x-error` headers and the logs, fix it and deploy. Replaying before the fix only fills the topic again.
+2. **Send them back** with `tksctl dlq replay` (in the cluster: a pod of the default image with `tks-env`, as the chart's hooks run it):
+   - `tksctl dlq replay` replays `tks.task.dlq`: each task is readied to run again (its done mark cleared, its attempts reset, its job reopened and finalised again when it ends) and sent to its original topic. A task of a cancelled job is skipped.
+   - `tksctl dlq replay --topic tks.persist.dlq` sends the set-aside records back to their entity topics as they were.
+   - `--reason R` replays only dead letters whose `x-reason` is `R` (tasks: `max_attempts`, `max_total_attempts`, `max_waits`, `permanent`, `undecodable`, `no_stage`; records: `undecodable`, `refused`; the others are skipped and committed), `--max N` stops after N records (1000), `--idle D` stops after D without a record (10 s).
+3. **Progress is kept** in the consumer group `tks-tt-dlq-replay` (with the topic prefix): offsets are committed after each batch is sent, so a replay that stops halfway resumes where it stopped and a second one does not replay the first's records again. The command prints what it did: records replayed, jobs reopened and records skipped.
+
+Not replaying is safe too: the account's next scheduled check reads it again, and nothing collected is lost.

@@ -19,10 +19,9 @@ linters:
     rules:
       - path: _test\.go
         linters: [gosec, noctx, bodyclose, errcheck]
-      - path: internal/(fakefb|fakett|e2e|testenv)/
+      - path: internal/(fakett|testenv)/
         linters: [gosec]
-      # CLI tools read and write files the operator names; fixtures are
-      # committed to git and must be world readable.
-      - path: (cmd/fbs-spike|cmd/tks-spike|cmd/fbctl|internal/fixtures|internal/spike)/
+      # The probe and Phase 0 tool read and write files the operator names.
+      - path: (cmd/tks-spike)/
         linters: [gosec]
         text: "G(301|302|304|306|703)"

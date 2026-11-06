@@ -139,7 +139,7 @@ func (t *Tracker) Done(ctx context.Context, job, taskID string, counters map[str
 }
 
 // Reopen counts a finished task of job as pending again, for a dead letter
-// replayed on purpose (fbctl dlq replay): the job then waits for the task,
+// replayed on purpose (tksctl dlq replay): the job then waits for the task,
 // no longer counts it as failed, and is finalised again once it finishes.
 // The job's keys get their full retention back (a finalised job's were
 // shortened). It reports false when there is nothing to reopen: the task
@@ -271,7 +271,7 @@ func (t *Tracker) InPass(ctx context.Context, job, lineage string) (bool, error)
 func seenKey(job string, postID int64) string { return key(job, "seen:"+strconv.FormatInt(postID, 10)) }
 
 // SeenComment is a top-level comment a pass read, with the reply count
-// Facebook gave for it.
+// TikTok gave for it.
 type SeenComment struct {
 	ID      int64
 	Replies int64
@@ -298,7 +298,7 @@ func (t *Tracker) AddSeen(ctx context.Context, job string, postID int64, cs []Se
 }
 
 // EndPass marks post as read to its last page by lineage's pass; reported
-// is the comment count Facebook gave on that page (0 = none).
+// is the comment count TikTok gave on that page (0 = none).
 func (t *Tracker) EndPass(ctx context.Context, job, lineage string, postID int64, postCreated time.Time, reported int64) error {
 	v, err := t.r.HGet(ctx, key(job, "passes"), lineage).Result()
 	if err != nil {
@@ -319,7 +319,7 @@ type Pass struct {
 	PostID      int64
 	PostCreated time.Time
 	Start       time.Time
-	Reported    int64 // Facebook's comment count at the end of the pass (0 = unknown)
+	Reported    int64 // TikTok's comment count at the end of the pass (0 = unknown)
 }
 
 // Passes returns the posts read in full, and every post with a seen list

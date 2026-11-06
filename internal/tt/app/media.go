@@ -16,8 +16,8 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/topics"
 )
 
-// Media download consumer groups, apart from the copied Facebook pipeline's
-// (tks-media-downloader, tks-media-janitor).
+// Media download consumer groups (the removed Facebook pipeline's were
+// tks-media-downloader and tks-media-janitor).
 const (
 	MediaDownloaderGroup = "tks-tt-media-downloader"
 	MediaLedgerGroup     = "tks-tt-media-ledger"

@@ -12,15 +12,9 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/protobuf/proto"
 
-	fbv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/fb/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/topics"
 )
-
-// Group is the persister's consumer group; the job finaliser waits for its
-// committed offsets.
-const Group = "tks-persister"
 
 // Consumer reads entity topics in batches and writes them.
 type Consumer struct {
@@ -33,8 +27,8 @@ type Consumer struct {
 }
 
 // Sink is one schema's side of the consumer: which topics it reads, the
-// message each holds, and the writer of a batch. fbs's is the Writer
-// (NewConsumer); tks's schema tt has its own (internal/tt/persist).
+// message each holds, and the writer of a batch. tks's schema tt has its
+// own (internal/tt/persist).
 type Sink interface {
 	// Topics are the entity topics, without the prefix.
 	Topics() []string
@@ -50,10 +44,6 @@ type Sink interface {
 type SinkConfig struct {
 	Group      string
 	Quarantine string
-}
-
-func NewConsumer(cfg kafka.ClientConfig, w *Writer, maxBatch int, linger time.Duration) (*Consumer, error) {
-	return NewSinkConsumer(cfg, fbSink{w}, SinkConfig{Group: Group, Quarantine: topics.PersistQuarantine}, maxBatch, linger)
 }
 
 // NewSinkConsumer reads sink's topics with group sc.Group, setting aside
@@ -236,7 +226,7 @@ func (c *Consumer) writeBisect(ctx context.Context, b *batch, es []entry) error 
 // (SQLSTATE class 22), a NOT NULL field it lacks (23502), or a value too
 // large for its index (54000). Other integrity errors can pass: a unique
 // violation between two writers racing, the check violation of a partition
-// not created yet (withPartitions).
+// not created yet, which the sink creates and retries.
 func isDataError(err error) bool {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
@@ -247,8 +237,8 @@ func isDataError(err error) bool {
 
 // setAside produces a record to the quarantine topic, as it was read, with
 // where it came from and why (never its content in the log: it holds
-// personal data). An operator replays it once the cause is fixed: fbctl
-// dlq replay --topic <prefix>fbs.persist.dlq.
+// personal data). An operator replays it once the cause is fixed: tksctl
+// dlq replay (docs/runbooks/tks-operations.md#replaying-dead-letters).
 func (c *Consumer) setAside(ctx context.Context, b *batch, a aside) error {
 	if b.aside[a.rec] {
 		return nil
@@ -281,75 +271,4 @@ func (c *Consumer) write(ctx context.Context, es []entry) error {
 		msgs[i] = e.msg
 	}
 	return c.sink.Write(ctx, msgs)
-}
-
-// fbSink is fbs's schema: the Writer on fb.*.v1.
-type fbSink struct{ w *Writer }
-
-func (fbSink) Topics() []string { return topics.Entity }
-
-func (fbSink) New(topic string) proto.Message {
-	switch topic {
-	case topics.Page:
-		return &fbv1.Page{}
-	case topics.Post:
-		return &fbv1.Post{}
-	case topics.Comment:
-		return &fbv1.Comment{}
-	case topics.Media:
-		return &fbv1.Media{}
-	}
-	return nil
-}
-
-func (fbSink) Entity(topic string) string { return entityOf(topic) }
-
-func entityOf(topic string) string {
-	switch topic {
-	case topics.Page:
-		return "page"
-	case topics.Post:
-		return "post"
-	case topics.Comment:
-		return "comment"
-	case topics.Media:
-		return "media"
-	}
-	return "unknown"
-}
-
-func (s fbSink) Write(ctx context.Context, msgs []proto.Message) error {
-	var (
-		pages    []*fbv1.Page
-		posts    []*fbv1.Post
-		comments []*fbv1.Comment
-		media    []*fbv1.Media
-	)
-	for _, m := range msgs {
-		switch m := m.(type) {
-		case *fbv1.Page:
-			pages = append(pages, m)
-		case *fbv1.Post:
-			posts = append(posts, m)
-		case *fbv1.Comment:
-			comments = append(comments, m)
-		case *fbv1.Media:
-			media = append(media, m)
-		}
-	}
-	// Order matters only for references the API joins on; posts before
-	// comments keeps post_index ahead of comment lookups.
-	if err := s.w.Pages(ctx, pages); err != nil {
-		return err
-	}
-	if err := s.w.Posts(ctx, posts); err != nil {
-		return err
-	}
-	if err := s.w.Comments(ctx, comments); err != nil {
-		return err
-	}
-	if err := s.w.Media(ctx, media); err != nil {
-		return fmt.Errorf("media: %w", err)
-	}
-	return nil
 }

@@ -14,11 +14,11 @@ import (
 	"github.com/google/uuid"
 
 	tkstaskv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tks/task/v1"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/checkpoint"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/jobs"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakett"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/redisx"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/store"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/checkpoint"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/scheduler"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/task"
