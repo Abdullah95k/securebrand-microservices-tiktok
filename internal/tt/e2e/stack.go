@@ -414,12 +414,12 @@ func (s *Stack) Wait(t *testing.T, timeout time.Duration, ids ...string) map[str
 	return out
 }
 
-// WaitPersisted waits until the persister committed every entity record
-// published so far.
+// WaitPersisted waits until the persister committed every record published
+// so far, follow links included.
 func (s *Stack) WaitPersisted(t *testing.T, ctx context.Context) {
 	t.Helper()
-	names := make([]string, len(topics.Entity))
-	for i, tp := range topics.Entity {
+	names := make([]string, len(topics.Persisted))
+	for i, tp := range topics.Persisted {
 		names[i] = s.Cfg.Kafka.TopicPrefix + tp
 	}
 	ends, err := kafka.EndOffsets(ctx, s.Producer.Client(), names...)

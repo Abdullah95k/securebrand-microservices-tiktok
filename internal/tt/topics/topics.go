@@ -82,9 +82,16 @@ var ValueTypes = map[string]string{
 	Erasure:        "securebrand.common.v1.ErasureEvent",
 }
 
-// Entity lists the public entity topics the persister consumes; the job
-// finalizer waits for the persister to catch up on exactly these.
-var Entity = []string{Account, Post, PostMetrics, Comment, Music, Media, Follow}
+// Entity lists the public entity topics a job's records go to; the job
+// finalizer waits for the persister to catch up on exactly these. Follow
+// is not among them: finalising a follow-list read needs nothing stored,
+// and a deployment whose Kafka lacks tt.follow.v1 (part D off) must not
+// hold every job back.
+var Entity = []string{Account, Post, PostMetrics, Comment, Music, Media}
+
+// Persisted lists every topic the persister consumes: the entity topics
+// and the follow links.
+var Persisted = append(append([]string{}, Entity...), Follow)
 
 // RetryTopics are consumed by the retry relay.
 var RetryTopics = []string{Retry30s, Retry5m, Retry1h}

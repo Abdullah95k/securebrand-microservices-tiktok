@@ -29,7 +29,7 @@ func NewConsumer(cfg kafka.ClientConfig, w *Writer, maxBatch int, linger time.Du
 		sharedpersist.SinkConfig{Group: Group, Quarantine: topics.PersistQuarantine}, maxBatch, linger)
 }
 
-func (Sink) Topics() []string { return topics.Entity }
+func (Sink) Topics() []string { return topics.Persisted }
 
 func (Sink) New(topic string) proto.Message {
 	switch topic {
