@@ -24,7 +24,7 @@ var tables = []string{
 	"post_metrics", "music", "comments", "people", "media", "media_acks",
 	"api_clients", "jobs", "crawl_cursors", "account_schedule", "account_registrations", "post_refresh",
 	"discovery_keywords", "account_sources", "account_labels", "account_blocks", "import_batches", "import_lines",
-	"operations", "client_params", "canary_runs", "post_status_changes", "discovery_candidates",
+	"operations", "client_params", "canary_runs", "post_status_changes", "discovery_candidates", "discovery_sightings",
 }
 
 func tablesIn(t *testing.T, db interface {
