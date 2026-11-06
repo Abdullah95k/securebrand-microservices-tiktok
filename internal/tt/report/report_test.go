@@ -41,7 +41,9 @@ func TestCheck(t *testing.T) {
 	rep := Report{Window: Window{From: time.Date(2026, 11, 7, 6, 0, 0, 0, time.UTC), To: time.Date(2026, 11, 8, 6, 0, 0, 0, time.UTC)},
 		Traffic: &bad, Verdicts: v, Projections: Project(0.00126, 1000, 10000)}
 	var b bytes.Buffer
-	rep.Write(&b)
+	if err := rep.Write(&b); err != nil {
+		t.Fatal(err)
+	}
 	out := b.String()
 	for _, want := range []string{"2026-11-07 09:00 to 2026-11-08 09:00 Iraq time", "VERDICT: STOP", "OOM kill", "   1000 accounts: $     1.26 a day"} {
 		if !strings.Contains(out, want) {

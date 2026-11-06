@@ -281,7 +281,8 @@ func (r Report) Stop() bool {
 }
 
 // Write prints the report for people, in Iraq time.
-func (r Report) Write(w io.Writer) {
+func (r Report) Write(out io.Writer) error {
+	w := &strings.Builder{}
 	f := "2006-01-02 15:04"
 	fmt.Fprintf(w, "tks report, %s to %s Iraq time (UTC+3), %s\n\n", r.Window.From.In(Iraq).Format(f), r.Window.To.In(Iraq).Format(f),
 		r.Window.Duration().Round(time.Minute))
@@ -345,6 +346,8 @@ func (r Report) Write(w io.Writer) {
 	for _, p := range r.Projections {
 		fmt.Fprintf(w, "  %7d accounts: $%9.2f a day, $%10.2f a month\n", p.Accounts, p.DayUSD, p.MonthUSD)
 	}
+	_, err := io.WriteString(out, w.String())
+	return err
 }
 
 func pctShare(share float64, n int64) string {

@@ -110,7 +110,9 @@ func runReport(ctx context.Context, cfg *config.Config, args []string) (any, err
 	if *asJSON {
 		printJSON(rep)
 	} else {
-		rep.Write(os.Stdout)
+		if err := rep.Write(os.Stdout); err != nil {
+			return nil, err
+		}
 	}
 	if *check && rep.Stop() {
 		os.Exit(exitStop)
