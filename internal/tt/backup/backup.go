@@ -273,7 +273,7 @@ func Restore(ctx context.Context, s3 *minio.Client, dsn string, o Options, key s
 	if err != nil {
 		return Dump{}, fmt.Errorf("backup: read %s: %w", d.Key, err)
 	}
-	defer obj.Close()
+	defer func() { _ = obj.Close() }()
 	cmd, err := command(ctx, bin(o.PgRestore, "pg_restore"), dsn, "--format=custom", "--no-owner", "--no-acl", "--exit-on-error", "--single-transaction")
 	if err != nil {
 		return Dump{}, err
