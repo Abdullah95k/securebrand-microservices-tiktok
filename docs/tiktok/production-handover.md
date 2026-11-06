@@ -4,7 +4,7 @@ What the platform needs to deploy tks (M18, decision D-026: tks's first real run
 
 ## 1. The commit to pin
 
-**The merge commit of M16's pull request on `main`** (production hardening; it adds the backup image and the backup job, so M18's commit is superseded). Its full SHA is in [`build-status.md`](build-status.md) (Log, M16) once the pull request is merged. Pin the full 40-character SHA, never a branch.
+**The merge commit of M16's pull request on `main`** (production hardening; it adds the backup image and the backup job, so M18's commit, `a7a5dfab763d2170d47b155487950d4c6eb0dc15`, is superseded). Its full SHA is in [`build-status.md`](build-status.md) (Log, M16) once the pull request is merged. Pin the full 40-character SHA, never a branch.
 
 ## 2. Images (the platform builds all three)
 
