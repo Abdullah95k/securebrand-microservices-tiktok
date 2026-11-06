@@ -80,6 +80,9 @@ type Event struct {
 	// by Seal.
 	Msg proto.Message
 	env *contentv1.Envelope
+	// seal sets the event id of a message without an envelope (a
+	// candidate) from its content hash.
+	seal func(hash string)
 	// edited sets the message's edited flag and time.
 	edited func(at time.Time)
 }
@@ -87,6 +90,12 @@ type Event struct {
 // Seal sets the envelope's content hash and event id: SHA-256 of
 // "<id>|<observed µs>|<content hash>", the same for a redelivered record.
 func (e *Event) Seal() {
+	if e.env == nil {
+		if e.seal != nil {
+			e.seal(hex.EncodeToString(e.Hash))
+		}
+		return
+	}
 	e.env.ContentHash = hex.EncodeToString(e.Hash)
 	sum := sha256.Sum256([]byte(e.env.Id + "|" + strconv.FormatInt(e.env.Version, 10) + "|" + e.env.ContentHash))
 	e.env.EventId = hex.EncodeToString(sum[:])
@@ -102,10 +111,13 @@ func (e *Event) Edited(at time.Time) {
 
 var deterministic = proto.MarshalOptions{Deterministic: true}
 
-// hashOf is SHA-256 over m without its envelope, after strip.
+// hashOf is SHA-256 over m without its envelope (if it has one), after
+// strip.
 func hashOf(m proto.Message, strip func(proto.Message)) []byte {
 	c := proto.Clone(m)
-	c.ProtoReflect().Clear(c.ProtoReflect().Descriptor().Fields().ByName("envelope"))
+	if fd := c.ProtoReflect().Descriptor().Fields().ByName("envelope"); fd != nil {
+		c.ProtoReflect().Clear(fd)
+	}
 	if strip != nil {
 		strip(c)
 	}
@@ -639,17 +651,8 @@ func Media(md *ttv1.Media) []*Event {
 	if md.MediaId == "" || t == contentv1.MediaType_MEDIA_TYPE_UNSPECIFIED {
 		return nil
 	}
-	var owner, ownerKind string
-	switch {
-	case md.CommentId != nil && *md.CommentId != 0:
-		owner, ownerKind = idOf("comment", *md.CommentId), "comment"
-	case md.PostId != nil && *md.PostId != 0:
-		owner, ownerKind = idOf("post", *md.PostId), "post"
-	case md.MusicId != nil && *md.MusicId != 0:
-		owner, ownerKind = idOf("audio", *md.MusicId), "audio"
-	case md.UserId != 0:
-		owner, ownerKind = idOf("account", md.UserId), "account"
-	default:
+	owner, ownerKind := mediaOwner(md.UserId, md.PostId, md.CommentId, md.MusicId)
+	if owner == "" {
 		return nil
 	}
 	at := observedAt(md.Obs)

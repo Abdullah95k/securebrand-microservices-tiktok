@@ -5,7 +5,7 @@ tks always publishes media **metadata** (`tt.media.v1`: covers, photos, video re
 ## What happens when it is on
 
 1. The crawler queues a download task (`tks.task.media`) for each post's cover, one video rendition (`sd`, or `hd` with the job's video policy) and each photo of a photo post; for comment images also when `limits.include_comment_media` is on. A video's task carries the `tt_chain_token` cookie and user agent of the identity that read its link: TikTok's video hosts refuse a video without that cookie (T18).
-2. `tks-media-downloader` fetches the file over its own egress (never the crawl proxies), sending the cookie only to the hosts of `tt.media.cookie_domains` (`tiktok.com` and its subdomains, as a browser does), stores it in the `tks-media` bucket under `media/<2 hex>/<media id>.<ext>`, marks the row `stored` and then `ready`, and announces it on **`tt.media.ready.v1`** (`common.v1.MediaReady`, `platform: TIKTOK`, **no `delete_after`**).
+2. `tks-media-downloader` fetches the file over its own egress (never the crawl proxies), sending the cookie only to the hosts of `tt.media.cookie_domains` (`tiktok.com` and its subdomains, as a browser does), stores it in the `tks-media` bucket under `media/<2 hex>/<media id>.<ext>`, marks the row `stored` and then `ready`, and announces it on **`tt.media.ready.v1`** (`common.v1.MediaReady`, `platform: TIKTOK`, **no `delete_after`**) and, with the shared contract on, on `content.media.ready.v1` with the deleting service's deadline (below).
 3. A file handed over once is never downloaded again, however often its post is read.
 
 ## Who deletes the files
@@ -16,6 +16,16 @@ The contract for the consuming and deleting services:
 - **Read** `tt.media.ready.v1`; the object is at `object.bucket`/`object.key` (a presigned link in `presigned_url` when `media.presign` is on).
 - **Acknowledge** on `tt.media.processed.v1` (`common.v1.MediaProcessed`, `consumer` set to the service's name): `PROCESSED` or `FAILED_PERMANENT` is recorded in `tt.media_acks` (and `processed_at`); `FAILED_RETRYABLE` makes tks announce the file again (`attempt` 2, 3, …) up to `media.max_retryable_failures` times, then nothing more.
 - **After deleting a file**, publish `common.v1.MediaDeleted` on **`tt.media.deleted.v1`** (key: the media id). tks marks the row `deleted` with `deleted_at`, so the API no longer names an object that is gone; the file is not downloaded again.
+
+## The shared contract's hand-off (M15b)
+
+With `tt.content.enabled` on, every announcement also goes on **`content.media.ready.v1`** (`securebrand.media.v1.MediaReady`, the contract's; [ADR 0007 §25](../tiktok/adr/0007-tks-data-model-and-contracts.md#25-settled-in-m15b-the-shared-contracts-media-hand-off-coverage-and-candidates)), in the same batch as tks's own:
+- `media_id` is `tt:media:<uuid>`; `owner_id` the post, comment, sound or account; `account_id` the account; `object.sha256` in hex.
+- **`delete_after`** = the time the file was stored + `tt.content.media.delete_after` (**72 h** by default; at least 24 h, or tks refuses to start). The same deadline on every announcement of a file. It is the **deleting service's** deadline: tks still deletes nothing.
+- **`required_consumers`** = `tt.content.media.required_consumers` (`[sb-analysis]` by default; names from the contract's registry).
+- `attempt` 1, then 2, 3, 4 after `FAILED_RETRYABLE` acknowledgements (`media.max_retryable_failures: 3`, the contract's limit).
+
+`tks-media-downloader`'s ledger then also reads **`content.media.processed.v1`** and **`content.media.deleted.v1`** (the contract's `MediaProcessed` and `MediaDeleted`, `media_id` `tt:media:<uuid>`), and records them as it records tks's own topics: an acknowledgement in `tt.media_acks` (`SKIPPED` is recorded as `skipped`), a retryable failure announced again on both topics, a deletion marked on the row. `tks_content_events_total{topic="content.media.ready.v1"}` counts the announcements (`sent`, `invalid`).
 
 ## Turning it on
 

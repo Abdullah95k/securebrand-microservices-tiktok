@@ -74,6 +74,12 @@ Every topic tks produces or consumes is in the platform's list (`configs/tt/topi
 
 **The shared contract's topics (M15a).** tks's persister can publish the contract's events on `content.account.v1`, `content.account_snapshot.v1`, `content.post.v1`, `content.comment.v1`, `content.metrics.v1`, `content.media.v1` and `content.audio.v1` (user `tks-kafka` is already allowed `content.*`). They are shared with the other collectors, so tks does not create them and they are not in its list. It is **off** (`tt.content.enabled: false` in `values-production.yaml`): once the platform has made these topics, set it to `true` (or `TKS_TT__CONTENT__ENABLED=true`) and restart the persister. With it on and a topic missing, the persister stops writing until the topic exists (nothing is lost; it retries).
 
+**The rest of the contract (M15b)** goes on with the same switch, so the platform makes these **before** turning it on:
+- `content.media.ready.v1` (tks-media-downloader writes), `content.media.processed.v1` and `content.media.deleted.v1` (its ledger reads them, group `tks-tt-media-ledger`);
+- **`collection.coverage.v1`** (tks-scheduler: one per finished job) and **`discovery.candidate.v1`** (tks-scheduler: found accounts and their outcomes). These two are **not under `content.*`**: user `tks-kafka` needs write on them too.
+
+With the switch on and `collection.coverage.v1` missing or refused, the finalizer cannot send a job's events and finalises nothing until it can (the job's `tt.job.v1` goes in the same batch; nothing is lost: the jobs wait to be finalised, and the finalizer logs `job failed to finalise`). The media deadline is `tt.content.media.delete_after` (72 h by default, at least 24 h) and the consumers that must acknowledge a file `tt.content.media.required_consumers` (`[sb-analysis]`); both are the owner's to change.
+
 Pod maximums are at most the partitions of the topics each component reads: 3 for the crawlers (account, post, thread), the persister and the media downloader. When the platform adds partitions, raise `components.<name>.autoscale.max` with them.
 
 ## 7. Storage

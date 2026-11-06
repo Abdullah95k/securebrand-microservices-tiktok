@@ -21,6 +21,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/jobs"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/content"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/emit"
 	ttpersist "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/persist"
@@ -46,7 +47,11 @@ type Finalizer struct {
 	// are stored (docs/tiktok/discovery-plan.md §4); nil leaves entry jobs
 	// undecided (the discovery leader's Recover queues them again).
 	Entry func(ctx context.Context, job uuid.UUID, final string, counters map[string]int64) error
-	Now   func() time.Time
+	// Content, when set, publishes the shared contract's coverage (M15b):
+	// each read post's Post.coverage, through its gate, and the job's
+	// JobCoverage on collection.coverage.v1 beside tt.job.v1.
+	Content *content.Emitter
+	Now     func() time.Time
 
 	pending []finalBatch
 	held    map[string]bool // jobs in pending
@@ -199,9 +204,21 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 		st.Counters["comments_deleted"] += deleted
 	}
 	laneName := topics.LaneName(tkstaskv1.Lane(lane))
-	comp, err := f.coverage(ctx, posts, laneName)
+	comp, covered, err := f.coverage(ctx, posts, laneName)
 	if err != nil {
 		return err
+	}
+	if f.Content != nil {
+		evs := make([]*content.Event, 0, len(covered))
+		for _, c := range covered {
+			c.JobID = id
+			if e := content.PostCoverage(c); e != nil {
+				evs = append(evs, e)
+			}
+		}
+		if err := f.Content.Send(ctx, evs); err != nil {
+			return fmt.Errorf("post coverage: %w", err)
+		}
 	}
 	final := Status(status == "cancelling", st.Counters, comp)
 	// The account as stored now that its records are written: its user id
@@ -232,6 +249,11 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 	b := f.Producer.NewBatch()
 	if err := b.AddProto(ctx, topics.Job, id, ev); err != nil {
 		return err
+	}
+	if f.Content != nil {
+		if err := addCoverage(ctx, b, f.Content, ev, mode); err != nil {
+			return err
+		}
 	}
 	if err := b.Wait(ctx); err != nil {
 		return err
@@ -480,10 +502,13 @@ func (f *Finalizer) missing(ctx context.Context, job string, p jobs.Pass) ([]*tt
 }
 
 // coverage writes each read post's collected counts, completeness and
-// comments state, and returns the job's summary. Posts whose comments the
+// comments state, and returns the job's summary and each post's coverage
+// as written (for the contract's Post.coverage). Posts whose comments the
 // job did not read (none, or not due) are left as they are.
-func (f *Finalizer) coverage(ctx context.Context, posts []jobs.PostState, lane string) (Completeness, error) {
+func (f *Finalizer) coverage(ctx context.Context, posts []jobs.PostState, lane string) (Completeness, []content.PostComments, error) {
 	var c Completeness
+	var out []content.PostComments
+	failed := map[int64]bool{}
 	var ids []int64
 	var created []time.Time
 	var states []string
@@ -501,6 +526,7 @@ func (f *Finalizer) coverage(ctx context.Context, posts []jobs.PostState, lane s
 			// whole (the post's incomplete mark).
 			c.PostsFailed++
 			state = "partial"
+			failed[p.PostID] = true
 		default:
 			continue
 		}
@@ -511,8 +537,9 @@ func (f *Finalizer) coverage(ctx context.Context, posts []jobs.PostState, lane s
 	c.Posts = int64(len(ids))
 	if len(ids) == 0 {
 		c.MedianRatio, c.MinRatio = 1, 1
-		return c, nil
+		return c, nil, nil
 	}
+	synced := f.now().UTC()
 	rows, err := f.DB.Query(ctx, `
 		WITH t AS (
 			SELECT unnest($1::bigint[]) AS post_id, unnest($2::timestamptz[]) AS created, unnest($3::text[]) AS state
@@ -529,18 +556,28 @@ func (f *Finalizer) coverage(ctx context.Context, posts []jobs.PostState, lane s
 				ELSE least(1.0, (counts.top + counts.replies)::real / p.comment_count) END,
 			comments_state = counts.state, comments_synced_at = $4
 		FROM counts WHERE p.created_at = counts.created AND p.post_id = counts.post_id
-		RETURNING coalesce(p.comment_count, 0), counts.top + counts.replies, p.completeness`, ids, created, states, f.now())
+		RETURNING coalesce(p.comment_count, 0), counts.top + counts.replies, p.completeness, p.post_id, p.user_id, counts.state,
+			coalesce(p.comments_disabled, false), counts.top, counts.replies`, ids, created, states, synced)
 	if err != nil {
-		return c, fmt.Errorf("coverage: %w", err)
+		return c, nil, fmt.Errorf("coverage: %w", err)
 	}
 	var ratios []float64
 	for rows.Next() {
-		var reported, collected int64
+		var reported, collected, top, replies, postID, userID int64
 		var ratio float32
-		if err := rows.Scan(&reported, &collected, &ratio); err != nil {
+		var state string
+		var disabled bool
+		if err := rows.Scan(&reported, &collected, &ratio, &postID, &userID, &state, &disabled, &top, &replies); err != nil {
 			rows.Close()
-			return c, err
+			return c, nil, err
 		}
+		pc := content.PostComments{PostID: postID, UserID: userID, State: state, CommentsDisabled: disabled, Reported: reported,
+			Collected: top, RepliesCollected: replies, Completeness: float64(ratio), SyncedAt: synced}
+		if failed[postID] {
+			// Not read to its end: stopped by an error, not at the cap.
+			pc.State, pc.CommentsReadError = "truncated", true
+		}
+		out = append(out, pc)
 		c.CommentsReported += reported
 		c.CommentsCollected += collected
 		ratios = append(ratios, float64(ratio))
@@ -548,14 +585,33 @@ func (f *Finalizer) coverage(ctx context.Context, posts []jobs.PostState, lane s
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return c, err
+		return c, nil, err
 	}
 	if len(ratios) > 0 {
 		sort.Float64s(ratios)
 		c.MinRatio = math.Round(ratios[0]*1000) / 1000
 		c.MedianRatio = math.Round(ratios[len(ratios)/2]*1000) / 1000
 	}
-	return c, nil
+	return c, out, nil
+}
+
+// addCoverage puts the job's JobCoverage on collection.coverage.v1 in b,
+// beside its tt.job.v1 event; one that fails tks's check is counted and
+// left out.
+func addCoverage(ctx context.Context, b *kafka.Batch, e *content.Emitter, ev *commonv1.JobEvent, mode string) error {
+	m := content.JobCoverage(ev, mode)
+	if err := content.Check(m, e.Options); err != nil {
+		metrics.ContentEvents.WithLabelValues(content.TopicCoverage, "invalid").Inc()
+		slog.Warn("coverage: event breaks the contract, not sent", "job", ev.JobId, "err", err)
+		return nil
+	}
+	rec, err := content.Record(e.Producer, content.TopicCoverage, ev.JobId, m)
+	if err != nil {
+		return err
+	}
+	b.Add(ctx, rec)
+	metrics.ContentEvents.WithLabelValues(content.TopicCoverage, "sent").Inc()
+	return nil
 }
 
 func jobStatus(s string) commonv1.JobStatus {

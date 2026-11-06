@@ -44,6 +44,13 @@ tt:
   content:
     enabled: false
     production: false
+    # The media hand-off on content.media.ready.v1 (M15b). tks deletes
+    # nothing (D5): the deleting service removes a file once every
+    # required consumer acknowledged it, or at delete_after (from when it
+    # was stored; at least 24h).
+    media:
+      delete_after: 72h
+      required_consumers: [sb-analysis]
   proxy:
     tiers: []
     routing:
