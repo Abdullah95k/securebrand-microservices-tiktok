@@ -133,7 +133,7 @@ func (s *AccountStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 		return retry(t, st.Cursor, "30s", "watermark: "+err.Error(), c)
 	}
 	q, _ := d.Client.Registry.Get(listQuery)
-	src := emit.Source{JobID: t.JobId, Query: listQuery, Variant: q.DocID, ParserVersion: parse.Version, Mode: w.mode}
+	src := emit.Source{JobID: t.JobId, Query: listQuery, Variant: q.DocID, ParserVersion: parse.Version, Mode: w.mode, Region: regionOf(id)}
 	popt := parse.Options{AuthorKey: d.Emit.Key, Query: listQuery, Variant: q.DocID}
 	finished := false
 	softRetried := false
@@ -373,7 +373,7 @@ func (s *AccountStage) profile(ctx context.Context, t *tkstaskv1.Task, sc *tksta
 	a := res.Account
 	sc.UserId, sc.SecUid, sc.Username = a.UserId, a.SecUid, a.Username
 	b := d.Producer.NewBatch()
-	src := emit.Source{JobID: t.JobId, Query: "profile_page", ParserVersion: parse.Version, Mode: t.Mode}
+	src := emit.Source{JobID: t.JobId, Query: "profile_page", ParserVersion: parse.Version, Mode: t.Mode, Region: regionOf(id)}
 	if err := d.Emit.Account(ctx, b, src, a); err != nil {
 		return retry(t, "", "30s", err.Error(), c), true
 	}

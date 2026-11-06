@@ -122,6 +122,7 @@ var (
 
 	// Persistence and jobs.
 	PersistRows        = counterVec("persist_rows_total", "Rows written by the persister.", "entity", "op")
+	ContentEvents      = counterVec("content_events_total", "The shared contract's content.* events by topic and result: sent; unchanged (the gate held it back); invalid (it broke the contract's conformance checks and was not sent).", "topic", "result")
 	PersistQuarantined = counterVec("persist_quarantined_total", "Records the persister set aside in its quarantine topic: undecodable, or refused by Postgres.", "entity", "reason")
 	CommentChanges     = counterVec("comment_changes_total", "Stored comments edited, marked deleted or seen again after a deletion, by kind (edited, deleted, restored).", "kind")
 	PostStatusChanges  = counterVec("post_status_changes_total", "tks stored posts whose status changed, by new status (unavailable, visible, private).", "status")

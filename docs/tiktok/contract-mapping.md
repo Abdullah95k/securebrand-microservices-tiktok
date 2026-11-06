@@ -26,6 +26,8 @@ tks's review of the shared contract's draft v0.1 (`Abdullah95k/securebrand-contr
 
 **Not part of M15:** `tt.media.*` topics are retired later, and only with the owner's approval at the time (standing instruction 1).
 
+**Built in M15a** (2026-11-06; [ADR 0007 §24](adr/0007-tks-data-model-and-contracts.md#24-settled-in-m15a-the-shared-contracts-content-events)), pinned to contract **v1.2.0**: the content events (account, account snapshot, post, comment, metrics, audio, media) from the persister through a change gate, `exit_country` on every `tt` record, conformance in the fakett e2e. Where it differs from this note: a TikTok reply to a reply has **depth 2** (the contract's conformance requires a depth-1 reply's parent to be its root); `scope` stays unset (the registry's decision); a list's author is not mapped (only the page's account); `relevance`, `Post.coverage`, `raw_ref` and comment authors as accounts are not mapped yet. **M15b** does the media hand-off (`content.media.ready/processed/deleted`, `delete_after`), `collection.coverage.v1` and `discovery.candidate.v1`.
+
 ---
 
 ## The review (REQ-014)

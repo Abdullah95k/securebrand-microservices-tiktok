@@ -3,6 +3,7 @@ module github.com/abdullah95k/securebrand-microservices-tiktok
 go 1.27.2
 
 require (
+	github.com/abdullah95k/securebrand-contracts v1.2.0
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/bogdanfinn/fhttp v0.7.2
 	github.com/bogdanfinn/tls-client v1.17.1

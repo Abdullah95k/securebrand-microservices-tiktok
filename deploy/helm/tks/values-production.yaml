@@ -58,6 +58,11 @@ config:
     # tks/keep/ (all would also keep every other answer under tks/30d/).
     capture_raw: sample
     capture_raw_sample: 0.01
+    # The shared contract's content.* events (M15a): on once the platform
+    # has made the content.* topics (hand-over §6); production's checks.
+    content:
+      enabled: false
+      production: true
     cost:
       # The owner's prices and budget (2026-11-05), for tks_cost_* and
       # tksctl report.

@@ -47,6 +47,10 @@ type Source struct {
 	Query, Variant string
 	ParserVersion  uint32
 	Mode           commonv1.CrawlMode
+	// Region is where TikTok placed the reader: the region its page
+	// reported to the identity (Observation.exit_country; the shared
+	// contract's provenance.exit_country). Empty when unknown.
+	Region string
 }
 
 // Emitter publishes records.
@@ -83,7 +87,7 @@ func (e *Emitter) stamp(src Source, entityKey string, msg proto.Message, set fun
 	set(&commonv1.Observation{
 		EventId: hex.EncodeToString(ev[:]), ObservedAt: timestamppb.New(e.now()), JobIds: jobs, QueryName: src.Query,
 		DocId: src.Variant, ParserVersion: src.ParserVersion, ContentHash: h[:], Mode: src.Mode,
-		Platform: commonv1.Platform_PLATFORM_TIKTOK,
+		Platform: commonv1.Platform_PLATFORM_TIKTOK, ExitCountry: src.Region,
 	})
 }
 
