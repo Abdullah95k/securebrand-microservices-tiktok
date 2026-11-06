@@ -381,6 +381,24 @@ From the kickoff research (public sources only; details and citations in [`metho
 
 ## What the owner needs to do
 
+**tks is onboarded on the platform** (the master, 2026-11-06):
+- **What's set up:**
+  - Argo CD app `svc-tks`, pinned to `3bca5c0b379c62904f64ad03dac736856cc80c98`;
+  - the three images, built by the platform;
+  - `values-production.yaml`, with monitoring, alerts and dashboards on;
+  - the five roles and `S3_BUCKET_BACKUPS`;
+  - every topic, including `tt.subtitle.v1` and the contract's;
+  - the author key, generated once by the platform.
+- **What stays off for the first deploy,** until the master says:
+  - `tt.subtitles.include` (after the first healthy day);
+  - `tt.content.enabled` (after the canary checks).
+- **What the platform still needs from you:**
+  1. **Your canary accounts,** as the GitHub secret `TKS_CANARY_ACCOUNTS` (3 or more public accounts, comma separated). The master is asking you.
+  2. **Your proxies** (the Secret `proxies`), from the IPs you buy, with each tier's `country`.
+  3. **Whether backups older than 30 days are deleted** (`tks/postgres/`). The master is asking you; until then every dump is kept.
+- **Then the first run:** 50 to 100 accounts, by [`tks-production.md`](../runbooks/tks-production.md).
+- **The first-run report's Prometheus:** `http://prometheus-operated.monitoring.svc:9090`.
+
 **Production (M16, #61):** the hand-over now pins **`3bca5c0b379c62904f64ad03dac736856cc80c98`** (M16's merge commit) and asks the master for three more things: build the third image (`tks-backup`, target `backup`), add `S3_BUCKET_BACKUPS` to `platform-credentials` with an expiry rule for `tks/postgres/`, and (recommended) give the addresses for the egress policy ([`production-handover.md`](production-handover.md) §2, §9, §10). Tick the go-live checklist ([`tks-production.md`](../runbooks/tks-production.md#go-live-checklist)) before the first accounts.
 
 **Production (M18, #59):** send the master [`production-handover.md`](production-handover.md) (or let the M6c session relay it): the commit to pin (`a7a5dfab763d2170d47b155487950d4c6eb0dc15`), the two images, the chart and values file, the Helm keys, **five database roles to create** (`tks_api`, `tks_reader`, `tks_persister`, `tks_scheduler`, `tks_crawler`, delivered as `POSTGRES_<ROLE>_USER` and `_PASSWORD` in `platform-credentials`), a Secret `tks-env` (the author key and 3 or more canary accounts) and the Prometheus URL. No topic is missing. Once deployed, the canary of 50 to 100 accounts and the ramp follow [`tks-production.md`](../runbooks/tks-production.md): a report every few hours the first day, `tksctl stop` on any STOP.
@@ -412,6 +430,7 @@ From the kickoff research (public sources only; details and citations in [`metho
 
 ## Log
 
+- **2026-11-06 (M6c build session):** the hand-over went to the master; the master onboarded tks on the platform (Argo CD `svc-tks`, pinned to M16's `3bca5c0`, the three images, five roles, every topic). Subtitles and the contract stay off until the master says. The owner gives the canary accounts, the proxies, and the backup-expiry choice.
 - **2026-11-06 (build session, M12):** built discovery part C ([#74](https://github.com/Abdullah95k/securebrand-microservices-tiktok/pull/74); ADR 0007 §27; T43), the last milestone in the queue. From C6 run 2's findings and the fakett shapes (no raw bundle needed); fbs's keyword discovery read at fbs main `f87d6ae` (public; one keyword a search every `discovery.interval`, 1 h, with `last_queued_at` and `last_searched_at`, which tks stamps too) and followed, nothing copied (`UPSTREAM.md`); igs not needed. Search built off until an Iraq-placed tier exists (T37). Tested locally against Postgres 18, Redpanda v24.2.7 and Valkey 8 in Docker (`mirror.gcr.io`): `go vet ./...`, `make test-integration` over every package (the unit, integration and e2e suites), `golangci-lint` v2.15.0 built with Go 1.27 (0 issues), `buf generate` (no diff after), the doc link check. No TikTok request. Dependabot PRs #62–#64, #66, #67 left as they are. No next session started: the queue is empty.
 - **2026-11-06 (build session, M17):** video subtitles, photo titles and the creator's AI text ([#72](https://github.com/Abdullah95k/securebrand-microservices-tiktok/pull/72); ADR 0007 §26; T42). Built: `Post.title`, `Post.subtitles`, `PostLabels.ai_description` and `PostSubtitles` on the new topic `tt.subtitle.v1`; the account stage and entry check fetch new tracks' WebVTT files with the reading identity; migration `00014` (`posts.title`, `post_subtitles`); `GET /v1/posts/{post}/subtitles`; the contract's `title`, `labels.ai_label_text`, `video.caption_languages` and `captions` (full post events, and partial caption events on a gate stream of their own); `tt.subtitles` (on; off in `values-production.yaml` until the platform makes the topic); metric `tks_subtitle_fetches_total`; fakett serves tracks, titles and AI text. Tested locally against Postgres 18, Redpanda v24.2.7 and Valkey 8 in Docker (`mirror.gcr.io`): `go vet ./...`, `go test ./...`, `golangci-lint` v2.15.0 (0 issues after two fixes), `buf lint`, `buf generate` (no diff), `make test-integration` over every package: the e2e package passed (281 s, with `TestStoreEqualsGroundTruth` checking subtitles, titles, AI text and caption events against the ground truth); the stage and scheduler packages failed in that run only because Redpanda refused new topics under the full parallel load (`INVALID_PARTITIONS`), and passed rerun on their own, as did the two schema-registry tests after `SubtitleInfo` moved to `tt/v1/common.proto` (no extra registry subject). CI green on the PR (test, lint, integration with the e2e suite, schema-compat, deploy with the chart smoke run, guard). No TikTok request. Merged as `3532c640b50505018e576b832464d5de47b69c7e`. Started the M12 build session: https://claude.ai/code/session_01E488KE2VbGTztV2PptqckP. Next: M12, the last milestone in the queue.
 
