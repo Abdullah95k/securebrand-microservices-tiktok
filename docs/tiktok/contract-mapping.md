@@ -28,6 +28,8 @@ tks's review of the shared contract's draft v0.1 (`Abdullah95k/securebrand-contr
 
 **Built in M15a** (2026-11-06; [ADR 0007 §24](adr/0007-tks-data-model-and-contracts.md#24-settled-in-m15a-the-shared-contracts-content-events)), pinned to contract **v1.2.0**: the content events (account, account snapshot, post, comment, metrics, audio, media) from the persister through a change gate, `exit_country` on every `tt` record, conformance in the fakett e2e. Where it differs from this note: a TikTok reply to a reply has **depth 2** (the contract's conformance requires a depth-1 reply's parent to be its root); `scope` stays unset (the registry's decision); a list's author is not mapped (only the page's account); `relevance`, `Post.coverage`, `raw_ref` and comment authors as accounts are not mapped yet. **M15b** does the media hand-off (`content.media.ready/processed/deleted`, `delete_after`), `collection.coverage.v1` and `discovery.candidate.v1`.
 
+**Built in M15b** (2026-11-06; [ADR 0007 §25](adr/0007-tks-data-model-and-contracts.md#25-settled-in-m15b-the-shared-contracts-media-hand-off-coverage-and-candidates)): `content.media.ready.v1` beside `tt.media.ready.v1` (`delete_after` 72 h from storing by default, at least 24 h; `required_consumers` `[sb-analysis]`), the ledger reading `content.media.processed.v1` and `content.media.deleted.v1`, `collection.coverage.v1` per finished job, `Post.coverage` as partial post events from the finalizer, and `discovery.candidate.v1` from the candidates table (`blocked` → `OUTCOME_EXCLUDED`). Comment authors are not sent as `NOT_MONITORED` accounts (the contract does not ask for them).
+
 ---
 
 ## The review (REQ-014)

@@ -242,7 +242,27 @@ type Content struct {
 	// Production applies the contract's production checks to every event
 	// before it leaves (reserved platforms, test-only values).
 	Production bool `koanf:"production"`
+	// Media is the contract's media hand-off (M15b): content.media.ready.v1
+	// beside tt.media.ready.v1.
+	Media ContentMedia `koanf:"media"`
 }
+
+// ContentMedia is tt.content.media: what every content.media.ready.v1
+// event says about its file's life. tks deletes nothing (D5): another
+// service deletes the file when every required consumer has acknowledged
+// it, or at delete_after, whichever is first.
+type ContentMedia struct {
+	// DeleteAfter is the file's deadline after it is stored: 72 hours by
+	// default, at least 24 (the contract's minimum).
+	DeleteAfter time.Duration `koanf:"delete_after"`
+	// RequiredConsumers must acknowledge a file before it may be deleted:
+	// names from the contract's registry (registry/platforms.yaml).
+	RequiredConsumers []string `koanf:"required_consumers"`
+}
+
+// MinMediaLifetime is the contract's shortest delete_after after a file
+// is stored.
+const MinMediaLifetime = 24 * time.Hour
 
 type TT struct {
 	BaseURL string `koanf:"base_url"`
@@ -1182,6 +1202,12 @@ func (t TT) validate() []error {
 	}
 	if t.Media.Include && len(t.Media.CookieDomains) == 0 {
 		errs = append(errs, errors.New("tt.media.cookie_domains must name the video hosts' domain when tt.media.include is on"))
+	}
+	if t.Content.Media.DeleteAfter < MinMediaLifetime {
+		errs = append(errs, fmt.Errorf("tt.content.media.delete_after %s must be at least 24h (the contract's minimum)", t.Content.Media.DeleteAfter))
+	}
+	if len(t.Content.Media.RequiredConsumers) == 0 || slices.Contains(t.Content.Media.RequiredConsumers, "") {
+		errs = append(errs, errors.New("tt.content.media.required_consumers must name at least one consumer (sb-analysis)"))
 	}
 	r := t.Retention
 	if r.CommentsDays < 0 || r.MetricsDays < 0 || r.AuthorsInactiveDays < 0 || r.JobsDays < 0 || r.MediaRowsDays < 0 || r.RawPayloadDays < 0 {

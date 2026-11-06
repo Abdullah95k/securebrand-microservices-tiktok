@@ -43,6 +43,7 @@ import (
 	ttv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/content"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/topics"
 )
 
@@ -64,7 +65,10 @@ type Downloader struct {
 	// production platform).
 	Prefix     string
 	PresignTTL time.Duration
-	Now        func() time.Time
+	// Contract, when set, also announces each file on the shared
+	// contract's content.media.ready.v1 (M15b).
+	Contract *Contract
+	Now      func() time.Time
 }
 
 // NewHTTPClient returns a client for TikTok's media hosts: direct egress,
@@ -250,8 +254,9 @@ func (d *Downloader) Handle(ctx context.Context, rec *kgo.Record) error {
 
 // announce publishes the media's ready event, then marks it ready: a failure
 // in between leaves it stored, and a redelivery announces it again (the
-// event id is stable, so consumers see it once). The event has no
-// delete_after: tks keeps the file until the deleting service removes it.
+// event id is stable, so consumers see it once). tks's own event has no
+// delete_after; the contract's (Contract) carries the deleting service's
+// deadline. tks itself keeps the file until that service removes it.
 func (d *Downloader) announce(ctx context.Context, t *tkstaskv1.Task, m *ttv1.Media, kind string, obj *commonv1.S3Object,
 	storedAt, start time.Time) error {
 	ready := Ready(m.MediaId, 1, obj)
@@ -270,6 +275,17 @@ func (d *Downloader) announce(ctx context.Context, t *tkstaskv1.Task, m *ttv1.Me
 	b := d.Producer.NewBatch()
 	if err := b.AddProto(ctx, topics.MediaReady, m.MediaId, ready); err != nil {
 		return err
+	}
+	if d.Contract != nil {
+		f := content.StoredFile{MediaID: m.MediaId, Kind: m.Kind, Variant: m.Variant, UserID: m.UserId, PostID: m.PostId,
+			CommentID: m.CommentId, MusicID: m.MusicId, Width: m.Width, Height: m.Height, DurationMs: m.DurationMs,
+			Bucket: obj.Bucket, Key: obj.Key, ContentType: obj.ContentType, Size: obj.Size, SHA256: obj.Sha256, StoredAt: storedAt}
+		if t.JobId != "" {
+			f.JobIDs = []string{t.JobId}
+		}
+		if err := d.Contract.add(ctx, b, f, 1); err != nil {
+			return err
+		}
 	}
 	if err := b.Wait(ctx); err != nil {
 		return err

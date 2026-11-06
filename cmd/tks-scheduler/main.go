@@ -13,6 +13,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/abdullah95k/securebrand-contracts/conformance"
 	"github.com/twmb/franz-go/pkg/kadm"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/app"
@@ -26,6 +27,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/run"
 	sharedsched "github.com/abdullah95k/securebrand-microservices-tiktok/internal/scheduler"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/ratelimit"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/content"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/cost"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/discovery"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
@@ -83,6 +85,13 @@ func runScheduler(ctx context.Context, cfg *config.Config) error {
 	maint := &scheduler.Maintenance{DB: db, Cfg: cfg}
 	disc := &scheduler.Discovery{D: &discovery.Discoverer{DB: db, Cfg: cfg}, Dispatch: disp}
 	fin.Entry = disc.Entry
+	var cands *content.Candidates
+	if cfg.TT.Content.Enabled {
+		// The shared contract's coverage and candidates (M15b).
+		ce := &content.Emitter{DB: db, Producer: producer, Options: conformance.Options{Production: cfg.TT.Content.Production}}
+		fin.Content, reaper.Content = ce, ce
+		cands = &content.Candidates{E: ce}
+	}
 
 	ops := httpserver.NewOps(cfg.HTTP.OpsAddr)
 	ops.AddCheck("postgres", db.Ping)
@@ -107,6 +116,16 @@ func runScheduler(ctx context.Context, cfg *config.Config) error {
 		func(ctx context.Context) error {
 			return sharedsched.Every(ctx, "discovery", cfg.Scheduler.PlannerInterval, disc.Tick)
 		},
+	}
+	if cands != nil {
+		// Discovery's candidates on discovery.candidate.v1, found and
+		// decided; idle while nothing changes.
+		loops = append(loops, func(ctx context.Context) error {
+			return sharedsched.Every(ctx, "candidates", time.Minute, func(ctx context.Context) error {
+				_, err := cands.Tick(ctx)
+				return err
+			})
+		})
 	}
 	// A5: the last 24 hours priced (tks_cost_per_account_usd); over the
 	// owner's budget per account, backfills pause and checks go on.
