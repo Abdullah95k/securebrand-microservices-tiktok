@@ -28,6 +28,9 @@ type sighting struct {
 	postID    *int64
 	commentID *int64
 	at        time.Time
+	// What a list page showed of the person (part D).
+	private *bool
+	videos  *int64
 }
 
 // on reports whether the persister records a part B source.
@@ -143,17 +146,20 @@ func recordSightings(ctx context.Context, tx pgx.Tx, ss []sighting, got sighting
 	sec, user := make([]*string, 0, n), make([]*string, 0, n)
 	post, comment := make([]*int64, 0, n), make([]*int64, 0, n)
 	at := make([]time.Time, 0, n)
+	private, videos := make([]*bool, 0, n), make([]*int64, 0, n)
 	for _, s := range ss {
 		how, in, via, uid = append(how, s.how), append(in, s.in), append(via, s.via), append(uid, s.userID)
 		sec, user = append(sec, nilIfEmpty(s.secUID)), append(user, nilIfEmpty(s.username))
 		post, comment, at = append(post, s.postID), append(comment, s.commentID), append(at, s.at)
+		private, videos = append(private, s.private), append(videos, s.videos)
 	}
 	rows, err := tx.Query(ctx, `INSERT INTO discovery_sightings (how, found_in, via_user_id, user_id, sec_uid, username, post_id,
-			comment_id, seen_at)
-		SELECT d.how, d.found_in, d.via, d.user_id, d.sec_uid, d.username, d.post_id, d.comment_id, d.at
+			comment_id, seen_at, private, videos)
+		SELECT d.how, d.found_in, d.via, d.user_id, d.sec_uid, d.username, d.post_id, d.comment_id, d.at, d.private, d.videos
 		FROM unnest($1::text[], $2::text[], $3::bigint[], $4::bigint[], $5::text[], $6::text[], $7::bigint[], $8::bigint[],
-			$9::timestamptz[]) AS d(how, found_in, via, user_id, sec_uid, username, post_id, comment_id, at)
-		WHERE `+monitored+` RETURNING how`, how, in, via, uid, sec, user, post, comment, at)
+			$9::timestamptz[], $10::boolean[], $11::bigint[])
+			AS d(how, found_in, via, user_id, sec_uid, username, post_id, comment_id, at, private, videos)
+		WHERE `+monitored+` RETURNING how`, how, in, via, uid, sec, user, post, comment, at, private, videos)
 	if err != nil {
 		return err
 	}

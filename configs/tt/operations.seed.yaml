@@ -74,6 +74,22 @@ queries:
     priority: 10
     variables:
       itemId: "{{item_id}}"
+  # Following (scene 21) and followers (scene 67): served logged out and
+  # unsigned from US exits (C6 run 1, 2026-11-05: followers 17 of 17
+  # calls); a following list the profile hides answers 10222. minCursor
+  # pages back (T36); discovery part D (ADR 0007 §23).
+  - name: user_list
+    doc_id: web
+    method: GET
+    endpoint: /api/user/list/
+    parser: users
+    priority: 10
+    variables:
+      secUid: "{{sec_uid}}"
+      scene: "{{scene}}"
+      count: "{{count}}"
+      minCursor: "{{cursor}}"
+      maxCursor: "0"
   # Comments and replies need TikTok's signature (C2, C3): the label's
   # "-signed" sends them through the browser signer (tt.signer.mode).
   - name: comments

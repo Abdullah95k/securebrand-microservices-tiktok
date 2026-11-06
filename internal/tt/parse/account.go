@@ -110,6 +110,11 @@ func account(u, stats, statsV2 gjson.Result, src ttv1.AccountSource, o Options, 
 	if org := u.Get("isOrganization"); org.Exists() {
 		a.Organization = proto.Bool(org.Bool())
 	}
+	// 1 shows the following list, 2 hides it (C6 run 1): part D skips a
+	// hidden one without a call.
+	if fv := u.Get("followingVisibility"); fv.Exists() && fv.Type == gjson.Number {
+		a.FollowingVisibility = proto.Int32(int32(fv.Int()))
+	}
 	if bl := u.Get("bioLink"); bl.Exists() {
 		if l := bl.Get("link").String(); l != "" {
 			a.BioLink = proto.String(l)

@@ -72,4 +72,9 @@ message Account {
   // HMAC of the user id, so the account relates to the comments its owner
   // writes elsewhere without names.
   bytes author_key = 21;
+  // followingVisibility on the profile page: 1 shows the following list to
+  // visitors, 2 hides it (TikTok then answers the list with 10222; C6 run
+  // 1). Unset when the source does not carry it: discovery part D reads
+  // the list unless it is 2 (ADR 0007 §23).
+  optional int32 following_visibility = 22;
 }

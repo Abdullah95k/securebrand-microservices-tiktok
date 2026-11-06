@@ -61,7 +61,7 @@ func TestTopicsMatchConfig(t *testing.T) {
 			used[Task(k, l)] = true
 		}
 	}
-	for _, tp := range Entity {
+	for _, tp := range Persisted {
 		if _, ok := ValueSchemas[tp]; !ok {
 			t.Errorf("entity topic %s has no value schema", tp)
 		}

@@ -306,6 +306,39 @@ type Discovery struct {
 	// the leader counts at a time; it counts batches for up to a few
 	// seconds a tick.
 	CountBatch int `koanf:"count_batch"`
+	// Follows is part D, the following and followers lists of monitored
+	// accounts (docs/tiktok/discovery-plan.md §9; sources following and
+	// follower).
+	Follows FollowLists `koanf:"follows"`
+}
+
+// FollowLists paces discovery part D (docs/tiktok/discovery-plan.md §9):
+// every monitored account's following list (unless its profile hides it)
+// and followers list are read, each read taking the newest people down to
+// those already stored, then going deeper from where the last read
+// stopped, up to MaxPages. How deep a large account's list goes logged out
+// is still open (T41): MaxPages and DayPages are the caps.
+type FollowLists struct {
+	// FollowingEvery and FollowersEvery: how often each list is read (a
+	// week and a day, discovery-plan §9). A read that failed is tried again
+	// after RetryAfter.
+	FollowingEvery time.Duration `koanf:"following_every"`
+	FollowersEvery time.Duration `koanf:"followers_every"`
+	RetryAfter     time.Duration `koanf:"retry_after"`
+	// MaxPages caps one read (one account's list, at most once a day for
+	// followers); DayPages caps the pages every read together fetches in a
+	// UTC day (0: no cap; the budget still pauses the lane).
+	MaxPages int `koanf:"max_pages"`
+	DayPages int `koanf:"day_pages"`
+	// PageSize is the people a page asks for (the web app's 30).
+	PageSize int `koanf:"page_size"`
+	// KnownPages: a re-read's walk from the top stops after this many pages
+	// in a row that hold nobody new.
+	KnownPages int `koanf:"known_pages"`
+	// Batch is how many lists the leader sends to be read per tick;
+	// MaxRunning caps the reads running fleet-wide (lane p2).
+	Batch      int `koanf:"batch"`
+	MaxRunning int `koanf:"max_running"`
 }
 
 // EntryCheck is discovery's entry check (docs/tiktok/discovery-plan.md §4):
@@ -1046,6 +1079,11 @@ func (t TT) validate() []error {
 		s.Medium+s.WeakMax >= s.Pass || 2*s.Medium < s.Pass || s.CaptionPostsStrong <= 0 || s.AudienceStrong <= 0 || len(s.Regions) == 0 {
 		errs = append(errs, errors.New("tt.discovery.score: strong >= pass > 0; 2 × medium >= pass > medium + weak_max; "+
 			"caption_posts_strong and audience_strong > 0; regions set"))
+	}
+	if f := t.Discovery.Follows; f.FollowingEvery <= 0 || f.FollowersEvery <= 0 || f.RetryAfter <= 0 || f.MaxPages <= 0 ||
+		f.DayPages < 0 || f.PageSize <= 0 || f.KnownPages <= 0 || f.Batch <= 0 || f.MaxRunning <= 0 {
+		errs = append(errs, errors.New("tt.discovery.follows: following_every, followers_every, retry_after, max_pages, page_size, "+
+			"known_pages, batch and max_running > 0; day_pages >= 0 (0: no cap)"))
 	}
 	for name := range t.Discovery.Sources {
 		if !slices.Contains(DiscoverySources, name) {

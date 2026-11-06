@@ -45,6 +45,10 @@ func ScopeKey(t *tkstaskv1.Task) string {
 		return "thread:" + strconv.FormatInt(s.Thread.CommentId, 10)
 	case *tkstaskv1.Task_Media:
 		return "media:" + s.Media.GetMedia().GetMediaId()
+	case *tkstaskv1.Task_Follows:
+		// Apart from the account's own stream: a list read never waits for
+		// the account's check, nor the check for it.
+		return "follows:" + strconv.FormatInt(s.Follows.UserId, 10) + ":" + s.Follows.Direction.String()
 	}
 	return "unknown"
 }
@@ -96,6 +100,8 @@ func cloneShallow(t *tkstaskv1.Task) *tkstaskv1.Task {
 		c.Scope = &tkstaskv1.Task_Thread{Thread: proto.Clone(s.Thread).(*tkstaskv1.ThreadScope)}
 	case *tkstaskv1.Task_Media:
 		c.Scope = s
+	case *tkstaskv1.Task_Follows:
+		c.Scope = &tkstaskv1.Task_Follows{Follows: proto.Clone(s.Follows).(*tkstaskv1.FollowScope)}
 	}
 	return c
 }
@@ -117,6 +123,18 @@ func NewEntry(jobID string, s *tkstaskv1.AccountScope) *tkstaskv1.Task {
 	return Finalize(&tkstaskv1.Task{
 		JobId: jobID, Lane: tkstaskv1.Lane_LANE_P2, Kind: tkstaskv1.Kind_KIND_ENTRY,
 		Mode: commonv1.CrawlMode_CRAWL_MODE_FULL, Scope: &tkstaskv1.Task_Account{Account: s},
+		Limits: &tkstaskv1.Limits{VideoPolicy: tkstaskv1.VideoPolicy_VIDEO_POLICY_NONE},
+	})
+}
+
+// NewFollows creates the root task of a follow-list read: one monitored
+// account's following or followers list (discovery part D,
+// docs/tiktok/discovery-plan.md §9), in the backfill lane, which the budget
+// pauses.
+func NewFollows(jobID string, s *tkstaskv1.FollowScope) *tkstaskv1.Task {
+	return Finalize(&tkstaskv1.Task{
+		JobId: jobID, Lane: tkstaskv1.Lane_LANE_P2, Kind: tkstaskv1.Kind_KIND_FOLLOWS,
+		Mode: commonv1.CrawlMode_CRAWL_MODE_INCREMENTAL, Scope: &tkstaskv1.Task_Follows{Follows: s},
 		Limits: &tkstaskv1.Limits{VideoPolicy: tkstaskv1.VideoPolicy_VIDEO_POLICY_NONE},
 	})
 }

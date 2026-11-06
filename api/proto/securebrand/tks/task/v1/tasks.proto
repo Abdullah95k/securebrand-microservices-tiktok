@@ -11,6 +11,7 @@ package securebrand.tks.task.v1;
 
 import "google/protobuf/timestamp.proto";
 import "securebrand/common/v1/common.proto";
+import "securebrand/tt/v1/follow.proto";
 import "securebrand/tt/v1/media.proto";
 
 option go_package = "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tks/task/v1;tkstaskv1";
@@ -39,6 +40,11 @@ enum Kind {
   // known), on the account scope; nothing else is read and no list
   // watermark is kept (docs/tiktok/discovery-plan.md §4, ADR 0007 §19).
   KIND_ENTRY = 204;
+  // Discovery part D: one read of a monitored account's following or
+  // followers list, on the follow scope: the newest people down to those
+  // already stored, then deeper from where the last read stopped, up to
+  // the read's page cap (docs/tiktok/discovery-plan.md §9, ADR 0007 §23).
+  KIND_FOLLOWS = 205;
 }
 
 enum VideoPolicy {
@@ -115,6 +121,28 @@ message ThreadScope {
   bool photo = 8;
 }
 
+// FollowScope is one read of a monitored account's following or followers
+// list (KIND_FOLLOWS). The task's cursor holds the walk's phase and
+// TikTok's cursor (stage.followCursor).
+message FollowScope {
+  int64 user_id = 1;
+  string sec_uid = 2;
+  string username = 3;
+  securebrand.tt.v1.FollowDirection direction = 4;
+  // Where the deep walk stopped last time (TikTok's cursor), and whether it
+  // reached the end of the list: a list read to its end is only read again
+  // from the top, down to the people already stored.
+  string deep_cursor = 5;
+  bool deep_done = 6;
+  // Whether any link of this list is stored: the first read walks from the
+  // top with no head pass.
+  bool read_before = 7;
+  // The pages this read may fetch (tt.discovery.follows.max_pages), and
+  // those its earlier segments fetched.
+  int32 max_pages = 8;
+  int32 pages_seen = 9;
+}
+
 message MediaScope {
   securebrand.tt.v1.Media media = 1;
   // The tt_chain_token cookie of the identity that read the link, for a
@@ -154,6 +182,7 @@ message Task {
     PostScope post = 41;
     ThreadScope thread = 42;
     MediaScope media = 43;
+    FollowScope follows = 44;
   }
   SessionSnapshot affinity = 14;
   uint32 attempt = 15;

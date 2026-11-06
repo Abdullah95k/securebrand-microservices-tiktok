@@ -21,3 +21,7 @@ tksctl apikey revoke --prefix abcd1234
 ## Registering accounts
 
 `POST /v1/accounts` with `{"account": "@username"}` (or a link, `sec:<secUid>`). The account is due at once: the scheduler's planner backfills it (365 days or to its first post), then checks it every 2 h 45 min. Registering again is safe. `GET /v1/accounts` lists the caller's registrations; `DELETE /v1/accounts/{account}` removes the caller's (the schedule is disabled once nobody is registered; the account's data stays).
+
+## Following and followers
+
+`GET /v1/accounts/{account}/follows?direction=follower` (or `following`; `data:read`) lists the people discovery part D read on the account's followers or following list, the newest first seen first, with the list's read state (`list`: `ok`, `hidden`, `gone`, `refused`). Who each person is (`person`: user id, secUid, username, nickname, avatar) needs `pii:read`; `author_key` is always there. TikTok does not say when someone followed: `first_seen_at` and `last_seen_at` are when tks saw the link. The lists are read only with discovery's `following` and `follower` sources on ([`tks-discovery.md`](tks-discovery.md#part-d-following-and-followers-lists)).

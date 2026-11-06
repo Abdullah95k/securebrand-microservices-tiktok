@@ -106,7 +106,7 @@ Notes on the tables:
 | owner's or discovered account; private | `scope` FULL; **PROFILE_ONLY while private** | **question:** does scope follow the account's state, or only the registry's decision? tks would set PROFILE_ONLY while an account is private, since only its profile can be read |
 | discovery score (discovered accounts) | `relevance.score`, `matched_rules` | agree |
 | `counts` | `counts` (see snapshot) | agree |
-| (not stored yet) `followingVisibility` | extras `tt.following_visibility` | agree (X) |
+| `following_visibility` (stored since M13: the profile page's `followingVisibility`) | extras `tt.following_visibility` | agree (X) |
 | — | `contact`, `categories`, `stated_country`, `location`, `cover`, `keywords` | not on TikTok: unset |
 
 #### Account counts → `content.account_snapshot.v1` (and `Account.counts`)
@@ -313,7 +313,7 @@ See Q1.
 | **The exit's country on every event** | Each identity knows the `region` TikTok's page reported for it. tks carries it to every `tt` event (a field on `Observation`, or in the source the emitter stamps). An addition, compatible | S |
 | **A 1 % raw sample** (D-004) | tks keeps failures today (`tt.capture_raw: failures`); add a `sample` mode with a rate | S |
 | **Subtitles** | Read `video.subtitleInfos` from list items (free: already in every answer); fetch each WebVTT file before its URL expires (one CDN request, 2–5 KB per track); publish `Post.captions`. **Not yet measured:** whether the files need the `tt_chain_token` cookie, as video files do. The next probe run can check it | M |
-| **Read what's served and dropped** | photo-post `imagePost.title`, `AIGCDescription`, `followingVisibility` | S |
+| **Read what's served and dropped** | photo-post `imagePost.title`, `AIGCDescription` (`followingVisibility`: done in M13) | S |
 | **Media deadline** | `delete_after` from a setting, when the owner gives the value (R5) | S |
 
 ---

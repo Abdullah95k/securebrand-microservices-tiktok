@@ -308,9 +308,9 @@ func writeAccount(ctx context.Context, tx pgx.Tx, a *ttv1.Account) (bio bool, er
 		INSERT INTO accounts AS t (user_id, sec_uid, username, nickname, bio, bio_link, bio_link_risk, avatar_url, avatar_media_id,
 			verified, private, organization, language, created_at, username_modified_at, nickname_modified_at,
 			follower_count, following_count, heart_count, video_count, likes_given_count, friend_count,
-			author_key, status, content_hash, first_seen_at, last_seen_at, profile_refreshed_at, page_read_at)
+			author_key, status, content_hash, first_seen_at, last_seen_at, profile_refreshed_at, page_read_at, following_visibility)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
-			$23, 'active', $24, $25, $25, $26, $27)
+			$23, 'active', $24, $25, $25, $26, $27, $30)
 		ON CONFLICT (user_id) DO UPDATE SET
 			sec_uid = EXCLUDED.sec_uid, username = COALESCE(EXCLUDED.username, t.username),
 			nickname = COALESCE(EXCLUDED.nickname, t.nickname),
@@ -329,7 +329,8 @@ func writeAccount(ctx context.Context, tx pgx.Tx, a *ttv1.Account) (bio bool, er
 			author_key = EXCLUDED.author_key, status = 'active', content_hash = EXCLUDED.content_hash,
 			last_seen_at = EXCLUDED.last_seen_at,
 			profile_refreshed_at = COALESCE(EXCLUDED.profile_refreshed_at, t.profile_refreshed_at),
-			page_read_at = COALESCE(EXCLUDED.page_read_at, t.page_read_at)
+			page_read_at = COALESCE(EXCLUDED.page_read_at, t.page_read_at),
+			following_visibility = COALESCE(EXCLUDED.following_visibility, t.following_visibility)
 		WHERE t.last_seen_at <= EXCLUDED.last_seen_at
 		RETURNING old.user_id IS NULL
 			OR old.username IS DISTINCT FROM new.username OR old.nickname IS DISTINCT FROM new.nickname
@@ -341,7 +342,7 @@ func writeAccount(ctx context.Context, tx pgx.Tx, a *ttv1.Account) (bio bool, er
 		nilIfEmpty(a.AvatarUrl), mediaUUID(a.AvatarMediaId), a.Verified, a.Private, a.Organization, nilIfEmpty(a.Language),
 		tsp(a.CreatedAt), tsp(a.UsernameModifiedAt), tsp(a.NicknameModifiedAt),
 		c.Followers, c.Following, c.Hearts, c.Videos, c.LikesGiven, c.Friends,
-		a.AuthorKey, hashOf(a.Obs), seen, refreshed, pageRead, page, exact).Scan(&changed, &bio)
+		a.AuthorKey, hashOf(a.Obs), seen, refreshed, pageRead, page, exact, a.FollowingVisibility).Scan(&changed, &bio)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil // an older observation than the stored one
 	}

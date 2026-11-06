@@ -1,6 +1,6 @@
 # tks discovery: the entry check, the dormant list and the Iraq score
 
-How tks decides whether an account a discovery source found is added to monitoring ([`discovery-plan.md`](../tiktok/discovery-plan.md) §3 and §4; [ADR 0007 §19](../tiktok/adr/0007-tks-data-model-and-contracts.md#19-settled-in-m10c-the-entry-check-the-dormant-list-and-the-iraq-score)). The sources: **part B** (M11, built: mentions, replies, commenters; [below](#part-b-from-what-tks-already-collects)), M12 (search, hashtags, sounds, the For You feed, related posts) and M13 (following and followers lists).
+How tks decides whether an account a discovery source found is added to monitoring ([`discovery-plan.md`](../tiktok/discovery-plan.md) §3 and §4; [ADR 0007 §19](../tiktok/adr/0007-tks-data-model-and-contracts.md#19-settled-in-m10c-the-entry-check-the-dormant-list-and-the-iraq-score)). The sources: **part B** (M11, built: mentions, replies, commenters; [below](#part-b-from-what-tks-already-collects)), **part D** (M13, built: following and followers lists; [below](#part-d-following-and-followers-lists)) and M12 (search, hashtags, sounds, the For You feed, related posts).
 
 ## What happens to a found account
 
@@ -44,6 +44,50 @@ How tks decides whether an account a discovery source found is added to monitori
 
 **Known gaps.** A mention in a comment carries only ids; tks fills the username from what it stored for the person, if anything, and otherwise the entry check needs an identity that has loaded a page already (a fresh one fails once and the check is tried again). A discovered account's first 15 posts are stored by its entry check, before it is monitored, so their captions bring no one in; its later posts and all its comments do.
 
+## Part D: following and followers lists
+
+[`discovery-plan.md`](../tiktok/discovery-plan.md) §9; [ADR 0007 §23](../tiktok/adr/0007-tks-data-model-and-contracts.md#23-settled-in-m13-discovery-part-d). For **every monitored account** (the owner's and the ones discovery added, once admitted), tks reads its **following** list (who it follows; source `following`) and its **followers** list (who follows it; source `follower`). C6 run 1 showed both served to a logged-out visitor, unsigned, from US exits. One new call: `/api/user/list/` (operation `user_list`, unsigned), on the account crawlers.
+
+| List | Read | Skipped without a call |
+|---|---|---|
+| Following | every `following_every` (a week) | when the profile hides it (`followingVisibility` 2, about half of the profiles C6 read): the list is `hidden` |
+| Followers | every `followers_every` (a day) | — |
+| Both | | when the account is private, banned or gone: `gone` |
+
+**How a read goes.** TikTok serves the newest people first (T41). The first read walks the list from the top. Every later read walks from the top **until a page holds nobody already stored** (`known_pages`, 1), then, if the list was never read to its end, goes on **from where the last read stopped**, so a large account's list fills in over days. A read fetches at most `max_pages` pages of `page_size` people (20 × 30 = 600); `day_pages` caps all reads in a UTC day (0: none). Reads run in the backfill lane, so the budget pauses them with the backfills; monitoring never waits for them. A read that fails is tried again after `retry_after` (6 h). A list TikTok will not serve a logged-out visitor (any other status code, twice) is recorded `refused` with the code and read again at its next interval; nothing fails.
+
+**What is kept.** Every person read is a link in `tt.follows` (the account, the direction, the person; first and last seen; what the list showed: private, posts, followers, following), kept for good; the person's name and avatar are in `tt.people`. TikTok does not say when someone followed: the times are when tks first and last saw the link. Unfollows are not detected (a link no longer listed keeps its last-seen time).
+
+**Who is checked.** A link **new to its list** records a sighting (as part B's do, in the same transaction), and the leader counts it: a monitored account gains the source with no read; a person the list shows **private** or with **no post** goes onto the dormant list with no read (the cheap pre-checks: most followers are personal accounts that never post); anyone else gets one entry check. Being followed by monitored accounts is a medium signal of the Iraq score (strong from 10 of them); following a monitored account is weak.
+
+**Switches** (all under `tt.discovery`, with `enabled: true`):
+
+```yaml
+tt:
+  discovery:
+    sources: {following: true, follower: true}
+    follows:
+      following_every: 168h
+      followers_every: 24h
+      retry_after: 6h
+      max_pages: 20        # one read
+      day_pages: 0         # all reads in a UTC day; 0 = no cap
+      page_size: 30
+      known_pages: 1
+      batch: 100           # lists sent to be read per tick
+      max_running: 50      # reads running fleet-wide
+```
+
+Turning a source off stops its reads at the next tick; what was read stays.
+
+**Looking at it.** The links of one account (key with `data:read`; who each person is needs `pii:read`):
+
+```bash
+curl -s -H "Authorization: Bearer $KEY" "$TKS/v1/accounts/id:<user id>/follows?direction=follower&limit=100"
+```
+
+`list` in the answer is the list's state (`ok`, `hidden`, `gone`, `refused` with `status_code`), when it was read, whether it was read to its end and why the last read stopped; `next_cursor` pages back. In SQL: `SELECT direction, state, last_stop, count(*) FROM tt.follow_lists GROUP BY 1, 2, 3`. Metrics: `tks_follow_pages_total{direction,result}`, `tks_follow_reads_total{direction,stop}` (crawler), `tks_follows_stored_total{direction,result}` (persister), `tks_follow_lists{direction,state}` and `tks_follow_lists_due{direction}` (leader). Many `result="refused"` or `"error"` pages mean TikTok changed the call or stopped serving it logged out: the canary does not check this call yet, so look at `tks_follow_pages_total` first. A `follow_lists_due` that keeps growing means `max_running`, `day_pages` or the budget hold the reads back.
+
 ## The Iraq score
 
 Each kind of signal counts once. One **strong** signal passes; so do two **different medium** ones; **weak** signals never pass alone or with one medium one.
@@ -71,7 +115,7 @@ All in `tt.discovery` (off by default):
 tt:
   discovery:
     enabled: true
-    sources: {mention: true, reply: true, commenter: true}   # part B (M11); M12 and M13 add theirs
+    sources: {mention: true, reply: true, commenter: true, following: true, follower: true}   # parts B (M11) and D (M13); M12 adds its own
     max_new_per_day: 0         # a cap for testing; 0 = no cap
     count_batch: 5000          # part B's sightings the leader counts at a time
 ```
@@ -109,7 +153,7 @@ Then open `http://localhost:8080/review/` and paste the key.
 - **Not Iraqi (yet)**: the public, active accounts closest to the threshold, with their evidence; the threshold is shown (`tt.discovery.score.pass`).
 - **Keywords**: on or off, add, and how many accounts each keyword's searches found (search is part C, M12: 0 until it runs). A count links to those accounts.
 - **Imports**: paste or pick a file (up to 1,000 lines; larger files go through `tksctl accounts import`), labels, a dry run first; earlier imports with their counts, and each one's report of accounts that turned out private, quiet or gone.
-- **Cost and capacity**: the switches, the daily test cap, found accounts by state, the admission queue with what draining it within a day takes (requests, proxy IPs, signer pages), and per UTC day the accounts found and added by source and discovery's own reads (entry checks: jobs, requests, data).
+- **Cost and capacity**: the switches, the daily test cap, found accounts by state, the admission queue with what draining it within a day takes (requests, proxy IPs, signer pages), and per UTC day the accounts found and added by source and discovery's own reads (entry checks and part D's list reads: jobs, requests, data).
 
 **Remove** (`POST /v1/discovery/accounts/{id}/remove`) blocks the account for the caller, so no source adds it back; if discovery had added it, discovery's registration goes and its checks stop. An account another client registered itself stays monitored for that client (the page says so). Its data stays. To bring one back, register it (`POST /v1/accounts`): the caller's registration lifts its own block.
 

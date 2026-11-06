@@ -72,6 +72,15 @@ type Account struct {
 	// pages answer their Unavailable statusCode. tks keeps them stored as
 	// they were, marked unavailable (docs/tiktok/discovery-plan.md §17).
 	Hidden []*Post
+	// FollowingHidden: the profile hides the following list
+	// (followingVisibility 2), which then answers 10222 (C6 run 1).
+	FollowingHidden bool
+	// FollowerList and FollowingList, once set (AddFollower,
+	// AddFollowing), are the account's lists, newest first. Unset, the
+	// account follows every other monitored account and is followed by the
+	// people who commented on its posts.
+	FollowerList  []*Account
+	FollowingList []*Account
 }
 
 // Music is a post's sound.
@@ -287,6 +296,17 @@ func (w *World) AddAccount(username, bio string, n int, newest, spacing time.Dur
 		w.bySec[acc.SecUID] = acc
 	})
 	return acc
+}
+
+// AddFollower puts f at the top of acc's followers list (TikTok serves
+// the newest first: T41).
+func (w *World) AddFollower(acc, f *Account) {
+	w.Mutate(func() { acc.FollowerList = append([]*Account{f}, acc.FollowerList...) })
+}
+
+// AddFollowing puts f at the top of acc's following list.
+func (w *World) AddFollowing(acc, f *Account) {
+	w.Mutate(func() { acc.FollowingList = append([]*Account{f}, acc.FollowingList...) })
 }
 
 // AddPost publishes a new post on acc at the world's present, with

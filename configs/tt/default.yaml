@@ -309,3 +309,20 @@ tt:
       caption_posts_strong: 3   # captions naming Iraqi places in 3 of the posts read: strong
       audience_strong: 10       # an audience signal from 10 accounts or searches: strong
       languages: [ar, ckb, ku]
+    # Part D (discovery-plan §9; sources following and follower): every
+    # monitored account's following list (not when its profile hides it:
+    # followingVisibility 2) and followers list. A read takes the newest
+    # people down to those already stored (known_pages in a row with nobody
+    # new), then goes deeper from where the last read stopped, up to
+    # max_pages; day_pages caps all reads in a UTC day (0: no cap). How deep
+    # a large account's list goes logged out is still open (T41).
+    follows:
+      following_every: 168h   # a week
+      followers_every: 24h    # a day
+      retry_after: 6h         # a read that failed
+      max_pages: 20           # one read: 600 people
+      day_pages: 0
+      page_size: 30
+      known_pages: 1
+      batch: 100              # lists sent to be read per tick
+      max_running: 50         # reads running fleet-wide (lane p2)

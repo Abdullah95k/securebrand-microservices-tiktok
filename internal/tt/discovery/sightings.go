@@ -23,15 +23,29 @@ const (
 	SourceCommenter = "commenter" // commented on a monitored account's post
 )
 
-// Where a sighting was seen (discovery_sightings.found_in).
+// Part D's sources (docs/tiktok/discovery-plan.md §9): the following and
+// followers lists of the accounts tks monitors.
 const (
-	InCaption = "caption"
-	InBio     = "bio"
-	InComment = "comment"
+	SourceFollowing = "following" // a monitored account follows them
+	SourceFollower  = "follower"  // they follow a monitored account
 )
 
-// PartB are part B's sources, the ones the persister records.
+// Where a sighting was seen (discovery_sightings.found_in).
+const (
+	InCaption   = "caption"
+	InBio       = "bio"
+	InComment   = "comment"
+	InFollowing = "following" // the monitored account's following list
+	InFollowers = "followers" // its followers list
+)
+
+// PartB are part B's sources, the ones the persister records from posts,
+// bios and comments.
 var PartB = []string{SourceMention, SourceReply, SourceCommenter}
+
+// PartD are part D's sources, the ones the persister records from list
+// pages.
+var PartD = []string{SourceFollowing, SourceFollower}
 
 // bioMention is an @username in a bio: TikTok usernames are letters,
 // digits, underscores and periods, 2 to 24 of them. The character before
@@ -72,6 +86,9 @@ type sighting struct {
 	postID    *int64
 	commentID *int64
 	at        time.Time
+	// What a list page showed (part D): the cheap pre-checks.
+	private *bool
+	videos  *int64
 }
 
 // person keys a sighting by whom it saw: the user id, else the secUid,
@@ -104,14 +121,16 @@ func (d *Discoverer) Count(ctx context.Context, n int) (int, error) {
 	if n <= 0 {
 		return 0, nil
 	}
-	rows, err := d.DB.Query(ctx, `SELECT id, how, found_in, via_user_id, user_id, sec_uid, username, post_id, comment_id, seen_at
+	rows, err := d.DB.Query(ctx, `SELECT id, how, found_in, via_user_id, user_id, sec_uid, username, post_id, comment_id, seen_at,
+			private, videos
 		FROM discovery_sightings WHERE counted_at IS NULL ORDER BY id LIMIT $1`, n)
 	if err != nil {
 		return 0, err
 	}
 	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (sighting, error) {
 		var s sighting
-		return s, r.Scan(&s.id, &s.how, &s.in, &s.via, &s.userID, &s.secUID, &s.username, &s.postID, &s.commentID, &s.at)
+		return s, r.Scan(&s.id, &s.how, &s.in, &s.via, &s.userID, &s.secUID, &s.username, &s.postID, &s.commentID, &s.at,
+			&s.private, &s.videos)
 	})
 	if err != nil || len(list) == 0 {
 		return 0, err
@@ -144,6 +163,13 @@ func (d *Discoverer) Count(ctx context.Context, n int) (int, error) {
 		}
 		if s.username != nil && *s.username != "" {
 			g.f.Username = *s.username
+		}
+		// The newest list page's view of the person decides the pre-check.
+		if s.private != nil && !s.at.Before(g.f.At) {
+			g.f.Private = s.private
+		}
+		if s.videos != nil && !s.at.Before(g.f.At) {
+			g.f.Posts = s.videos
 		}
 	}
 	if err := d.fillUsernames(ctx, groups); err != nil {

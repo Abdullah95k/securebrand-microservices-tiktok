@@ -103,6 +103,7 @@ func (s *Server) routes(r chi.Router) {
 	r.Get("/accounts/{account}/usernames", require(ScopePIIRead, s.accountUsernames))
 	r.Get("/accounts/{account}/snapshots", require(ScopeDataRead, s.accountSnapshots))
 	r.Get("/accounts/{account}/posts", require(ScopeDataRead, s.listPosts))
+	r.Get("/accounts/{account}/follows", require(ScopeDataRead, s.accountFollows))
 
 	r.Get("/posts/{post}", require(ScopeDataRead, s.getPost))
 	r.Get("/posts/{post}/comments", require(ScopeDataRead, s.listComments))
