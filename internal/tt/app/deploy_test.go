@@ -4,6 +4,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -152,6 +153,111 @@ func TestChartSignerIsCapped(t *testing.T) {
 	for _, name := range []string{"crawler-post", "crawler-thread", "canary"} {
 		if m := v.Components[name].Resources.Limits["memory"]; m != "1Gi" && m != "512Mi" {
 			t.Errorf("%s: memory limit %s; without Chromium it needs at most 1Gi", name, m)
+		}
+	}
+}
+
+// platformPartitions are the production platform's starting partition
+// counts (build-status, "Production platform"; the master's kafka.tf).
+func platformPartitions(topic string) int {
+	switch topic {
+	case "tks.task.post.p1", "tks.task.thread.p1", "tt.post.v1", "tt.post_metrics.v1":
+		return 6
+	case "tt.comment.v1":
+		return 12
+	}
+	return 3
+}
+
+// values-production.yaml (M18): every component logs in as its own role
+// (the signer as none), no component scales past the partitions of the
+// topics it reads, the platform owns the topics, and every topic tks uses
+// is one the platform made (tks.* and tt.*).
+func TestChartProduction(t *testing.T) {
+	type comp struct {
+		Enabled      *bool  `yaml:"enabled"`
+		PostgresRole string `yaml:"postgresRole"`
+		ReadRole     string `yaml:"readRole"`
+		Autoscale    *struct {
+			Min, Max int
+			Lag      []struct{ Group, Topic string }
+		} `yaml:"autoscale"`
+	}
+	type values struct {
+		Hooks struct {
+			Topics, Schemas, Migrate bool
+		} `yaml:"hooks"`
+		PlatformSecret struct {
+			Name  string
+			Roles bool
+		} `yaml:"platformSecret"`
+		Components map[string]comp `yaml:"components"`
+	}
+	read := func(f string) values {
+		b, err := os.ReadFile(chart + "/" + f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var v values
+		if err := yaml.Unmarshal(b, &v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	base, prod := read("values.yaml"), read("values-production.yaml")
+	if prod.Hooks.Topics || prod.Hooks.Schemas || !prod.Hooks.Migrate {
+		t.Errorf("hooks %+v: the platform owns the topics and the registry; tks migrates", prod.Hooks)
+	}
+	if prod.PlatformSecret.Name != "platform-credentials" || !prod.PlatformSecret.Roles {
+		t.Errorf("platformSecret %+v", prod.PlatformSecret)
+	}
+	roles := []string{"api", "reader", "persister", "scheduler", "crawler"}
+	for name, c := range base.Components {
+		p := prod.Components[name]
+		if p.Enabled != nil && !*p.Enabled || c.Enabled != nil && !*c.Enabled && p.Enabled == nil {
+			continue
+		}
+		switch {
+		case name == "signer":
+			if p.PostgresRole != "none" {
+				t.Errorf("signer has database role %q", p.PostgresRole)
+			}
+		case !slices.Contains(roles, p.PostgresRole):
+			t.Errorf("%s logs in as %q, not one of the components' roles", name, p.PostgresRole)
+		}
+		if c.Autoscale == nil {
+			continue
+		}
+		maxPods := c.Autoscale.Max
+		if p.Autoscale != nil && p.Autoscale.Max > 0 {
+			maxPods = p.Autoscale.Max
+		}
+		least := 1 << 30
+		for _, l := range c.Autoscale.Lag {
+			least = min(least, platformPartitions(l.Topic))
+		}
+		// The persister reads every tt.* topic, 3 partitions at least.
+		if name == "persister" {
+			least = min(least, 3)
+		}
+		if maxPods > least || maxPods < c.Autoscale.Min {
+			t.Errorf("%s scales to %d pods: more than its topics' %d partitions, or under its minimum %d", name, maxPods, least, c.Autoscale.Min)
+		}
+	}
+	if prod.Components["api"].ReadRole != "reader" {
+		t.Error("the API's read pool is not the read-only role")
+	}
+	tb, err := configs.FS.ReadFile("tt/topics.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tf struct{ Topics []struct{ Name string } }
+	if err := yaml.Unmarshal(tb, &tf); err != nil {
+		t.Fatal(err)
+	}
+	for _, tp := range tf.Topics {
+		if !strings.HasPrefix(tp.Name, "tks.task.") && !strings.HasPrefix(tp.Name, "tks.persist.") && !strings.HasPrefix(tp.Name, "tt.") {
+			t.Errorf("topic %s is outside the platform's tks.* and tt.* topics", tp.Name)
 		}
 	}
 }

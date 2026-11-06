@@ -117,3 +117,63 @@ func TestChartConfigLoads(t *testing.T) {
 		t.Errorf("local.yaml: stretch_tiers %v, canary %v", local.Scheduler.Budget.StretchTiers, local.TT.Canary.Accounts)
 	}
 }
+
+// values-production.yaml's config loads with what the chart maps from the
+// platform's Secret (tks.platformEnv) and the proxies Secret (M18).
+func TestChartProductionConfigLoads(t *testing.T) {
+	ca := testCA(t)
+	for k, v := range map[string]string{
+		"TKS_PRIVACY__AUTHOR_HMAC_KEY":    strings.Repeat("cd", 32),
+		"TKS_TT__SIGNER__REMOTE_URL":      "http://tks-signer:8080",
+		"TKS_KAFKA__BROKERS":              "kafka-1.example:25073,kafka-2.example:25073",
+		"TKS_KAFKA__SASL__MECHANISM":      "SCRAM-SHA-256",
+		"TKS_KAFKA__SASL__USERNAME":       "tks-kafka",
+		"TKS_KAFKA__SASL__PASSWORD":       "pw,with,commas",
+		"TKS_KAFKA__TLS__ENABLED":         "true",
+		"TKS_KAFKA__TLS__CA":              ca,
+		"TKS_REDIS__ADDR":                 "valkey.example:25061",
+		"TKS_REDIS__PASSWORD":             "v",
+		"TKS_REDIS__TLS__ENABLED":         "true",
+		"TKS_REDIS__TLS__CA":              ca,
+		"TKS_POSTGRES__HOST":              "pg.example",
+		"TKS_POSTGRES__PORT":              "25060",
+		"TKS_POSTGRES__DATABASE":          "tks",
+		"TKS_POSTGRES__SSLMODE":           "require",
+		"TKS_POSTGRES__CA":                ca,
+		"TKS_POSTGRES__USER":              "tks_persister",
+		"TKS_POSTGRES__PASSWORD":          "p",
+		"TKS_S3__ENDPOINT":                "https://fra1.example.com",
+		"TKS_S3__RAW_BUCKET":              "raw",
+		"TKS_S3__MEDIA_BUCKET":            "media",
+		"TKS_KAFKA__SCHEMA_REGISTRY__URL": "https://registry.example",
+	} {
+		t.Setenv(k, v)
+	}
+	proxies := filepath.Join(t.TempDir(), "proxies.yaml")
+	if err := os.WriteFile(proxies, []byte(`tt:
+  proxy:
+    tiers:
+      - {name: isp, kind: static_list, country: US, endpoints: ["http://user:pass@192.0.2.1:8080"]}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(chartConfig(t, chart+"/values.yaml", chart+"/values-production.yaml") + "," + proxies)
+	if err != nil {
+		t.Fatalf("values-production.yaml: %v", err)
+	}
+	if c.Kafka.SASL.Mechanism != "scram-sha-256" || len(c.Kafka.Brokers) != 2 || !c.Kafka.TLS.Enabled || !c.Redis.TLS.Enabled {
+		t.Errorf("kafka/valkey: %+v %v", c.Kafka.SASL, c.Kafka.Brokers)
+	}
+	if u, err := c.Postgres.URL(); err != nil || !strings.Contains(u, "pg.example:25060/tks") || !strings.Contains(u, "sslrootcert=") {
+		t.Errorf("postgres url %q: %v", u, err)
+	}
+	if c.S3.CreateBuckets || c.S3.MediaPrefix != "tks/" || c.S3.RawKeepPrefix != "tks/keep/" || c.S3.RawRestPrefix != "tks/30d/" {
+		t.Errorf("s3 %+v", c.S3)
+	}
+	if c.TT.CaptureRaw != "sample" || c.TT.CaptureRawSample != 0.01 || c.TT.Cost.BudgetPerAccountUSD != 0.0019 {
+		t.Errorf("tt: capture %q %v, budget %v", c.TT.CaptureRaw, c.TT.CaptureRawSample, c.TT.Cost.BudgetPerAccountUSD)
+	}
+	if c.Service.Env != "prod" || c.TT.Proxy.Tiers[0].Country != "US" {
+		t.Errorf("env %q, tiers %+v", c.Service.Env, c.TT.Proxy.Tiers)
+	}
+}

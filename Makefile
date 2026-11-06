@@ -74,7 +74,9 @@ KUBECONFORM_ARGS = -strict -summary -kubernetes-version 1.30.0 -schema-location 
 	-schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
 ## Lint the Helm chart and validate its renders (defaults, every optional
-## object, the staging example) against the Kubernetes and CRD schemas.
+## object, the staging example, production's values) against the Kubernetes
+## and CRD schemas; production's render is also checked for the platform's
+## conventions (scripts/check-production-render.py).
 chart-check:
 	$(HELM) lint deploy/helm/tks
 	$(HELM) lint deploy/helm/tks -f deploy/helm/tks/examples/fakett.yaml
@@ -82,6 +84,11 @@ chart-check:
 	set -o pipefail; $(HELM) template tks deploy/helm/tks --set keda.authSecret=tks-keda-kafka,tlsFiles.existingSecret=tks-tls,alerts.enabled=true,dashboards.enabled=true,serviceMonitor.enabled=true,api.ingress.enabled=true,networkPolicy.enabled=true,hooks.schemas=true,image.browserTag=browser \
 	  | $(KUBECONFORM) $(KUBECONFORM_ARGS)
 	set -o pipefail; $(HELM) template tks deploy/helm/tks -f deploy/helm/tks/examples/fakett.yaml | $(KUBECONFORM) $(KUBECONFORM_ARGS)
+	$(HELM) lint deploy/helm/tks -f deploy/helm/tks/values-production.yaml --set image.tag=0123456789abcdef0123456789abcdef01234567,image.browserTag=0123456789abcdef0123456789abcdef01234567
+	set -o pipefail; $(HELM) template tks deploy/helm/tks -n tks -f deploy/helm/tks/values-production.yaml \
+	  --set image.tag=0123456789abcdef0123456789abcdef01234567,image.browserTag=0123456789abcdef0123456789abcdef01234567 \
+	  | tee /tmp/tks-production.yaml | $(KUBECONFORM) $(KUBECONFORM_ARGS)
+	python3 scripts/check-production-render.py /tmp/tks-production.yaml
 
 ## Run the chart's hooks and Deployments in Docker exactly as rendered, then
 ## real backfills against fakett, comments and replies signed by the

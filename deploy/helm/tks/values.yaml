@@ -9,6 +9,9 @@ image:
   # to start: set config.tt.signer.mode none and components.signer.enabled
   # false then, and comments and replies are not read (build brief D11).
   browserTag: ""
+  # The browser image's repository when it is not image.repository's
+  # (the production platform names its images apart).
+  browserRepository: ""
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
@@ -63,6 +66,17 @@ config:
       # Over the owner's budget only backfills pause; checks keep their
       # 2 h 45 min (owner, 2026-11-05): no tier is ever stretched.
       stretch_tiers: []
+
+# The production platform's Secret (M18; values-production.yaml): its keys
+# (POSTGRES_*, KAFKA_*, VALKEY_*, S3_*, SCHEMA_REGISTRY_URL) are mapped onto
+# tks's settings with valueFrom. With roles, each component logs in to
+# Postgres as its own role (components.<name>.postgresRole: keys
+# POSTGRES_<ROLE>_USER and _PASSWORD; "none": no database), the API's read
+# pool as readRole, and the migrate hook, as the owner (POSTGRES_USER),
+# grants them their rights. Empty name: not used.
+platformSecret:
+  name: ""
+  roles: false
 
 # Existing Secret whose keys become environment variables, e.g.
 #   TKS_POSTGRES__DSN, TKS_POSTGRES__READ_DSN, TKS_REDIS__PASSWORD,
@@ -123,6 +137,15 @@ keda:
   # holds: KEDA rejects an empty tls. For TLS brokers add tls and ca.
   authSecret: ""
   authParams: [sasl, username, password]
+  # Or KEDA parameters mapped to the Secret's own keys, e.g. the platform's
+  # {username: KAFKA_USER, password: KAFKA_PASSWORD, ca: KAFKA_CA_CERT};
+  # then sasl and tls (scram_sha256, enable) go in each trigger, and the
+  # brokers can come from the scaled container's environment
+  # (bootstrapServersFromEnv: TKS_KAFKA__BROKERS).
+  authKeys: {}
+  sasl: ""
+  tls: ""
+  bootstrapServersFromEnv: ""
 
 # Hooks run `tksctl migrate up`, `tksctl kafka apply` and, when enabled,
 # `tksctl schemas apply` before installs and upgrades.

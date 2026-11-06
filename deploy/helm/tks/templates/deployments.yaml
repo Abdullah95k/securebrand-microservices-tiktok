@@ -36,12 +36,13 @@ spec:
       containers:
         - name: {{ $name }}
           {{- $tag := $root.Values.image.tag | default $root.Chart.AppVersion }}
-          {{- if and $c.browser $root.Values.image.browserTag }}{{ $tag = $root.Values.image.browserTag }}{{ end }}
-          image: "{{ $root.Values.image.repository }}:{{ $tag }}"
+          {{- $repo := $root.Values.image.repository }}
+          {{- if and $c.browser $root.Values.image.browserTag }}{{ $tag = $root.Values.image.browserTag }}{{ $repo = $root.Values.image.browserRepository | default $repo }}{{ end }}
+          image: "{{ $repo }}:{{ $tag }}"
           imagePullPolicy: {{ $root.Values.image.pullPolicy }}
           command: {{- toYaml $c.command | nindent 12 }}
           env:
-            {{- include "tks.env" $root | nindent 12 }}
+            {{- include "tks.env" (dict "root" $root "c" $c) | nindent 12 }}
             {{- if $c.podIP }}
             - name: POD_IP
               valueFrom: {fieldRef: {fieldPath: status.podIP}}
@@ -94,11 +95,21 @@ spec:
     {{- range $c.autoscale.lag }}
     - type: kafka
       metadata:
+        {{- if $root.Values.keda.bootstrapServersFromEnv }}
+        bootstrapServersFromEnv: {{ $root.Values.keda.bootstrapServersFromEnv | quote }}
+        {{- else }}
         bootstrapServers: {{ $root.Values.keda.kafkaBootstrap | quote }}
+        {{- end }}
         consumerGroup: {{ printf "%s%s" ($root.Values.config.kafka.topic_prefix | default "") .group | quote }}
         topic: {{ printf "%s%s" ($root.Values.config.kafka.topic_prefix | default "") .topic | quote }}
         lagThreshold: {{ .threshold | quote }}
         offsetResetPolicy: earliest
+        {{- with $root.Values.keda.sasl }}
+        sasl: {{ . | quote }}
+        {{- end }}
+        {{- with $root.Values.keda.tls }}
+        tls: {{ . | quote }}
+        {{- end }}
       {{- if $root.Values.keda.authSecret }}
       authenticationRef:
         name: {{ include "tks.fullname" $root }}-kafka

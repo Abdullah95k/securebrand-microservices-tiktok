@@ -96,6 +96,7 @@ jobs:
       - name: Helm lint and render
         run: |
           go install github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7
+          python3 -c 'import yaml' 2>/dev/null || sudo apt-get install -y python3-yaml
           make chart-check
           helm template tks deploy/helm/tks --set keda.enabled=false,api.ingress.enabled=true,networkPolicy.enabled=true > /dev/null
           helm template tks deploy/helm/tks --set alerts.enabled=true,dashboards.enabled=true,serviceMonitor.enabled=true > /tmp/monitoring.yaml

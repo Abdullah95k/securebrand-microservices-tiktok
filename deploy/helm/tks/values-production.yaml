@@ -1,0 +1,112 @@
+# tks on the production platform (M18; docs/tiktok/production-handover.md,
+# runbook docs/runbooks/tks-production.md). Layered over values.yaml:
+#
+#   helm template tks deploy/helm/tks -n tks -f deploy/helm/tks/values-production.yaml \
+#     --set image.tag=<commit> --set image.browserTag=<commit>
+#
+# Namespace tks holds, from the platform:
+#   - Secret platform-credentials: POSTGRES_*, KAFKA_*, VALKEY_*, S3_*,
+#     SCHEMA_REGISTRY_URL (mapped below with valueFrom, platformSecret);
+#     each component's Postgres role as POSTGRES_<ROLE>_USER and _PASSWORD
+#     for API, READER, PERSISTER, SCHEDULER and CRAWLER;
+#   - Secret proxies, key proxies.yaml: tt.proxy.tiers in tks's format,
+#     each tier with its country;
+# and, made once for tks (never in git): Secret tks-env with
+# TKS_PRIVACY__AUTHOR_HMAC_KEY (openssl rand -hex 32, never changed) and
+# TKS_TT__CANARY__ACCOUNTS (3 or more of the owner's public accounts, comma
+# separated).
+
+image:
+  # The platform builds both images from a commit of this repository and
+  # keeps them in its registry; the tags are that commit's full SHA.
+  repository: registry.digitalocean.com/securebrand/tks
+  tag: ""
+  browserRepository: registry.digitalocean.com/securebrand/tks-browser
+  browserTag: ""
+
+platformSecret:
+  name: platform-credentials
+  roles: true
+
+secretEnv:
+  existingSecret: tks-env
+secretFiles:
+  existingSecret: proxies
+  key: proxies.yaml
+
+config:
+  service: {env: prod}
+  # Brokers, Valkey, Postgres and the object store come from
+  # platform-credentials; these are what the Secret does not say.
+  kafka:
+    brokers: []
+  s3:
+    endpoint: ""
+    use_ssl: true
+    # The platform owns the buckets and expires tks/30d/ after 30 days.
+    create_buckets: false
+    media_prefix: "tks/"
+    raw_keep_prefix: "tks/keep/"
+    raw_rest_prefix: "tks/30d/"
+  tt:
+    # Failures and a 1 % sample of good answers, kept for good under
+    # tks/keep/ (all would also keep every other answer under tks/30d/).
+    capture_raw: sample
+    capture_raw_sample: 0.01
+    cost:
+      # The owner's prices and budget (2026-11-05), for tks_cost_* and
+      # tksctl report.
+      ip_month_usd: 3
+      browser_hour_usd: 0.017
+      compute_usd_per_account_day: 0.0002
+      storage_gb_month_usd: 0.10
+      budget_per_account_usd: 0.0019
+
+# The platform owns the topics (REQ-020); tks registers no schema in a
+# shared registry (standing instruction 2). Migrations run as the owner and
+# grant the components' roles.
+hooks:
+  migrate: true
+  topics: false
+  schemas: false
+
+keda:
+  enabled: true
+  bootstrapServersFromEnv: TKS_KAFKA__BROKERS
+  authSecret: platform-credentials
+  authKeys: {username: KAFKA_USER, password: KAFKA_PASSWORD, ca: KAFKA_CA_CERT}
+  sasl: scram_sha256
+  tls: enable
+
+# Each component's role, and its maximum pods at most the partitions of
+# the topics it reads (the platform's starting sizes: account lanes 3 each,
+# post and thread lanes 3/6/3, tks.task.media 3, tt.* 3 at least).
+components:
+  api:
+    postgresRole: api
+    readRole: reader
+  scheduler:
+    postgresRole: scheduler
+  crawler-account:
+    postgresRole: crawler
+    autoscale: {max: 3}
+  crawler-post:
+    postgresRole: crawler
+    autoscale: {max: 3}
+  crawler-thread:
+    postgresRole: crawler
+    autoscale: {max: 3}
+  crawler-retry:
+    postgresRole: crawler
+  persister:
+    postgresRole: persister
+    autoscale: {max: 3}
+  media-downloader:
+    postgresRole: crawler
+    autoscale: {max: 3}
+  canary:
+    postgresRole: crawler
+  # The signer in its own capped Deployment, with no database.
+  signer:
+    enabled: true
+    postgresRole: none
