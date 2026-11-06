@@ -62,9 +62,9 @@ type Downloader struct {
 	Presign       bool
 	// Prefix starts every object's key (s3.media_prefix: "tks/" on the
 	// production platform).
-	Prefix string
-	PresignTTL    time.Duration
-	Now           func() time.Time
+	Prefix     string
+	PresignTTL time.Duration
+	Now        func() time.Time
 }
 
 // NewHTTPClient returns a client for TikTok's media hosts: direct egress,
