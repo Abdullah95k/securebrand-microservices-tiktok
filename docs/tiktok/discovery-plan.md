@@ -321,7 +321,7 @@ All four already carry the person's id and `secUid`, except bios, which carry on
 
 ## 9. Part D: who follows whom (C6, then M13)
 
-**Built** (M13, 2026-11-06; [`tks-discovery.md`](../runbooks/tks-discovery.md#part-d-following-and-followers-lists)). C6 run 1 answered the open question below: both lists are served logged out, unsigned; a hidden following list answers 10222 and the profile says so in advance. A re-read takes the newest people down to those already stored, then goes deeper from where the last read stopped, up to `tt.discovery.follows.max_pages`: a large account's list fills in over days. How deep TikTok lets a logged-out visitor go is still open (T39).
+**Built** (M13, 2026-11-06; [`tks-discovery.md`](../runbooks/tks-discovery.md#part-d-following-and-followers-lists)). C6 run 1 answered the open question below: both lists are served logged out, unsigned; a hidden following list answers 10222 and the profile says so in advance. A re-read takes the newest people down to those already stored, then goes deeper from where the last read stopped, up to `tt.discovery.follows.max_pages`: a large account's list fills in over days. How deep TikTok lets a logged-out visitor go is still open (T40).
 
 **What is read:** for **every monitored account, including the ones discovery adds**, its **following** list and its **followers** list.
 
@@ -452,7 +452,7 @@ Go-live (C5) doesn't wait for discovery. Part A is usable as soon as M10 merges.
 ## 16. Still open
 
 1. **Exits in or near Iraq**, if C6 shows that TikTok serves Iraqi results only to Iraqi viewers (§8.3). This is a proxy decision.
-2. ~~Follower lists behind login~~ (§9): **closed** (C6 run 1, 2026-11-05): served logged out; built in M13. How deep they go logged out is T39.
+2. ~~Follower lists behind login~~ (§9): **closed** (C6 run 1, 2026-11-05): served logged out; built in M13. How deep they go logged out is T40.
 3. ~~The owner's own accounts that go quiet~~: **closed** (owner, 2026-11-05): they stay monitored with lighter checks (§4, built in M10a).
 4. ~~Counsel's review~~ (§13): **closed** (owner, 2026-11-05): signed off, discovery included.
 

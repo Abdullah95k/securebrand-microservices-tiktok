@@ -299,7 +299,7 @@ func (w *World) AddAccount(username, bio string, n int, newest, spacing time.Dur
 }
 
 // AddFollower puts f at the top of acc's followers list (TikTok serves
-// the newest first: T39).
+// the newest first: T40).
 func (w *World) AddFollower(acc, f *Account) {
 	w.Mutate(func() { acc.FollowerList = append([]*Account{f}, acc.FollowerList...) })
 }

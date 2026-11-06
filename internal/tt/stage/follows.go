@@ -75,7 +75,7 @@ func parseFollowCursor(s string) (followCursor, bool) {
 
 // FollowsStage reads one monitored account's following or followers list
 // (discovery part D, docs/tiktok/discovery-plan.md §9). TikTok serves the
-// newest people first (T39), so a re-read walks from the top until
+// newest people first (T40), so a re-read walks from the top until
 // tt.discovery.follows.known_pages pages in a row hold nobody already
 // stored; a list not yet read to its end then goes deeper, from where the
 // last read stopped. A read fetches at most its scope's max_pages. Every

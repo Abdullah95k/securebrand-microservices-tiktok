@@ -38,7 +38,7 @@ message Follow {
   optional int64 follower_count = 7;
   optional int64 following_count = 8;
   // The page of the read it was on (0: the list's first page) and its place
-  // on that page: TikTok serves the newest first (T39).
+  // on that page: TikTok serves the newest first (T40).
   int32 page = 9;
   int32 position = 10;
 }
