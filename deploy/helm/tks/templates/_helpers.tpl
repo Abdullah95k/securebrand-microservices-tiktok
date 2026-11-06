@@ -28,6 +28,11 @@ app.kubernetes.io/component: {{ .name }}
 {{- define "tks.env" -}}
 - name: TKS_CONFIG
   value: {{ include "tks.configFiles" . | quote }}
+{{- if .Values.components.signer.enabled }}
+# tks-signer's Service, for tt.signer.mode remote.
+- name: TKS_TT__SIGNER__REMOTE_URL
+  value: {{ printf "http://%s-signer:%v" (include "tks.fullname" .) .Values.components.signer.port | quote }}
+{{- end }}
 {{- end -}}
 
 {{- define "tks.envFrom" -}}

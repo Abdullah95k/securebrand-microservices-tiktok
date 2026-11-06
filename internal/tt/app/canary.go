@@ -104,6 +104,10 @@ func NewCanary(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, o Cana
 	}
 	c := &Canary{Registry: reg}
 	signer := o.Signer
+	if signer == nil && tc.Signer.Mode == config.SignerRemote {
+		// tks-signer's pages (M9d): this process runs no browser.
+		signer = sign.NewRemote(tc.Signer.RemoteURL, tc.Signer.SignTimeout, tc.Signer.PageTimeout)
+	}
 	if signer == nil && tc.Signer.Mode == config.SignerBrowser {
 		// The canary's own pages, capped like a crawler's: it checks the
 		// signer the crawler runs.

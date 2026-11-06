@@ -42,10 +42,11 @@ type URLSigner interface {
 
 // SignerFor returns the client's signer for tt.signer.mode: none sends
 // every call as built (a variant that needs a signature is then refused,
-// and the client falls back to the next variant); browser has s sign the
-// variants that need it and sends the rest as built.
+// and the client falls back to the next variant); browser and remote have
+// s (the process's own pages, or tks-signer's) sign the variants that need
+// it and send the rest as built.
 func SignerFor(mode string, s URLSigner) graphql.Signer {
-	if mode != config.SignerBrowser || s == nil {
+	if (mode != config.SignerBrowser && mode != config.SignerRemote) || s == nil {
 		return nil
 	}
 	return variantSigner{s}

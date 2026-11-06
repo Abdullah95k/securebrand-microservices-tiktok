@@ -36,3 +36,20 @@ spec:
                 port: {name: http}
 {{- end }}
 {{- end }}
+{{- $root := . -}}
+{{- range $name, $c := .Values.components }}
+{{- if and $c.enabled $c.service $c.port }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tks.fullname" $root }}-{{ $name }}
+  labels: {{- include "tks.labels" $root | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector: {{- include "tks.selector" (dict "root" $root "name" $name) | nindent 4 }}
+  ports:
+    - {name: http, port: {{ $c.port }}, targetPort: http}
+    - {name: metrics, port: 9090, targetPort: metrics}
+{{- end }}
+{{- end }}

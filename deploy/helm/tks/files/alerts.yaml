@@ -585,12 +585,13 @@ groups:
         annotations:
           summary: "{{ $value | humanizePercentage }} of signatures waited past the sign timeout: every signer page busy"
           description: >-
-            The pool's cap (tt.signer.pages, tks_signer_pages_max) is too low
-            for the comment traffic: add crawler pods running the post and
-            thread stages, or raise the cap where memory allows.
+            tks-signer's pages (tt.signer.pages per replica,
+            tks_signer_pages_max) are too few for the comment traffic: add
+            tks-signer replicas (components.signer.replicas), each capped at
+            its own 2 GiB.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-canary.md#the-signer-is-saturated
       - alert: TksSignerPagesChurn
-        expr: sum(increase(tks_signer_page_closes_total{reason=~"memory|refused|error"}[1h])) > 60
+        expr: sum(increase(tks_signer_page_closes_total{reason=~"memory|killed|refused|error"}[1h])) > 60
         for: 30m
         labels: {severity: warning}
         annotations:
@@ -600,6 +601,49 @@ groups:
             each new page is a TikTok page load through the tier and browser
             time. tks_signer_page_closes_total by reason says which.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-canary.md#signer-pages-churn
+      # tks-signer, the signer's own capped service (M9d).
+      - alert: TksSignerUnreachable
+        expr: |
+          sum(rate(tks_signer_remote_calls_total{call="sign",result="unreachable"}[5m]))
+            / clamp_min(sum(rate(tks_signer_remote_calls_total{call="sign"}[5m])), 1e-9) > 0.2
+          and sum(rate(tks_signer_remote_calls_total{call="sign"}[5m])) > 0.01
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of the crawlers' calls to tks-signer get no answer"
+          description: >-
+            tks-signer is down, restarting (an OOM kill), or not reachable
+            from the crawlers (its Service, its NetworkPolicy). No comment or
+            reply is read meanwhile; they wait in the retry topics.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#tks-signer-unreachable
+      - alert: TksSignerMemoryNearLimit
+        expr: |
+          max by (pod) (container_memory_working_set_bytes{container="signer"})
+            / on (pod) max by (pod) (kube_pod_container_resource_limits{container="signer", resource="memory"}) > 0.9
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "tks-signer {{ $labels.pod }} uses {{ $value | humanizePercentage }} of its memory limit"
+          description: >-
+            The signer's pages together near the pod's limit: the next growth
+            is an OOM kill. tt.signer.kill_page_mb and max_page_mb close a
+            page that grows; pages near them at once, or Chrome's shared
+            processes, can still fill the pod.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#tks-signer-memory
+      - alert: TksSignerOOMKilled
+        expr: |
+          sum by (pod) (increase(kube_pod_container_status_restarts_total{container="signer"}[30m])) > 0
+          and on (pod) max by (pod) (kube_pod_container_status_last_terminated_reason{container="signer", reason="OOMKilled"}) == 1
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: "tks-signer {{ $labels.pod }} was OOM killed"
+          description: >-
+            A page ran away faster than the guard closes it (tt.signer.kill_page_mb,
+            checked every 10 s): the pod restarted, and only its signatures
+            failed meanwhile. Crawlers and nodes are unaffected; that is the
+            cap's purpose.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#tks-signer-memory
   # Posts no longer public (docs/tiktok/adr/0007 §17, M8b).
   - name: tks.posts
     rules:

@@ -13,6 +13,8 @@ package sign
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -64,8 +66,13 @@ type Pool struct {
 
 	mu     sync.Mutex
 	idle   []*page
-	total  int // idle and in use
+	busy   map[*page]struct{} // handed out: signing, or about to
+	total  int                // idle and in use
 	closed bool
+	// prefix and seq name the pool's pages (page.id), unique across
+	// processes: tks-signer's callers name a page to avoid by its id.
+	prefix string
+	seq    int
 	// pageSeconds integrates total over time since BrowserSeconds last
 	// read it (from since): the pool's browser time, which tks's cost
 	// prices (build brief §8 A5).
@@ -81,6 +88,7 @@ type Pool struct {
 
 type page struct {
 	Page
+	id       string
 	ua       string
 	opened   time.Time
 	lastUsed time.Time
@@ -89,21 +97,23 @@ type page struct {
 	// page past tt.signer.max_refusals, closed instead of reused.
 	refusals int
 	bad      bool
+	// killed marks a page the guard closed while it signed (kill_page_mb).
+	killed bool
 }
 
-// SweepEvery is how often a pool with tt.signer.idle_close or max_page_mb
-// looks at its idle pages.
+// SweepEvery is how often a pool with tt.signer.idle_close, max_page_mb
+// or kill_page_mb looks at its pages.
 var SweepEvery = 10 * time.Second
 
 // New returns a pool of cfg.Pages pages opened by open. With
-// cfg.IdleClose or cfg.MaxPageMB it sweeps its idle pages every
+// cfg.IdleClose, cfg.MaxPageMB or cfg.KillPageMB it sweeps its pages every
 // SweepEvery until Close.
 func New(cfg config.Signer, open Opener) *Pool {
 	n := max(cfg.Pages, 1)
 	p := &Pool{cfg: cfg, open: open, slots: make(chan struct{}, n), quit: make(chan struct{}), done: make(chan struct{}),
-		signedBy: map[string]*page{}}
+		signedBy: map[string]*page{}, busy: map[*page]struct{}{}, prefix: randomPrefix()}
 	metrics.SignerPagesMax.Set(float64(n))
-	if cfg.IdleClose > 0 || cfg.MaxPageMB > 0 {
+	if cfg.IdleClose > 0 || cfg.MaxPageMB > 0 || cfg.KillPageMB > 0 {
 		go p.sweeper(SweepEvery)
 	} else {
 		close(p.done)
@@ -128,7 +138,10 @@ func (p *Pool) sweeper(every time.Duration) {
 // Sweep closes the idle pages unused for tt.signer.idle_close or whose
 // browser uses more than tt.signer.max_page_mb: an idle page costs memory
 // and does nothing (the pilot server froze when an idle Chrome page grew
-// to 7 GB, 2026-11-03), and the next call opens a fresh one.
+// to 7 GB, 2026-11-03), and the next call opens a fresh one. It also
+// closes a page in use whose browser passed tt.signer.kill_page_mb (the
+// guard): its call fails and is signed again elsewhere, rather than the
+// page taking its pod's whole memory limit while it signs.
 func (p *Pool) Sweep() {
 	p.mu.Lock()
 	var stale []closing
@@ -140,7 +153,7 @@ func (p *Pool) Sweep() {
 			why = CloseRefused
 		case p.idleTooLong(pg):
 			why = CloseIdle
-		case p.tooBig(pg):
+		case p.tooBig(pg) || p.runaway(pg):
 			why = CloseMemory
 		}
 		if why != "" {
@@ -151,9 +164,22 @@ func (p *Pool) Sweep() {
 	}
 	p.idle = keep
 	p.addTotal(-len(stale))
+	var kill []*page
+	for pg := range p.busy {
+		if !pg.killed && p.runaway(pg) {
+			pg.killed = true
+			kill = append(kill, pg)
+		}
+	}
 	p.mu.Unlock()
 	for _, c := range stale {
 		p.closePage(c.pg, c.why)
+	}
+	for _, pg := range kill {
+		// The page stays counted until its call returns (give or discard
+		// then counts the close); closing it now ends that call.
+		slog.Warn("sign: a signer page passed tt.signer.kill_page_mb while signing; closed", "page", pg.id, "limit_mb", p.cfg.KillPageMB)
+		go pg.Close()
 	}
 }
 
@@ -167,6 +193,7 @@ const (
 	CloseRoom     = "room"     // closed to open a page for another user agent, or for a retry
 	CloseShutdown = "shutdown" // the pool closed
 	CloseStuck    = "stuck"    // did not close within CloseTimeout (left to finish)
+	CloseKilled   = "killed"   // its browser passed kill_page_mb while it signed
 )
 
 type closing struct {
@@ -209,9 +236,15 @@ func (p *Pool) idleTooLong(pg *page) bool {
 }
 
 // tooBig reports a page whose browser uses more than tt.signer.max_page_mb.
-func (p *Pool) tooBig(pg *page) bool {
+func (p *Pool) tooBig(pg *page) bool { return overMB(pg, p.cfg.MaxPageMB) }
+
+// runaway reports a page whose browser uses more than
+// tt.signer.kill_page_mb.
+func (p *Pool) runaway(pg *page) bool { return overMB(pg, p.cfg.KillPageMB) }
+
+func overMB(pg *page, limit float64) bool {
 	m, ok := pg.Page.(interface{ MemoryMB() float64 })
-	return ok && p.cfg.MaxPageMB > 0 && m.MemoryMB() > p.cfg.MaxPageMB
+	return ok && limit > 0 && m.MemoryMB() > limit
 }
 
 // addTotal changes the page count (under p.mu), first adding the time the
@@ -301,9 +334,16 @@ func (p *Pool) SignURL(ctx context.Context, id *session.Identity, query, rawURL,
 func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (*page, error) {
 	ua := id.FP.UserAgent
 	var avoid *page
+	var avoidID PageID
 	if r := graphql.SignRetryFrom(ctx); r != nil {
-		avoid, _ = r.Avoid.(*page)
+		switch a := r.Avoid.(type) {
+		case *page:
+			avoid = a
+		case PageID: // named by tks-signer's caller
+			avoidID = a
+		}
 	}
+	avoided := func(pg *page) bool { return pg == avoid || (avoidID != "" && PageID(pg.id) == avoidID) }
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
@@ -320,7 +360,7 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 			stale = append(stale, closing{pg, CloseSpent})
 		case p.idleTooLong(pg):
 			stale = append(stale, closing{pg, CloseIdle})
-		case got == nil && pg.ua == ua && pg != avoid:
+		case got == nil && pg.ua == ua && !avoided(pg):
 			got = pg
 		default:
 			keep = append(keep, pg)
@@ -333,7 +373,7 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 		// or the one a retry avoids.
 		i := 0
 		for j, pg := range p.idle {
-			if pg == avoid {
+			if avoided(pg) {
 				i = j
 			}
 		}
@@ -343,6 +383,8 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 	}
 	if got == nil {
 		p.addTotal(1) // reserved for the page about to open
+	} else {
+		p.busy[got] = struct{}{}
 	}
 	p.mu.Unlock()
 	for _, c := range stale {
@@ -362,7 +404,12 @@ func (p *Pool) take(ctx context.Context, id *session.Identity, referer string) (
 	metrics.SignerPageOpens.WithLabelValues("ok").Inc()
 	metrics.SignerPages.Inc()
 	now := p.now()
-	return &page{Page: pg, ua: ua, opened: now, lastUsed: now}, nil
+	p.mu.Lock()
+	p.seq++
+	np := &page{Page: pg, id: p.prefix + "-" + strconv.Itoa(p.seq), ua: ua, opened: now, lastUsed: now}
+	p.busy[np] = struct{}{}
+	p.mu.Unlock()
+	return np, nil
 }
 
 // openPage opens a page within tt.signer.page_timeout. The page outlives
@@ -407,10 +454,13 @@ func (p *Pool) spent(pg *page) bool {
 // give returns a page to the idle list, or closes it when it is spent or
 // the pool is closed.
 func (p *Pool) give(pg *page) {
-	big := p.tooBig(pg)
+	big := p.tooBig(pg) || p.runaway(pg)
 	p.mu.Lock()
+	delete(p.busy, pg)
 	why := ""
 	switch {
+	case pg.killed:
+		why = CloseKilled
 	case p.closed:
 		why = CloseShutdown
 	case pg.bad:
@@ -432,9 +482,40 @@ func (p *Pool) give(pg *page) {
 
 func (p *Pool) discard(pg *page) {
 	p.mu.Lock()
+	delete(p.busy, pg)
 	p.addTotal(-1)
+	why := CloseError
+	if pg.killed {
+		why = CloseKilled
+	}
 	p.mu.Unlock()
-	p.closePage(pg, CloseError)
+	p.closePage(pg, why)
+}
+
+// PageID names one of a pool's pages across processes: tks-signer's
+// callers pass it back as graphql.SignRetry's Avoid, so the call they sign
+// once more avoids the page whose signature TikTok refused.
+type PageID string
+
+// Noted returns the id of the page r's Avoid notes, "" when it notes none
+// of this package's pages.
+func Noted(r *graphql.SignRetry) PageID {
+	if r == nil {
+		return ""
+	}
+	switch a := r.Avoid.(type) {
+	case *page:
+		return PageID(a.id)
+	case PageID:
+		return a
+	}
+	return ""
+}
+
+func randomPrefix() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // maxSignedBy bounds the calls whose answer the pool waits to hear.

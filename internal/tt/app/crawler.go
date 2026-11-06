@@ -165,6 +165,10 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 	// Comments and replies are signed by TikTok's own script in a browser
 	// page (build brief D11); everything else goes out as built.
 	signer := o.Signer
+	if signer == nil && tc.Signer.Mode == config.SignerRemote {
+		// tks-signer's pages (M9d): this process runs no browser.
+		signer = sign.NewRemote(tc.Signer.RemoteURL, tc.Signer.SignTimeout, tc.Signer.PageTimeout)
+	}
 	if signer == nil && tc.Signer.Mode == config.SignerBrowser {
 		c.Signer = sign.New(tc.Signer, sign.BrowserOpener(sign.BrowserConfig{Binary: tc.Browser.Binary, NoSandbox: tc.Browser.NoSandbox,
 			AcceptLanguage: tc.AcceptLanguage, CallTimeout: tc.Signer.PageTimeout, Freeze: tc.Signer.Freeze, Lite: tc.Signer.Lite}))

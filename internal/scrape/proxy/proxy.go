@@ -283,6 +283,31 @@ func (p *Pool) Resume(tier, exit string) (Endpoint, bool) {
 	return Endpoint{}, false
 }
 
+// Endpoint returns tier's endpoint named by exit (a static exit,
+// tier|host:port) or by session (a gateway's sticky session id), as
+// another process built it with Next: tks-signer opens its page on the
+// exit of the identity that asked, from its own copy of the proxy file, so
+// no proxy credential crosses the network (M9d). Unlike Resume it ignores
+// breakers: the caller's identity already chose the exit. It is false when
+// tier has no such exit.
+func (p *Pool) Endpoint(tier, exit, session string) (Endpoint, bool) {
+	switch t := p.tiers[tier].(type) {
+	case *staticList:
+		for i, e := range t.exits {
+			if e == exit {
+				return t.endpoint(i), true
+			}
+		}
+	case *gateway:
+		if session != "" && exit == "" {
+			return t.endpoint(session), true
+		}
+	case direct:
+		return Endpoint{Tier: t.name}, exit == "" && session == ""
+	}
+	return Endpoint{}, false
+}
+
 // staticBucket is the /24 of an IPv4 endpoint (/48 for IPv6). An endpoint
 // named by hostname is its host and port: providers that sell static IPs
 // behind one hostname give each IP its own port, so one breaker per host
@@ -377,7 +402,11 @@ func (g *gateway) Next(allow func(Endpoint) bool) (Endpoint, error) {
 	if !allow(Endpoint{Tier: g.cfg.Name, Bucket: g.bucket()}) {
 		return Endpoint{}, ErrTierOpen
 	}
-	sess := randomSession()
+	return g.endpoint(randomSession()), nil
+}
+
+// endpoint is the gateway's endpoint for the sticky session sess.
+func (g *gateway) endpoint(sess string) Endpoint {
 	ttl := g.cfg.StickyTTL
 	if ttl <= 0 {
 		ttl = 10 * time.Minute
@@ -401,7 +430,7 @@ func (g *gateway) Next(allow func(Endpoint) bool) (Endpoint, error) {
 		Country:   g.cfg.Country,
 		ExpiresAt: time.Now().Add(ttl),
 		Bucket:    g.bucket(),
-	}, nil
+	}
 }
 
 func randomSession() string {

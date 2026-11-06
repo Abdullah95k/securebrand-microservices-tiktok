@@ -191,6 +191,12 @@ func TestTTValidate(t *testing.T) {
 		"signer pages":       {func(t *TT) { t.Signer.Pages = 0 }, "tt.signer: browser mode"},
 		"signer off":         {func(t *TT) { t.Signer.Mode, t.Signer.Pages = SignerNone, 0 }, ""},
 		"signer share":       {func(t *TT) { t.Signer.MaxShare = 1.5 }, "max_share"},
+		"remote no url":      {func(t *TT) { t.Signer.Mode = SignerRemote }, "tt.signer.remote_url"},
+		"remote bad url":     {func(t *TT) { t.Signer.Mode, t.Signer.RemoteURL = SignerRemote, "tks-signer:8080" }, "tt.signer.remote_url"},
+		"remote":             {func(t *TT) { t.Signer.Mode, t.Signer.RemoteURL = SignerRemote, "http://tks-signer:8080" }, ""},
+		"remote pages":       {func(t *TT) { t.Signer.Mode, t.Signer.RemoteURL, t.Signer.Pages = SignerRemote, "http://s:8080", 0 }, "remote mode"},
+		"kill below max":     {func(t *TT) { t.Signer.KillPageMB = 500 }, "kill_page_mb"},
+		"kill negative":      {func(t *TT) { t.Signer.KillPageMB = -1 }, "kill_page_mb"},
 		"list interval":      {func(t *TT) { t.Freshness.ListInterval = 0 }, "list_interval"},
 		"backfill":           {func(t *TT) { t.Freshness.BackfillDays = 0 }, "backfill_days"},
 		"walks order": {func(t *TT) {

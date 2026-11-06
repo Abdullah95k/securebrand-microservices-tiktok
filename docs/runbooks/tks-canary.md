@@ -83,7 +83,7 @@ A run costs, per canary account it needs: one profile page, one list call per li
 ## The signer fails
 
 `TksSignerFailing`: more than 10 % of signatures fail (`tks_signer_signs_total{result="error"}`), or `tks_canary_signer_healthy` is 0.
-1. `tks_signer_page_opens_total{result="error"}` rising: pages do not open. Chromium missing or crashing in the image (`tt.browser.binary`), or TikTok's page not loading through the tier (page timeouts in the logs).
+1. `tks_signer_page_opens_total{result="error"}` rising: pages do not open. Chromium missing or crashing in tks-signer's image (`tt.browser.binary`), or TikTok's page not loading through the tier (page timeouts in its logs). No answer from tks-signer at all is [`TksSignerUnreachable`](tks-deploy.md#tks-signer-unreachable).
 2. Pages open but signing fails: TikTok's page script changed how it signs `fetch` (the page no longer adds its parameters, or holds no call). The probe's browser step (`tks-spike probe`) shows what the page adds now. tks never computes a signature itself (ADR 0006 §4).
 3. Comments and replies wait in the retry topics meanwhile; nothing is lost.
 
@@ -95,12 +95,13 @@ A run costs, per canary account it needs: one profile page, one list call per li
 
 ## The signer is saturated
 
-`TksSignerSaturated`: more than 5 % of signatures waited past `tt.signer.sign_timeout` because every page was busy. The pool is capped per process (`tt.signer.pages`, shown as `tks_signer_pages_max`) to bound the browsers' memory (the pilot server froze at 7 GB, 2026-11-03). Add crawler pods running the `post` and `thread` stages, or raise `tt.signer.pages` where memory allows (each page is a Chrome renderer of a few hundred MB: `tt.signer.max_page_mb`).
+`TksSignerSaturated`: more than 5 % of signatures waited past `tt.signer.sign_timeout` because every page was busy. The pool is capped per tks-signer replica (`tt.signer.pages`, shown as `tks_signer_pages_max`) to bound the browsers' memory (the pilot server froze at 7 GB, 2026-11-03). Add tks-signer replicas (`components.signer.replicas`; [the signer service](tks-deploy.md#the-signer-service)); raise `tt.signer.pages` only with the pod's memory (each page is a Chrome renderer of a few hundred MB, killed past `tt.signer.kill_page_mb`).
 
 ## Signer pages churn
 
 `TksSignerPagesChurn`: more than 60 pages an hour closed for `memory`, `refused` or `error` (`tks_signer_page_closes_total` by `reason`). Each new page is a TikTok page load through the tier and browser time.
 - `memory`: pages outgrow `tt.signer.max_page_mb`; check that `tt.signer.freeze` and `open_on: profile` are on (S2).
+- `killed`: pages passed `tt.signer.kill_page_mb` while signing and were closed mid-call (the guard); as for `memory`, and see [tks-signer memory](tks-deploy.md#tks-signer-memory).
 - `refused`: see [Signed calls refused](#signed-calls-refused).
 - `error`: see [The signer fails](#the-signer-fails).
 

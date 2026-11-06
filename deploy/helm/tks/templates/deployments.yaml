@@ -40,7 +40,12 @@ spec:
           image: "{{ $root.Values.image.repository }}:{{ $tag }}"
           imagePullPolicy: {{ $root.Values.image.pullPolicy }}
           command: {{- toYaml $c.command | nindent 12 }}
-          env: {{- include "tks.env" $root | nindent 12 }}
+          env:
+            {{- include "tks.env" $root | nindent 12 }}
+            {{- if $c.podIP }}
+            - name: POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
+            {{- end }}
           {{- include "tks.envFrom" $root | nindent 10 }}
           ports:
             - {name: metrics, containerPort: 9090}
