@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"time"
 
@@ -71,7 +72,7 @@ func (s *Server) accountFollows(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		list = &l
-	case err != pgx.ErrNoRows:
+	case !errors.Is(err, pgx.ErrNoRows):
 		serverError(w, err)
 		return
 	}

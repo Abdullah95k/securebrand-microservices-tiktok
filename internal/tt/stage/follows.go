@@ -225,7 +225,7 @@ func (s *FollowsStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 			r.total = res.Total
 		}
 
-		page := int32(sc.PagesSeen) + int32(st.Pages)
+		page := sc.PagesSeen + int32(st.Pages)
 		b := d.Producer.NewBatch()
 		ids := make([]int64, 0, len(res.People))
 		for i, e := range res.People {
