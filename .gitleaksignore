@@ -17,3 +17,7 @@
 6484c11a7d415232cfccf61822771db883bdfcd6:testdata/fb/comments/fakefb_first_page/expected.json:generic-api-key:921
 6484c11a7d415232cfccf61822771db883bdfcd6:testdata/fb/comments/fakefb_first_page/expected.json:generic-api-key:930
 6484c11a7d415232cfccf61822771db883bdfcd6:testdata/fb/comments/fakefb_first_page/response.ndjson:generic-api-key:1
+ae614c0cad15ad0140e93e62d20ebf2a6195956c:testdata/fb/comments/fakefb_first_page/expected.json:generic-api-key:912
+ae614c0cad15ad0140e93e62d20ebf2a6195956c:testdata/fb/comments/fakefb_first_page/expected.json:generic-api-key:921
+ae614c0cad15ad0140e93e62d20ebf2a6195956c:testdata/fb/comments/fakefb_first_page/expected.json:generic-api-key:930
+ae614c0cad15ad0140e93e62d20ebf2a6195956c:testdata/fb/comments/fakefb_first_page/response.ndjson:generic-api-key:1
