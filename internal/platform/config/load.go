@@ -5,8 +5,13 @@ package config
 import (
 	"fmt"
 	"os"
+	"reflect"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/env/v2"
 	"github.com/knadh/koanf/providers/file"
@@ -16,7 +21,9 @@ import (
 
 // Load merges defaults, the files in paths (comma separated, later files
 // win; e.g. a ConfigMap then a Secret) and environment variables starting
-// with envPrefix into out. List values in env vars are comma separated.
+// with envPrefix into out. List values in env vars are comma separated; a
+// value is split only where the key it sets is a list, so a password or a
+// certificate with a comma reaches a string key whole.
 func Load(defaults []byte, paths, envPrefix string, out any) (*koanf.Koanf, error) {
 	return LoadLayers([][]byte{defaults}, paths, envPrefix, out)
 }
@@ -47,21 +54,54 @@ func LoadLayers(defaults [][]byte, paths, envPrefix string, out any) (*koanf.Koa
 		TransformFunc: func(key, value string) (string, any) {
 			key = strings.ToLower(strings.TrimPrefix(key, envPrefix))
 			key = strings.ReplaceAll(key, "__", ".")
-			if strings.Contains(value, ",") {
-				parts := strings.Split(value, ",")
-				for i := range parts {
-					parts[i] = strings.TrimSpace(parts[i])
-				}
-				return key, parts
-			}
 			return key, value
 		},
 	})
 	if err := k.Load(envProv, nil); err != nil {
 		return nil, fmt.Errorf("config: env: %w", err)
 	}
-	if err := k.Unmarshal("", out); err != nil {
+	dc := &mapstructure.DecoderConfig{
+		DecodeHook: mapstructure.ComposeDecodeHookFunc(
+			durationDays,
+			mapstructure.StringToTimeDurationHookFunc(),
+			splitList,
+			mapstructure.TextUnmarshallerHookFunc()),
+		WeaklyTypedInput: true,
+		Result:           out,
+	}
+	if err := k.UnmarshalWithConf("", out, koanf.UnmarshalConf{DecoderConfig: dc}); err != nil {
 		return nil, fmt.Errorf("config: unmarshal: %w", err)
 	}
 	return k, nil
+}
+
+// splitList turns a comma-separated string (an environment variable) into
+// a list where the target is one: "a, b" becomes ["a", "b"].
+func splitList(from, to reflect.Type, data any) (any, error) {
+	if from.Kind() != reflect.String || to.Kind() != reflect.Slice {
+		return data, nil
+	}
+	s := data.(string)
+	if s == "" {
+		return []string{}, nil
+	}
+	parts := strings.Split(s, ",")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	return parts, nil
+}
+
+var dayDuration = regexp.MustCompile(`(\d+(?:\.\d+)?)d`)
+
+// durationDays reads days in a duration ("7d", "1d12h"), as koanf's own
+// decoder does.
+func durationDays(from, to reflect.Type, data any) (any, error) {
+	if from.Kind() != reflect.String || to != reflect.TypeOf(time.Duration(0)) {
+		return data, nil
+	}
+	return dayDuration.ReplaceAllStringFunc(data.(string), func(d string) string {
+		n, _ := strconv.ParseFloat(strings.TrimSuffix(d, "d"), 64)
+		return strconv.FormatFloat(n*24, 'f', -1, 64) + "h"
+	}), nil
 }

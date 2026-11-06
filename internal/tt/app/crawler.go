@@ -242,7 +242,14 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 			media.RawLifecycle(ctx, o.RawS3, cfg.S3.RawBucket, days)
 		}
 		sink := rawsink.New(o.RawS3, cfg.S3.RawBucket)
-		client.Raw, client.CaptureAll = sink, tc.CaptureRaw == "all"
+		sink.KeepPrefix, sink.RestPrefix = cfg.S3.RawKeepPrefix, cfg.S3.RawRestPrefix
+		// all: every answer (the sample kept for good, the rest under the
+		// rest prefix); sample: failures and the sample only.
+		sink.KeepRest = tc.CaptureRaw == "all"
+		if tc.CaptureRaw == "all" || tc.CaptureRaw == "sample" {
+			sink.Sample = tc.CaptureRawSample
+		}
+		client.Raw, client.CaptureAll = sink, tc.CaptureRaw == "all" || tc.CaptureRaw == "sample"
 		c.Components = append(c.Components, func(ctx context.Context) error { return sink.Run(ctx, time.Minute) })
 	}
 	kcfg, err := connect.Kafka(cfg, "-crawler")

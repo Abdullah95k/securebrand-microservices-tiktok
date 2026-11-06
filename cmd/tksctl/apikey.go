@@ -21,7 +21,7 @@ func apikeyCreate(ctx context.Context, cfg *config.Config, args []string) (any, 
 	if *name == "" {
 		return nil, errors.New("--name is required")
 	}
-	db, err := ttstore.Open(ctx, cfg.Postgres.DSN, 2)
+	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, 2)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func apikeyRevoke(ctx context.Context, cfg *config.Config, args []string) (any, 
 	if *prefix == "" {
 		return nil, errors.New("--prefix is required")
 	}
-	db, err := ttstore.Open(ctx, cfg.Postgres.DSN, 2)
+	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, 2)
 	if err != nil {
 		return nil, err
 	}

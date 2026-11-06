@@ -33,7 +33,7 @@ func main() {
 }
 
 func serve(ctx context.Context, cfg *config.Config) error {
-	db, err := ttstore.Open(ctx, cfg.Postgres.DSN, cfg.Postgres.MaxConns)
+	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, cfg.Postgres.MaxConns)
 	if err != nil {
 		return err
 	}
@@ -42,8 +42,12 @@ func serve(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 	read := db
-	if cfg.Postgres.ReadDSN != "" {
-		if read, err = ttstore.Open(ctx, cfg.Postgres.ReadDSN, cfg.Postgres.MaxConns); err != nil {
+	readURL, err := cfg.Postgres.ReadURL()
+	if err != nil {
+		return err
+	}
+	if readURL != "" {
+		if read, err = ttstore.Open(ctx, readURL, cfg.Postgres.MaxConns); err != nil {
 			return err
 		}
 		defer read.Close()

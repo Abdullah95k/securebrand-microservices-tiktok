@@ -33,7 +33,11 @@ tt:
   list_page_size: 15
   comments_page_size: 20
   replies_page_size: 3
-  capture_raw: failures    # all | failures | none
+  # all | sample | failures | none: failures and the sample are kept for
+  # good (s3.raw_keep_prefix), the other answers with all only
+  # (s3.raw_rest_prefix).
+  capture_raw: failures
+  capture_raw_sample: 0.01
   proxy:
     tiers: []
     routing:

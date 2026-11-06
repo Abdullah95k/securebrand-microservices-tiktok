@@ -34,7 +34,7 @@ type migrateResult struct {
 // on up, seeds the operation registry from tt.operation_seed and creates
 // the partitions the backfill window and the months ahead need.
 func migrate(ctx context.Context, cfg *config.Config, sub string) (*migrateResult, error) {
-	db, err := ttstore.Open(ctx, cfg.Postgres.DSN, 4)
+	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, 4)
 	if err != nil {
 		return nil, err
 	}

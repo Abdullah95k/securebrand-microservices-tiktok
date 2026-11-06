@@ -60,6 +60,9 @@ type Downloader struct {
 	CookieDomains []string
 	MaxBytes      int64
 	Presign       bool
+	// Prefix starts every object's key (s3.media_prefix: "tks/" on the
+	// production platform).
+	Prefix string
 	PresignTTL    time.Duration
 	Now           func() time.Time
 }
@@ -358,7 +361,7 @@ func (d *Downloader) download(ctx context.Context, sc *tkstaskv1.MediaScope) (*c
 		ct = "application/octet-stream"
 	}
 	ct = strings.TrimSpace(strings.SplitN(ct, ";", 2)[0])
-	key := ObjectKey(m, ct)
+	key := d.Prefix + ObjectKey(m, ct)
 	h := sha256.New()
 	var src io.Reader = resp.Body
 	if d.MaxBytes > 0 {

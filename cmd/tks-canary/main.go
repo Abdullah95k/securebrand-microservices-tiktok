@@ -43,7 +43,7 @@ func main() {
 }
 
 func runCanary(ctx context.Context, cfg *config.Config, once bool) (int, error) {
-	db, err := ttstore.Open(ctx, cfg.Postgres.DSN, cfg.Postgres.MaxConns)
+	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, cfg.Postgres.MaxConns)
 	if err != nil {
 		return 0, err
 	}

@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/store"
 	ttmigrations "github.com/abdullah95k/securebrand-microservices-tiktok/migrations/tt"
@@ -172,3 +173,13 @@ func EnsurePartitions(ctx context.Context, pool *pgxpool.Pool, now time.Time, w 
 // Registry is schema tt's operation registry: fbs's fb_queries and
 // fb_client_params under tks's names (ADR 0006 §3).
 var Registry = registry.Tables{Queries: "operations", Params: "client_params"}
+
+// OpenConfig opens the component's pool from its configuration: the DSN,
+// or the server's parts with the component's own role (config.Postgres).
+func OpenConfig(ctx context.Context, p config.Postgres, maxConns int32) (*pgxpool.Pool, error) {
+	u, err := p.URL()
+	if err != nil {
+		return nil, err
+	}
+	return Open(ctx, u, maxConns)
+}

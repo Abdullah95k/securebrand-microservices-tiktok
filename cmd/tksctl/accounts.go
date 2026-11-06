@@ -54,7 +54,7 @@ func accountsImport(ctx context.Context, cfg *config.Config, args []string) (any
 	if *client == "" {
 		return nil, errors.New("--client is required: the API client the accounts belong to")
 	}
-	db, err := ttstore.Open(ctx, cfg.Postgres.DSN, 4)
+	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, 4)
 	if err != nil {
 		return nil, err
 	}
