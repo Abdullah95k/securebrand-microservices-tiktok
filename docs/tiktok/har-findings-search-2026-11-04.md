@@ -49,7 +49,7 @@ Not in this recording: the account-only search tab, hashtag pages, sound pages, 
   - All the authors were public.
   - Followers ranged from 40 to 7 million (median about 7,000); 24 of the 141 posts were by accounts with under 1,000 followers.
   - Post languages (`textLanguage`): Arabic 56, undetected 45, English 32, others 6.
-- **No search result carries `locationCreated`**, the region a post was made in. The account's own post list carries it (C2), so tks still needs one read of a new account's list to tell where it posts from ([`discovery-plan.md`](discovery-plan.md) §3).
+- **No search result carries `locationCreated`**, the region a post was made in. The account's own post list doesn't either (T39, C6 run 2: no web answer measured carries it), so where a new account posts from has to come from other signals ([`discovery-plan.md`](discovery-plan.md) §3).
 
 ## 4. The For You feed, logged out
 
