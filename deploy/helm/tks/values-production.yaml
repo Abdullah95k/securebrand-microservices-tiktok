@@ -13,9 +13,10 @@
 #   - Secret proxies, key proxies.yaml: tt.proxy.tiers in tks's format,
 #     each tier with its country;
 # and, made once for tks (never in git): Secret tks-env with
-# TKS_PRIVACY__AUTHOR_HMAC_KEY (openssl rand -hex 32, never changed) and
-# TKS_TT__CANARY__ACCOUNTS (3 or more of the owner's public accounts, comma
-# separated).
+# TKS_PRIVACY__AUTHOR_HMAC_KEY (openssl rand -hex 32, never changed).
+# The canary accounts are below (config.tt.canary.accounts), not in tks-env:
+# a TKS_TT__CANARY__ACCOUNTS there would replace them, and an empty one
+# would leave the canary with none.
 
 image:
   # The platform builds the three images from a commit of this repository and
@@ -68,6 +69,12 @@ config:
     # missing topic would retry its tasks until the topic is made.
     subtitles:
       include: false
+    canary:
+      # The owner's canary accounts (2026-11-06): public influencer
+      # accounts that post often and get comments with replies, kept here by
+      # the owner's choice (the monitored list stays out of git). Read every
+      # hour with each variant of the crawler's calls (runbook tks-canary.md).
+      accounts: [hsooalamir1, sl_om1, ali.klose11]
     cost:
       # The owner's prices and budget (2026-11-05), for tks_cost_* and
       # tksctl report.

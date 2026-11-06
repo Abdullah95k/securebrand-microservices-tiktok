@@ -183,4 +183,15 @@ func TestChartProductionConfigLoads(t *testing.T) {
 	if c.Service.Env != "prod" || c.TT.Proxy.Tiers[0].Country != "US" {
 		t.Errorf("env %q, tiers %+v", c.Service.Env, c.TT.Proxy.Tiers)
 	}
+	// The owner's canary accounts are in the values (2026-11-06): tks-canary
+	// refuses to start without, and tt.canary.confirm needs 2 of them to
+	// refuse a variant, so 3 leave one to spare.
+	if n := len(c.TT.Canary.Accounts); n < 3 || n < c.TT.Canary.Confirm+1 {
+		t.Errorf("tt.canary.accounts: %d accounts, want 3 or more", n)
+	}
+	for _, a := range c.TT.Canary.Accounts {
+		if a == "" || strings.ContainsAny(a, "@/ ") {
+			t.Errorf("tt.canary.accounts: %q is not a bare username", a)
+		}
+	}
 }

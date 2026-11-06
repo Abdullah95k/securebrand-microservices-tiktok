@@ -61,9 +61,10 @@ config:
       # A page past this is closed even while it signs (within 10 s), so
       # two pages stay inside the pod's 2 GiB.
       kill_page_mb: 1200
-    # Public canary accounts with posts, comments and replies: set them in
-    # the secretEnv Secret (TKS_TT__CANARY__ACCOUNTS, comma separated),
-    # never in values that reach git. tks-canary refuses to start without.
+    # Public canary accounts with posts, comments and replies: in
+    # canary.accounts (production's are in values-production.yaml) or the
+    # secretEnv Secret (TKS_TT__CANARY__ACCOUNTS, comma separated, which
+    # wins). tks-canary refuses to start without.
     media:
       include: false   # D5: downloads off until the analysis service exists
   scheduler:

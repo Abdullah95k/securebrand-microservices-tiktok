@@ -42,7 +42,7 @@ Rendered and checked in CI on every pull request (`make chart-check`: `helm lint
 |---|---|---|
 | `platform-credentials` | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_SSLMODE`, `POSTGRES_DATABASE`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_CA_CERT`; `KAFKA_BROKERS`, `KAFKA_USER`, `KAFKA_PASSWORD`, `KAFKA_SASL_MECHANISM`, `KAFKA_TLS`, `KAFKA_CA_CERT`; `VALKEY_HOST`, `VALKEY_PORT`, `VALKEY_PASSWORD`, `VALKEY_TLS`, `VALKEY_CA_CERT`; `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET_RAW`, `S3_BUCKET_MEDIA`, **`S3_BUCKET_BACKUPS`**; `SCHEMA_REGISTRY_URL`; **and the roles below** | the platform |
 | `proxies` | `proxies.yaml`: `tt.proxy.tiers` in tks's format, each tier with `country` | the platform, from the owner |
-| `tks-env` | `TKS_PRIVACY__AUTHOR_HMAC_KEY` (a secret of 64 hex characters: `openssl rand -hex 32`, made once and **never changed**), `TKS_TT__CANARY__ACCOUNTS` (3 or more of the owner's public accounts, comma separated) | made once for tks; not in git |
+| `tks-env` | `TKS_PRIVACY__AUTHOR_HMAC_KEY` (a secret of 64 hex characters: `openssl rand -hex 32`, made once and **never changed**). **No `TKS_TT__CANARY__ACCOUNTS`:** the owner's canary accounts are in `values-production.yaml` (`config.tt.canary.accounts`, owner, 2026-11-06), and a value here would replace them (an empty one leaves the canary with none) | made once for tks; not in git |
 
 Notes on the mapping (`deploy/helm/tks/templates/_helpers.tpl`, `tks.platformEnv`):
 - CA certificates are read as values (PEM); tks writes Postgres's to a file itself. `KAFKA_SASL_MECHANISM` may be `SCRAM-SHA-256` in any case. `KAFKA_TLS` and `VALKEY_TLS` are `true` or `false`. `S3_ENDPOINT` may be a URL (`https://…`) or a host.
@@ -96,7 +96,7 @@ The first-run report (`tksctl report`) reads Prometheus for requests, signatures
 
 ## 9. Backups
 
-A CronJob, `tks-backup`, dumps schema `tt` every day at 02:17 Iraq time (23:17 UTC) into `S3_BUCKET_BACKUPS` under **`tks/postgres/`**, as the read-only role `tks_reader`, streamed (no disk). tks never deletes a dump: **please add the bucket's expiry rule for `tks/postgres/`** (30 days is a sensible start). Restore and failures: [`../runbooks/tks-backup.md`](../runbooks/tks-backup.md). Rollbacks need no down migration ([`../runbooks/tks-rollback.md`](../runbooks/tks-rollback.md)).
+A CronJob, `tks-backup`, dumps schema `tt` every day at 02:17 Iraq time (23:17 UTC) into `S3_BUCKET_BACKUPS` under **`tks/postgres/`**, as the read-only role `tks_reader`, streamed (no disk). tks never deletes a dump: **please add the bucket's expiry rule for `tks/postgres/`: 30 days** (the owner's choice, 2026-11-06). Only the old daily copies go; the database itself keeps everything (D8). Restore and failures: [`../runbooks/tks-backup.md`](../runbooks/tks-backup.md). Rollbacks need no down migration ([`../runbooks/tks-rollback.md`](../runbooks/tks-rollback.md)).
 
 ## 10. Egress policy (optional, recommended)
 
