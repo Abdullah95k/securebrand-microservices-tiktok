@@ -33,6 +33,12 @@ For M16 and the deployment, so the build matches the platform. These are not dec
 - **Namespace `tks`**:
   - the Secret **`platform-credentials`** holds Postgres, Kafka (user `tks-kafka`, allowed `tt.*`, `tks.*`, `content.*`, `discovery.*`, `collection.*` and `registry.*`), Valkey, storage and the schema registry;
   - the Secret **`proxies`** holds the proxies.
+- **Storage conventions** (the platform's `infra/README.md`):
+  - raw responses go in `S3_BUCKET_RAW` under **`tks/keep/`** (failures and the 1 % sample, kept forever) and **`tks/30d/`** (the rest); tks never deletes raw files, and the platform adds the 30-day rule;
+  - media files go in `S3_BUCKET_MEDIA` under **`tks/`**.
+- **PostgreSQL 18** (CI already tests on 18). tks's user owns its database. The separate roles (API read-only, persister, scheduler; M16) are created by the platform on request, and tks grants their rights: send the master their names.
+- **`platform-credentials`** can be used as environment variables or as mounted files.
+- **The Secret `proxies`** (key `proxies.yaml`) holds the owner's proxies in tks's own format: `tt.proxy.tiers`, each tier with `name`, `kind` (`static_list`, `gateway`, `direct`), its `endpoints` or gateway settings, and **`country`** (its ISO code).
 - **Soak and load tests against `fakett` run self-contained,** with their own Kafka and Postgres, never against the shared production ones: fake data must not reach the permanent store. The same holds for M18's pilot, which runs on a machine of its own.
 
 ## Decisions taken in the kickoff session (2026-10-31)
