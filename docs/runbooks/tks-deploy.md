@@ -29,12 +29,12 @@ One Dockerfile (`deploy/docker/Dockerfile`), two images, every binary in both:
 | `crawler-retry` | `tks-crawler --stages retry` | default | The retry relays |
 | `persister` | `tks-persister` | default | |
 | `media-downloader` | `tks-media-downloader` | default | Idle while `tt.media.include` is false (D5); no janitor: another service deletes files |
-| `canary` | `tks-canary` | default | Needs `TKS_TT__CANARY__ACCOUNTS`; signs through tks-signer |
+| `canary` | `tks-canary` | default | Needs `tt.canary.accounts` (production: `values-production.yaml`) or `TKS_TT__CANARY__ACCOUNTS`; signs through tks-signer |
 | `signer` | `tks-signer` | browser | The signer's pages in their own capped pod; Service on port 8080 for the crawlers and the canary only ([below](#the-signer-service)) |
 
 What the release namespace needs before `helm install`:
 
-1. A Secret `tks-env` (`secretEnv.existingSecret`) with `TKS_POSTGRES__DSN` (database `tks`, D6), `TKS_REDIS__PASSWORD` if any, `TKS_S3__ACCESS_KEY`, `TKS_S3__SECRET_KEY`, `TKS_PRIVACY__AUTHOR_HMAC_KEY` (`openssl rand -hex 32`; never change it: ADR 0007 §6) and `TKS_TT__CANARY__ACCOUNTS` (comma separated public accounts with comments and replies; never in git).
+1. A Secret `tks-env` (`secretEnv.existingSecret`) with `TKS_POSTGRES__DSN` (database `tks`, D6), `TKS_REDIS__PASSWORD` if any, `TKS_S3__ACCESS_KEY`, `TKS_S3__SECRET_KEY`, `TKS_PRIVACY__AUTHOR_HMAC_KEY` (`openssl rand -hex 32`; never change it: ADR 0007 §6) and, unless the values set `config.tt.canary.accounts` (production's do), `TKS_TT__CANARY__ACCOUNTS` (comma separated public accounts with comments and replies).
 2. A Secret `tks-proxies` (`secretFiles.existingSecret`) whose `proxies.yaml` defines the tier the values route through (`isp`, D12):
 
    ```yaml

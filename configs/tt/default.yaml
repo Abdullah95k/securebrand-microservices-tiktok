@@ -148,8 +148,9 @@ tt:
   # answering (or an unsigned one answers where the active one is signed).
   canary:
     interval: 1h
-    # Public usernames with posts, comments and replies, set in the
-    # deployment (TKS_TT__CANARY__ACCOUNTS), never committed.
+    # Public usernames with posts, comments and replies, set by the
+    # deployment (production: values-production.yaml; or
+    # TKS_TT__CANARY__ACCOUNTS, comma separated).
     accounts: []
     operations: [creator_list, comments, replies]
     tier: ""
