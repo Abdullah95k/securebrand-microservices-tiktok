@@ -38,6 +38,151 @@ The bundle refuses to be written if a proxy password, or one of your usernames o
 
 `report.txt` has, per call variant, how many calls were answered and how many held results, then per source: the pages read per item and why each stopped (`end`: TikTok said there was no more; `cap`: the probe's limit; `empty`; `stuck`; a class with TikTok's code, such as `soft_error:2483`, when TikTok stopped answering), the posts and people found, how many are new (not on your list), the posts' languages, the regions found authors post from, the codes post pages gave, the short links' shapes, and the browser pages' own calls. The build session reads the bundle and records the answers.
 
+## Run 2 on a droplet of its own (recommended)
+
+The probe opens Chrome on TikTok's pages, so it does not run on the shared pilot server without the owner's approval (standing instruction 3). A small droplet of its own costs a few cents for the run and is deleted afterwards. The exits are still your `isp` tier, so TikTok sees the same US IPs as before.
+
+**In DigitalOcean (the website):**
+1. Create a droplet:
+   - Ubuntu 24.04 LTS;
+   - Basic, Regular, **4 GB / 2 CPUs**;
+   - any region;
+   - your usual SSH key.
+2. Note its IP: `NEW_DROPLET_IP` below.
+3. **If your proxy provider only accepts listed IPs** (an IP allowlist rather than a username and password), add `NEW_DROPLET_IP` there first.
+
+**On your Mac, take the two files from the old droplet** (only a copy: nothing runs there):
+
+```bash
+scp root@OLD_DROPLET_IP:securebrand-microservices-tiktok/phase0/proxies.yaml ~/Downloads/tks-proxies.yaml
+```
+
+```bash
+scp root@OLD_DROPLET_IP:securebrand-microservices-tiktok/phase0/tt-accounts-all.txt ~/Downloads/tt-accounts-all.txt
+```
+
+**Log in to the new droplet:**
+
+```bash
+ssh root@NEW_DROPLET_IP
+```
+
+**Install the tools.** Each command once:
+
+```bash
+apt-get update
+```
+
+```bash
+apt-get install -y git make tmux wget
+```
+
+```bash
+wget -q https://go.dev/dl/go1.27.2.linux-amd64.tar.gz
+```
+
+```bash
+tar -C /usr/local -xzf go1.27.2.linux-amd64.tar.gz
+```
+
+```bash
+echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.profile
+```
+
+```bash
+source ~/.profile
+```
+
+```bash
+go version
+```
+
+It must say `go1.27.2`.
+
+**Get the code** (if git asks for a password, use your GitHub token, as on the old droplet):
+
+```bash
+cd ~ && git clone https://github.com/Abdullah95k/securebrand-microservices-tiktok
+```
+
+```bash
+cd ~/securebrand-microservices-tiktok
+```
+
+```bash
+mkdir -p phase0
+```
+
+**On your Mac, copy the two files to the new droplet:**
+
+```bash
+scp ~/Downloads/tks-proxies.yaml root@NEW_DROPLET_IP:securebrand-microservices-tiktok/phase0/proxies.yaml
+```
+
+```bash
+scp ~/Downloads/tt-accounts-all.txt root@NEW_DROPLET_IP:securebrand-microservices-tiktok/phase0/tt-accounts-all.txt
+```
+
+Then remove the proxies copy from your Mac:
+
+```bash
+rm ~/Downloads/tks-proxies.yaml
+```
+
+**Back on the droplet: protect the files.**
+
+```bash
+chmod 600 phase0/proxies.yaml phase0/tt-accounts-all.txt
+```
+
+**Install Chrome.**
+
+```bash
+wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+```
+
+```bash
+apt-get install -y ./google-chrome-stable_current_amd64.deb
+```
+
+```bash
+make tks-browser-check
+```
+
+It must say `Chromium found`.
+
+**Rehearse** (about a minute, no traffic to TikTok):
+
+```bash
+make tks-discover-dryrun
+```
+
+It must end with `discover: done.`
+
+**Run it in tmux,** so a lost connection doesn't stop it:
+
+```bash
+tmux new -s tks
+```
+
+```bash
+make tks-discover TKS_DISCOVER_OUT=phase0/out-tt-discover-2 TKS_DISCOVER_ARGS="--sources feed,hashtag,sound,related,entry,pages"
+```
+
+- **How long:** about 30 minutes. It ends by printing where the bundle is.
+- **If your connection drops:** log in again with `ssh root@NEW_DROPLET_IP`, then `tmux attach -t tks`.
+- **If it stops printing for 10 minutes:** see "If it stops printing" below; the folder there is `phase0/out-tt-discover-2`.
+
+**On your Mac, take the bundle:**
+
+```bash
+scp root@NEW_DROPLET_IP:securebrand-microservices-tiktok/phase0/out-tt-discover-2/tks-discover-bundle.tar.gz ~/Downloads/tks-discover-bundle-2.tar.gz
+```
+
+**Send it through your Drive only,** and give the link to a tks build session. It holds TikTok's raw answers, with names and captions, so never send it by email or chat attachment.
+
+**Delete the droplet in DigitalOcean** once the bundle is on your Mac. That deletes the proxies file with it.
+
 ## Before you start
 
 | | |
