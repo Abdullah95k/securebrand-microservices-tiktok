@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -781,6 +782,9 @@ func nilIfEmpty(s string) *string {
 // View is a found account as the API shows it. The username is personal
 // data (pii:read); the ids, the state and the evidence are not.
 type View struct {
+	// ID is the found account's own number (not TikTok's): the review
+	// page removes it by it, with no name in the path.
+	ID           int64           `json:"id"`
 	UserID       *int64          `json:"user_id,omitempty,string"`
 	SecUID       string          `json:"sec_uid,omitempty"`
 	Username     *string         `json:"username,omitempty"`
@@ -797,6 +801,8 @@ type View struct {
 	CheckedAt    *time.Time      `json:"checked_at,omitempty"`
 	NextCheckAt  *time.Time      `json:"next_check_at,omitempty"`
 	AddedAt      *time.Time      `json:"added_at,omitempty"`
+	// Sources are the ways it was found (account_sources.how).
+	Sources []string `json:"sources"`
 	// Cursor is the row's position for ?after=.
 	Cursor int64 `json:"-"`
 }
@@ -804,31 +810,11 @@ type View struct {
 // List lists found accounts, in one state or all, the latest found first,
 // after a cursor (a View's Cursor, opaque: it carries no name).
 func List(ctx context.Context, db DB, state string, after int64, limit int, pii bool) ([]View, error) {
-	rows, err := db.Query(ctx, `SELECT id, account_ref, user_id, username, state, reason, score, evidence, posts_read, newest_post_at,
-			first_seen_at, last_seen_at, seen, attempts, checked_at, next_check_at, added_at
-		FROM discovery_candidates WHERE ($1 = '' OR state = $1) AND ($2 = 0 OR id < $2)
-		ORDER BY id DESC LIMIT $3`, state, after, limit)
-	if err != nil {
-		return nil, err
+	f := Filter{State: state, Limit: limit}
+	if after > 0 {
+		f.After = strconv.FormatInt(after, 10)
 	}
-	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (View, error) {
-		var v View
-		var cref string
-		err := r.Scan(&v.Cursor, &cref, &v.UserID, &v.Username, &v.State, &v.Reason, &v.Score, &v.Evidence, &v.PostsRead, &v.NewestPostAt,
-			&v.FirstSeenAt, &v.LastSeenAt, &v.Seen, &v.Attempts, &v.CheckedAt, &v.NextCheckAt, &v.AddedAt)
-		if sc := task.ScopeFromRef(cref); sc.SecUid != "" {
-			v.SecUID = sc.SecUid
-		} else if v.Username == nil && sc.Username != "" {
-			v.Username = &sc.Username
-		}
-		if !pii {
-			v.Username = nil
-		}
-		return v, err
-	})
-	if out == nil {
-		out = []View{}
-	}
+	out, _, err := Search(ctx, db, f, pii)
 	return out, err
 }
 

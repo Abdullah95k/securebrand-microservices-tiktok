@@ -78,6 +78,43 @@ tt:
 
 Discovery cannot be turned on with `privacy.pii_mode: pseudonymized`: it needs people's ids.
 
+## The review page
+
+`tks-api` serves a web page at **`/review/`** ([`discovery-plan.md`](../tiktok/discovery-plan.md) §11, [ADR 0007 §22](../tiktok/adr/0007-tks-data-model-and-contracts.md#22-settled-in-m14-the-discovery-review-page)). It holds no data: it asks for an API key, keeps it in that browser tab only, and calls `/v1` with it, so the key's scopes decide what it shows and does.
+
+| Scope | On the page |
+|---|---|
+| `discovery:read` | needed to sign in: every tab, read only |
+| `discovery:write` | remove accounts, turn keywords on and off, add keywords |
+| `accounts:write` | the Imports tab: upload, dry run, earlier imports and their reports |
+| `pii:read` | usernames (else user ids and secUids) |
+
+A key for a person reviewing discovery:
+
+```bash
+tksctl apikey create --name reviewer --scopes discovery:read,discovery:write,accounts:write,pii:read
+```
+
+To open it on a cluster without an Ingress (the chart's Ingress, when on, routes `/review` and `/v1`):
+
+```bash
+kubectl port-forward svc/tks-api 8080:80
+```
+
+Then open `http://localhost:8080/review/` and paste the key.
+
+**Tabs:**
+- **Accounts**: every found account, filtered by state, source, keyword (`via`: the keyword's id for search, the monitored account's user id for part B), label, Iraq score and the date first found, latest first or highest score first. Each shows its evidence ("posts made in Iraq: 11 of 15"), the sources that found it, and a **Remove** button.
+- **Dormant list**: why each account is there, what its entry check read, and its next check date.
+- **Not Iraqi (yet)**: the public, active accounts closest to the threshold, with their evidence; the threshold is shown (`tt.discovery.score.pass`).
+- **Keywords**: on or off, add, and how many accounts each keyword's searches found (search is part C, M12: 0 until it runs). A count links to those accounts.
+- **Imports**: paste or pick a file (up to 1,000 lines; larger files go through `tksctl accounts import`), labels, a dry run first; earlier imports with their counts, and each one's report of accounts that turned out private, quiet or gone.
+- **Cost and capacity**: the switches, the daily test cap, found accounts by state, the admission queue with what draining it within a day takes (requests, proxy IPs, signer pages), and per UTC day the accounts found and added by source and discovery's own reads (entry checks: jobs, requests, data).
+
+**Remove** (`POST /v1/discovery/accounts/{id}/remove`) blocks the account for the caller, so no source adds it back; if discovery had added it, discovery's registration goes and its checks stop. An account another client registered itself stays monitored for that client (the page says so). Its data stays. To bring one back, register it (`POST /v1/accounts`): the caller's registration lifts its own block.
+
+**Safety:** the page's Content-Security-Policy runs only its own script, nothing can frame it, and it writes what the API returns as text. The API refuses a change a browser marks as sent from another site (`Sec-Fetch-Site`), and sends no CORS headers, so no other site can use a key. Programs are not affected. Dates on the page are in Iraq time; the per-day figures are UTC days.
+
 ## Looking at it
 
 The found accounts, by state, with each one's reason, score, evidence and dates (key with `discovery:read`; usernames need `pii:read`):
@@ -86,7 +123,7 @@ The found accounts, by state, with each one's reason, score, evidence and dates 
 curl -s -H "Authorization: Bearer $KEY" "$TKS/v1/discovery/accounts?state=dormant&limit=100"
 ```
 
-`state=not_iraqi` lists the accounts close to the threshold; `counts` gives every state's total; `next` is the cursor for `&after=`. In SQL: `SELECT * FROM tt.dormant_accounts`.
+`state=not_iraqi&order=score` lists the accounts closest to the threshold; `source=`, `via=`, `label=`, `min_score=`, `max_score=`, `since=` and `until=` filter (as on the review page); `counts` gives every state's total; `next` is the cursor for `&after=`. `GET /v1/discovery/stats?days=7` gives the review page's cost and capacity figures. In SQL: `SELECT * FROM tt.dormant_accounts`.
 
 **Part B:** `tks_discovery_sightings_total{source}` (persister), `tks_discovery_sightings_counted_total`, `tks_discovery_sightings_backlog` (leader). A backlog that keeps growing means the leader counts slower than the persister records (raise `count_batch`, or look at the leader's errors). In SQL: `SELECT how, found_in, count(*) FROM tt.discovery_sightings GROUP BY 1, 2`.
 

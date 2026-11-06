@@ -2,7 +2,7 @@
 
 **Status: approved by the owner on 2026-11-04, with the decisions in §1.**
 - The build starts when M8 merges. Building it alongside M8 would change the same files: migrations, config, the scheduler, the API and `build-status.md`.
-- **Built so far:** §17 (M8b); M10a (2026-11-05): sources, labels, blocks, paced admission, the lighter checks, the keyword list loaded, and bulk import (part A), in [ADR 0007 §18](adr/0007-tks-data-model-and-contracts.md#18-settled-in-m10a-sources-labels-admission-and-bulk-import) and [`tks-import.md`](../runbooks/tks-import.md). M10 was split in two: M10a, then M10c (2026-11-05): the entry check, the dormant list and the Iraq score (§3, §4), in [ADR 0007 §19](adr/0007-tks-data-model-and-contracts.md#19-settled-in-m10c-the-entry-check-the-dormant-list-and-the-iraq-score) and [`tks-discovery.md`](../runbooks/tks-discovery.md); the sources that call it come with M11 to M13. M10b (2026-11-05): the C6 probe, `tks-spike discover` ([`tks-discovery-probe.md`](../runbooks/tks-discovery-probe.md)), with `fakett`'s synthetic discovery answers (§14); the calls not recorded yet are T36. M11 (2026-11-06): part B (§7), in [ADR 0007 §21](adr/0007-tks-data-model-and-contracts.md#21-settled-in-m11-discovery-part-b) and [`tks-discovery.md`](../runbooks/tks-discovery.md#part-b-from-what-tks-already-collects).
+- **Built so far:** §17 (M8b); M10a (2026-11-05): sources, labels, blocks, paced admission, the lighter checks, the keyword list loaded, and bulk import (part A), in [ADR 0007 §18](adr/0007-tks-data-model-and-contracts.md#18-settled-in-m10a-sources-labels-admission-and-bulk-import) and [`tks-import.md`](../runbooks/tks-import.md). M10 was split in two: M10a, then M10c (2026-11-05): the entry check, the dormant list and the Iraq score (§3, §4), in [ADR 0007 §19](adr/0007-tks-data-model-and-contracts.md#19-settled-in-m10c-the-entry-check-the-dormant-list-and-the-iraq-score) and [`tks-discovery.md`](../runbooks/tks-discovery.md); the sources that call it come with M11 to M13. M10b (2026-11-05): the C6 probe, `tks-spike discover` ([`tks-discovery-probe.md`](../runbooks/tks-discovery-probe.md)), with `fakett`'s synthetic discovery answers (§14); the calls not recorded yet are T36. M11 (2026-11-06): part B (§7), in [ADR 0007 §21](adr/0007-tks-data-model-and-contracts.md#21-settled-in-m11-discovery-part-b) and [`tks-discovery.md`](../runbooks/tks-discovery.md#part-b-from-what-tks-already-collects). M14 (2026-11-06): the review page (§11), in [ADR 0007 §22](adr/0007-tks-data-model-and-contracts.md#22-settled-in-m14-the-discovery-review-page) and [`tks-discovery.md`](../runbooks/tks-discovery.md#the-review-page).
 
 **What tks does today** (checked in the code, 2026-11-04; see [`build-brief.md`](build-brief.md) and [`build-status.md`](build-status.md)):
 - It follows only the accounts it is given, one at a time, through `POST /v1/accounts`.
@@ -356,6 +356,8 @@ An account becomes **monitored** only when it qualifies. The rest is stored, not
 ---
 
 ## 11. The review page (M14)
+
+**Built** (M14, 2026-11-06): `/review/` on `tks-api` ([`tks-discovery.md`](../runbooks/tks-discovery.md#the-review-page)). Keyword hits count from part C's searches, so they stay 0 until M12.
 
 A web page served by `tks-api`, behind the API's own keys and scopes. Personal data appears only with `pii:read`; actions are protected against cross-site forgery.
 

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>tks discovery review</title>
+<link rel="stylesheet" href="review.css">
+<script src="review.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>tks discovery review</h1>
+  <div id="who" hidden><span id="who-text"></span> <button type="button" id="signout">Sign out</button></div>
+</header>
+
+<section id="signin" class="card">
+  <h2>Sign in</h2>
+  <p>Paste a tks API key. It stays in this browser tab only and is sent to this server's API, which decides what you can see and change:
+    <code>discovery:read</code> to look, <code>discovery:write</code> to remove accounts and change keywords,
+    <code>accounts:write</code> for imports, <code>pii:read</code> to see usernames.</p>
+  <form id="signin-form" autocomplete="off">
+    <label>API key <input type="password" id="key" required spellcheck="false" placeholder="tks_…"></label>
+    <button type="submit">Sign in</button>
+  </form>
+  <p id="signin-error" class="error" role="alert"></p>
+</section>
+
+<main id="app" hidden>
+  <nav id="tabs" role="tablist">
+    <button type="button" role="tab" data-tab="accounts">Accounts</button>
+    <button type="button" role="tab" data-tab="dormant">Dormant list</button>
+    <button type="button" role="tab" data-tab="notiraqi">Not Iraqi (yet)</button>
+    <button type="button" role="tab" data-tab="keywords">Keywords</button>
+    <button type="button" role="tab" data-tab="imports">Imports</button>
+    <button type="button" role="tab" data-tab="cost">Cost and capacity</button>
+  </nav>
+  <p id="status" class="status" role="status"></p>
+
+  <section id="tab-accounts" class="tab" hidden>
+    <form id="acc-filter" class="filters">
+      <label>State <select name="state">
+        <option value="">any</option><option value="added">added</option><option value="qualified">qualified (waiting to be added)</option>
+        <option value="pending">waiting for its check</option><option value="checking">being checked</option>
+        <option value="not_iraqi">not Iraqi (yet)</option><option value="dormant">dormant</option><option value="blocked">removed</option>
+      </select></label>
+      <label>Source <select name="source" id="acc-source"><option value="">any</option></select></label>
+      <label>Keyword or account (via) <input name="via" placeholder="keyword id or user id"></label>
+      <label>Label <input name="label" placeholder="list:banks"></label>
+      <label>Score from <input name="min_score" type="number" step="0.1"></label>
+      <label>to <input name="max_score" type="number" step="0.1"></label>
+      <label>Found from <input name="since" type="date"></label>
+      <label>until <input name="until" type="date"></label>
+      <label>Order <select name="order"><option value="">latest found</option><option value="score">highest score</option></select></label>
+      <button type="submit">Show</button>
+    </form>
+    <p class="counts" id="acc-counts"></p>
+    <div class="scroll"><table id="acc-table"><thead><tr>
+      <th>Account</th><th>State</th><th>Score</th><th>Found by</th><th>Evidence</th><th>First found</th><th></th>
+    </tr></thead><tbody></tbody></table></div>
+    <button type="button" class="more" id="acc-more" hidden>More</button>
+  </section>
+
+  <section id="tab-dormant" class="tab" hidden>
+    <p>Accounts that are private, quiet or gone. Each is read again only when a source finds it after its next check date.</p>
+    <div class="scroll"><table id="dor-table"><thead><tr>
+      <th>Account</th><th>Why</th><th>Posts read</th><th>Newest post</th><th>Checked</th><th>Next check</th><th>Last found</th><th></th>
+    </tr></thead><tbody></tbody></table></div>
+    <button type="button" class="more" id="dor-more" hidden>More</button>
+  </section>
+
+  <section id="tab-notiraqi" class="tab" hidden>
+    <p>Public, active accounts whose Iraq score does not pass yet, the closest to the threshold first. <span id="ni-pass"></span></p>
+    <div class="scroll"><table id="ni-table"><thead><tr>
+      <th>Account</th><th>Score</th><th>Evidence</th><th>Found by</th><th>Checked</th><th></th>
+    </tr></thead><tbody></tbody></table></div>
+    <button type="button" class="more" id="ni-more" hidden>More</button>
+  </section>
+
+  <section id="tab-keywords" class="tab" hidden>
+    <form id="kw-filter" class="filters">
+      <label>Language <select name="language"><option value="">any</option><option value="en">English</option><option value="ar">Arabic</option>
+        <option value="ckb">Sorani</option><option value="kmr">Kurmanji</option></select></label>
+      <label>Group <input name="group" placeholder="baghdad"></label>
+      <label>On <select name="enabled"><option value="">any</option><option value="true">on</option><option value="false">off</option></select></label>
+      <button type="submit">Show</button>
+    </form>
+    <form id="kw-add" class="filters">
+      <label>New keyword <input name="term" required></label>
+      <label>Language <select name="language" required><option value="en">English</option><option value="ar">Arabic</option>
+        <option value="ckb">Sorani</option><option value="kmr">Kurmanji</option></select></label>
+      <label>Group <input name="group"></label>
+      <button type="submit">Add</button>
+    </form>
+    <div class="scroll"><table id="kw-table"><thead><tr>
+      <th>Keyword</th><th>Language</th><th>Group</th><th>On</th><th>Accounts found</th><th>Last searched</th><th></th>
+    </tr></thead><tbody></tbody></table></div>
+    <button type="button" class="more" id="kw-more" hidden>More</button>
+  </section>
+
+  <section id="tab-imports" class="tab" hidden>
+    <form id="imp-form" class="card">
+      <p>One account a line (a username, <code>@username</code>, a profile or video link, a secUid, or <code>id:</code> and a user id), or a CSV
+        with an <code>account</code> column. Up to 1,000 lines here; larger files go through <code>tksctl accounts import</code>.</p>
+      <label>File <input type="file" id="imp-file" accept=".txt,.csv,text/plain,text/csv"></label>
+      <label class="block">Accounts <textarea id="imp-text" rows="8" spellcheck="false"></textarea></label>
+      <label>Labels <input id="imp-labels" placeholder="list:banks, import:2026-11-06"></label>
+      <label><input type="checkbox" id="imp-dry" checked> Dry run (shows what would happen, changes nothing)</label>
+      <button type="submit">Import</button>
+    </form>
+    <div id="imp-report"></div>
+    <h2>Earlier imports</h2>
+    <div class="scroll"><table id="imp-table"><thead><tr>
+      <th>When</th><th>Labels</th><th>Dry run</th><th>Lines</th><th>Added</th><th>Joined</th><th>Already</th><th>Duplicates</th><th>Not accepted</th><th>Queued</th><th></th>
+    </tr></thead><tbody></tbody></table></div>
+    <button type="button" class="more" id="imp-more" hidden>More</button>
+    <div id="imp-batch"></div>
+  </section>
+
+  <section id="tab-cost" class="tab" hidden>
+    <form id="cost-filter" class="filters">
+      <label>Days <select name="days"><option>7</option><option>14</option><option>31</option></select></label>
+      <button type="submit">Show</button>
+    </form>
+    <div id="cost-switches" class="card"></div>
+    <div id="cost-queue" class="card"></div>
+    <h2>Per day (UTC)</h2>
+    <div class="scroll"><table id="cost-days"><thead><tr>
+      <th>Day</th><th>Accounts found</th><th>Accounts added</th><th>Entry checks</th><th>Requests</th><th>Data</th>
+    </tr></thead><tbody></tbody></table></div>
+    <h2>Per source, over the days shown</h2>
+    <div class="scroll"><table id="cost-sources"><thead><tr><th>Source</th><th>On</th><th>Accounts found</th><th>Accounts added</th></tr></thead>
+      <tbody></tbody></table></div>
+  </section>
+</main>
+</body>
+</html>

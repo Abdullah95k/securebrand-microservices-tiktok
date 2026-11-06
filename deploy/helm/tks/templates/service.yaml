@@ -34,6 +34,13 @@ spec:
               service:
                 name: {{ include "tks.fullname" . }}-api
                 port: {name: http}
+          # The discovery review page (static files; it calls /v1).
+          - path: /review
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "tks.fullname" . }}-api
+                port: {name: http}
 {{- end }}
 {{- end }}
 {{- $root := . -}}

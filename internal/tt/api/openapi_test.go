@@ -43,6 +43,9 @@ func TestRoutesMatchOpenAPI(t *testing.T) {
 	r := (&Server{Cfg: cfg}).Handler().(chi.Routes)
 	got := map[string]bool{}
 	_ = chi.Walk(r, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		if !strings.HasPrefix(route, "/v1/") {
+			return nil // the review page's files (/review/) are not the API
+		}
 		got[method+" "+strings.TrimSuffix(route, "/")] = true
 		return nil
 	})
