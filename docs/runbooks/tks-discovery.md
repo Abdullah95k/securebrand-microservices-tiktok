@@ -50,7 +50,7 @@ Each kind of signal counts once. One **strong** signal passes; so do two **diffe
 
 | Signal | Strength |
 |---|---|
-| A post made in Iraq (`locationCreated: IQ`) among the posts read | strong |
+| A post made in Iraq (`locationCreated: IQ`) among the posts read | strong, but **never fires**: TikTok's web answers don't carry the field (T39) |
 | Iraq, the Kurdistan Region or an Iraqi place in the bio or nickname (the enabled keywords) | strong |
 | An Iraqi phone number in the bio (`+964`, `00964`, `07[3-9]…`) | strong |
 | A `.iq` link | strong |
