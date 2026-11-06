@@ -1,0 +1,10 @@
+# gitleaks (CI: guard.yml): gitleaks' own rules, plus what is known to be
+# synthetic. Findings in old commits that are not secrets are listed by
+# fingerprint in .gitleaksignore.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "synthetic test values"
+# The scrubber's tests' made-up JSON Web Tokens ({"synthetic":1}, {"x":1}).
+regexes = ['''eyJzeW50aGV0aWMiOjF9''', '''eyJ4IjoxfQ''']

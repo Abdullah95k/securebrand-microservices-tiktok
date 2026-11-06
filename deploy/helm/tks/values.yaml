@@ -12,6 +12,11 @@ image:
   # The browser image's repository when it is not image.repository's
   # (the production platform names its images apart).
   browserRepository: ""
+  # Image built with `--target backup` (tksctl with PostgreSQL 18's
+  # pg_dump), for the backup CronJob; its repository defaults to
+  # image.repository.
+  backupRepository: ""
+  backupTag: ""
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
@@ -67,6 +72,24 @@ config:
       # 2 h 45 min (owner, 2026-11-05): no tier is ever stretched.
       stretch_tiers: []
 
+# A daily dump of schema tt to config.s3.backup_bucket (M16; runbook
+# docs/runbooks/tks-backup.md): `tksctl backup run` streams pg_dump's
+# custom format into the bucket under <s3.backup_prefix>postgres/, logged in
+# as postgresRole (read-only; with platformSecret.roles). Needs
+# image.backupTag. tks deletes no dump: the bucket's rules keep or expire
+# them. TksBackupMissing fires when none succeeded for 26 hours.
+backup:
+  enabled: false
+  schedule: "17 2 * * *"
+  timeZone: Asia/Baghdad
+  postgresRole: reader
+  # Overrides config.s3.backup_bucket (empty: keep it).
+  bucket: ""
+  # Upload part size, held in memory: a dump is at most 10,000 parts.
+  partMB: 64
+  activeDeadlineSeconds: 21600
+  resources: {requests: {cpu: 250m, memory: 256Mi}, limits: {memory: 512Mi}}
+
 # The production platform's Secret (M18; values-production.yaml): its keys
 # (POSTGRES_*, KAFKA_*, VALKEY_*, S3_*, SCHEMA_REGISTRY_URL) are mapped onto
 # tks's settings with valueFrom. With roles, each component logs in to
@@ -95,6 +118,12 @@ secretFiles:
 tlsFiles:
   existingSecret: ""
   mountPath: /etc/tks-tls
+
+# The pods' scratch volume (/tmp, an emptyDir) is capped: past it the
+# kubelet evicts the pod, and TksScratchNearLimit warns at 80 %. The
+# signer's Chromium profiles are the largest user (components.signer
+# raises it). 0: no cap.
+tmpSizeLimitMB: 1024
 
 podSecurityContext:
   runAsNonRoot: true
@@ -288,23 +317,50 @@ components:
     podIP: true
     command: ["/usr/local/bin/tks-signer"]
     replicas: 1
+    tmpSizeLimitMB: 4096
     port: 8080
     terminationGracePeriodSeconds: 30
     resources: {requests: {cpu: 500m, memory: 2Gi}, limits: {cpu: "1", memory: 2Gi}}
 
 networkPolicy:
   # Restricts ingress to the API port and the metrics port, and tks-signer's
-  # to the crawlers and the canary. Egress rules are environment specific
-  # (proxy endpoints for crawlers, tks-signer and the canary, TikTok's CDN
-  # for the downloader) and are left to the cluster operator, except
-  # tks-signer's when signerEgress lists them.
+  # to the crawlers and the canary; with egress.enabled, egress too.
   enabled: false
   metricsFromNamespace: monitoring
-  # NetworkPolicy egress rules for tks-signer's pod (its pages reach TikTok
-  # only through the proxies; it also needs Valkey and DNS), e.g.
-  #   - to: [{ipBlock: {cidr: 203.0.113.0/24}}]   # the ISP proxies
-  #     ports: [{port: 8000}]
-  #   - to: [{namespaceSelector: {}}]
-  #     ports: [{port: 6379}, {port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
-  # Empty: its egress is not restricted.
+  # Egress (M16, I2; docs/runbooks/tks-deploy.md#egress-policy). Every tks
+  # pod and the backup job may reach DNS, tks's own pods and the
+  # platform's services; the crawlers, the canary and the signer also the
+  # proxies' exits; the media downloader TikTok's CDN. NetworkPolicy takes
+  # IPs, not names: list the services' and the proxies' addresses.
+  egress:
+    enabled: false
+    dns:
+      - to:
+          - namespaceSelector: {}
+            podSelector: {matchLabels: {k8s-app: kube-dns}}
+        ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
+    # Postgres, Kafka, Valkey, the object store and the schema registry,
+    # e.g. the platform's VPC and the object store's endpoint:
+    #   - to: [{ipBlock: {cidr: 10.110.0.0/20}}]
+    #     ports: [{port: 25060}, {port: 25061}, {port: 25062}, {port: 25073}]
+    #   - to: [{ipBlock: {cidr: 0.0.0.0/0}}]
+    #     ports: [{port: 443}]
+    platform: []
+    # The proxies' exits (the Secret proxies' endpoints), e.g.
+    #   - to: [{ipBlock: {cidr: 203.0.113.0/24}}]
+    #     ports: [{port: 8000}]
+    # Required when egress is on. A "direct" tier needs TikTok itself
+    # (0.0.0.0/0 on 443), which defeats the policy.
+    proxies: []
+    # TikTok's video hosts, for the media downloader (from its own IP, T33):
+    # any public address on 443. Empty: the downloader reaches only the
+    # platform (downloads are off: tt.media.include false).
+    media:
+      - to:
+          - ipBlock:
+              cidr: 0.0.0.0/0
+              except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+        ports: [{port: 443}]
+  # NetworkPolicy egress rules for tks-signer's pod alone (before M16's
+  # egress; egress.proxies covers it now). Empty: not used.
   signerEgress: []

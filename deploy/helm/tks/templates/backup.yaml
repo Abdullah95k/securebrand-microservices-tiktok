@@ -1,0 +1,53 @@
+{{- if .Values.backup.enabled }}
+{{- $root := . -}}
+{{- $c := dict "postgresRole" .Values.backup.postgresRole -}}
+# The daily database dump (M16; docs/runbooks/tks-backup.md): `tksctl
+# backup run` streams pg_dump of schema tt into s3.backup_bucket, logged in
+# as a read-only role. Its image (Dockerfile --target backup) carries
+# PostgreSQL 18's client.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "tks.fullname" . }}-backup
+  labels:
+    {{- include "tks.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  {{- with .Values.backup.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: {{ .Values.backup.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels: {{- include "tks.selector" (dict "root" . "name" "backup") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext: {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: backup
+              image: "{{ .Values.image.backupRepository | default .Values.image.repository }}:{{ required "backup.enabled needs image.backupTag (the image built with --target backup)" .Values.image.backupTag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["/usr/local/bin/tksctl"]
+              args: ["backup", "run", "--part-mb", {{ .Values.backup.partMB | quote }}]
+              env: {{- include "tks.env" (dict "root" $root "c" $c) | nindent 16 }}
+                {{- with .Values.backup.bucket }}
+                - name: TKS_S3__BACKUP_BUCKET
+                  value: {{ . | quote }}
+                {{- end }}
+              {{- include "tks.envFrom" $root | nindent 14 }}
+              resources: {{- toYaml .Values.backup.resources | nindent 16 }}
+              securityContext: {{- toYaml .Values.securityContext | nindent 16 }}
+              volumeMounts: {{- include "tks.volumeMounts" $root | nindent 16 }}
+          volumes: {{- include "tks.volumesFor" (dict "root" $root "configMap" (printf "%s-config" (include "tks.fullname" $root)) "tmpMB" 64) | nindent 12 }}
+{{- end }}

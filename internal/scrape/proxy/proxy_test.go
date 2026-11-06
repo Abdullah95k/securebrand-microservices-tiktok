@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"errors"
+	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/breaker"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 )
 
@@ -206,5 +209,36 @@ func TestEndpointByName(t *testing.T) {
 	}
 	if got, ok := d.Endpoint("direct", "", ""); !ok || got.URL != "" || got.Tier != "direct" {
 		t.Fatalf("direct: %+v %v", got, ok)
+	}
+}
+
+// TestExitsCounted: tks_proxy_exits counts each tier's exit groups once
+// (two endpoints share a /24) as usable or cooling, and leaves out direct
+// tiers (M16, alert TksUsableExitsLow).
+func TestExitsCounted(t *testing.T) {
+	p := testPool(t)
+	want := map[string]metrics.ExitCounts{"isp": {Usable: 2}, "res": {Usable: 1}}
+	if got := p.Exits(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Exits = %+v, want %+v", got, want)
+	}
+	ep, _ := p.Next("isp")
+	block(p, ep, 4)
+	if got := p.Exits()["isp"]; got != (metrics.ExitCounts{Usable: 1, Cooling: 1}) {
+		t.Fatalf("one /24 open: %+v", got)
+	}
+	var out strings.Builder
+	mfs, err := metrics.Registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() == "tks_proxy_exits" {
+			for _, m := range mf.GetMetric() {
+				fmt.Fprintf(&out, "%v=%v ", m.GetLabel(), m.GetGauge().GetValue())
+			}
+		}
+	}
+	if !strings.Contains(out.String(), `value:"cooling"`) {
+		t.Fatalf("tks_proxy_exits not exported: %s", out.String())
 	}
 }

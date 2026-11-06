@@ -74,8 +74,16 @@ jobs:
             --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092 \
             --advertise-kafka-addr internal://localhost:9092,external://localhost:19092
           for i in $(seq 1 60); do docker exec redpanda rpk cluster health --exit-when-healthy && break; sleep 2; done
+      - name: PostgreSQL 18 client (the backup's dump and restore test)
+        run: |
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-18
+          /usr/lib/postgresql/18/bin/pg_dump --version
       - name: Integration and end-to-end tests
         env:
+          TKS_TEST_PG_DUMP: /usr/lib/postgresql/18/bin/pg_dump
+          TKS_TEST_PG_RESTORE: /usr/lib/postgresql/18/bin/pg_restore
           TKS_TEST_PG_DSN: postgres://tks:tks@localhost:5432/tks?sslmode=disable
           TKS_TEST_REDIS_ADDR: localhost:6379
           TKS_TEST_KAFKA_BROKERS: localhost:19092
@@ -84,6 +92,46 @@ jobs:
         # Every package: a test needing Postgres, Redis or Kafka skips without
         # them, so listing packages here let new integration tests go unrun.
         run: go test -count=1 -timeout 25m ./...
+
+  # A6 (M16): the previous release's code runs on this change's schema, so
+  # a rollback needs no down migration (docs/runbooks/tks-rollback.md).
+  # Skips itself when no migration changed.
+  schema-compat:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env: {POSTGRES_USER: tks, POSTGRES_PASSWORD: tks, POSTGRES_DB: tks}
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U tks" --health-interval 2s --health-retries 30
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Start Redpanda
+        run: |
+          docker run -d --name redpanda -p 19092:19092 -p 18081:8081 redpandadata/redpanda:v24.2.7 \
+            redpanda start --mode dev-container --smp 1 --memory 2G \
+            --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092 \
+            --advertise-kafka-addr internal://localhost:9092,external://localhost:19092
+          for i in $(seq 1 60); do docker exec redpanda rpk cluster health --exit-when-healthy && break; sleep 2; done
+      - name: The previous release's end-to-end suite on the new schema
+        env:
+          TKS_TEST_PG_DSN: postgres://tks:tks@localhost:5432/tks?sslmode=disable
+          TKS_TEST_REDIS_ADDR: localhost:6379
+          TKS_TEST_KAFKA_BROKERS: localhost:19092
+          TKS_TEST_SCHEMA_REGISTRY: http://localhost:18081
+          TKS_BROWSER_NO_SANDBOX: "1"
+        run: |
+          # The release before this change: the base branch of a pull
+          # request, the previous commit of main.
+          if [ "${{ github.event_name }}" = pull_request ]; then old="origin/${{ github.base_ref }}"; else old="HEAD^1"; fi
+          scripts/check-schema-compat.sh "$old"
 
   deploy:
     runs-on: ubuntu-latest
@@ -109,6 +157,19 @@ jobs:
           docker build -f deploy/docker/Dockerfile -t tks:ci .
           docker build -f deploy/docker/Dockerfile --target browser -t tks:ci-browser .
           docker run --rm --entrypoint chromium tks:ci-browser --version
+          docker build -f deploy/docker/Dockerfile --target backup -t tks:ci-backup .
+          docker run --rm --entrypoint pg_dump tks:ci-backup --version | grep -q "PostgreSQL) 18"
+          docker run --rm tks:ci-backup backup list 2>&1 | grep -q "no bucket"
+      - name: Image scan (I3)
+        # Fails on a critical vulnerability that has a fix; lists the high
+        # ones. Fix by rebuilding on a newer base or bumping the module.
+        run: |
+          for img in tks:ci tks:ci-browser tks:ci-backup; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/trivy" \
+              aquasec/trivy:0.58.1 image --quiet --no-progress --ignore-unfixed --severity HIGH,CRITICAL --exit-code 0 "$img"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/trivy" \
+              aquasec/trivy:0.58.1 image --quiet --no-progress --ignore-unfixed --severity CRITICAL --exit-code 1 "$img"
+          done
       - name: Chart smoke run (the chart's workloads in Docker against fakett, signed by tks-signer's Chromium)
         run: |
           python3 -c 'import yaml' 2>/dev/null || sudo apt-get install -y python3-yaml

@@ -185,6 +185,11 @@ type S3 struct {
 	// ("tks/30d/", which the platform expires after 30 days).
 	RawKeepPrefix string `koanf:"raw_keep_prefix"`
 	RawRestPrefix string `koanf:"raw_rest_prefix"`
+	// BackupBucket holds the database dumps of `tksctl backup run` (the
+	// platform's S3_BUCKET_BACKUPS; M16), under BackupPrefix + "postgres/"
+	// ("tks/" in production).
+	BackupBucket string `koanf:"backup_bucket"`
+	BackupPrefix string `koanf:"backup_prefix"`
 }
 
 type FB struct {

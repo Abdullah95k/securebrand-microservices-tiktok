@@ -26,6 +26,16 @@ EXPOSE 8080 9090
 # shares the pod's process namespace instead (its command bypasses this).
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/tks-signer"]
 
+# `--target backup`: tksctl with PostgreSQL 18's pg_dump and pg_restore,
+# for the backup CronJob (`tksctl backup run`; M16, runbook
+# docs/runbooks/tks-backup.md). The client must be the server's major
+# version or newer.
+FROM postgres:18-alpine AS backup
+COPY --from=build /out/tksctl /usr/local/bin/tksctl
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/tksctl"]
+CMD ["backup", "run"]
+
 # The default image: static binaries only.
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 COPY --from=build /out/ /usr/local/bin/

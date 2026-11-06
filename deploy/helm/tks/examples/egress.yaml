@@ -1,0 +1,13 @@
+# The egress policy (M16) with synthetic addresses, for make chart-check.
+networkPolicy:
+  enabled: true
+  egress:
+    enabled: true
+    platform:
+      - to: [{ipBlock: {cidr: 10.110.0.0/20}}]
+        ports: [{port: 25060}, {port: 25061}, {port: 25062}, {port: 25073}]
+      - to: [{ipBlock: {cidr: 0.0.0.0/0}}]
+        ports: [{port: 443}]
+    proxies:
+      - to: [{ipBlock: {cidr: 203.0.113.0/24}}, {ipBlock: {cidr: 198.51.100.0/24}}]
+        ports: [{port: 8000}]

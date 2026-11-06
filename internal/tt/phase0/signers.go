@@ -14,6 +14,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 	ttclient "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/client"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/iraq"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/sign"
 )
 
@@ -477,7 +478,7 @@ func verdictOf(r EngineResult) string {
 func FormatSigners(rep SignersReport) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "tks-spike signers, %s: %d account(s) per browser on tier %s, %s idle; guard: browser over %.0f MB, machine under %.0f MB available\n\n",
-		rep.At.Format("2006-01-02 15:04 UTC"), rep.Accounts, rep.Tier, rep.Idle, rep.Guard.MaxBrowserMB, rep.Guard.MinHostMB)
+		iraq.Format(rep.At), rep.Accounts, rep.Tier, rep.Idle, rep.Guard.MaxBrowserMB, rep.Guard.MinHostMB)
 	if len(rep.Engines) == 0 {
 		b.WriteString("no browser ran\n")
 		return b.String()

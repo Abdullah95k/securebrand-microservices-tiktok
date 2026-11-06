@@ -1,0 +1,19 @@
+# Findings in past commits that hold no secret (gitleaks git): the removed
+# Facebook fixtures' synthetic cursors (base64 of "exp:..."), and the music
+# player's developer token TikTok served in two post-list fixtures (a
+# public, expired token; the scrubber removes such tokens since M16).
+# Fingerprints are commit:file:rule:line.
+0f0462438972ed8d4d907ed79194cb39b55a34b0:testdata/fb/comments/fakefb_first_page/expected.json:generic-api-key:912
+0f0462438972ed8d4d907ed79194cb39b55a34b0:testdata/fb/comments/fakefb_first_page/expected.json:generic-api-key:921
+0f0462438972ed8d4d907ed79194cb39b55a34b0:testdata/fb/comments/fakefb_first_page/expected.json:generic-api-key:930
+0f0462438972ed8d4d907ed79194cb39b55a34b0:testdata/fb/comments/fakefb_first_page/response.ndjson:generic-api-key:1
+189c42fdf1be9c3a95ebe62ec97d1f0eead262d4:testdata/fb/comments/fakefb_first_page/expected.json:generic-api-key:912
+189c42fdf1be9c3a95ebe62ec97d1f0eead262d4:testdata/fb/comments/fakefb_first_page/expected.json:generic-api-key:921
+189c42fdf1be9c3a95ebe62ec97d1f0eead262d4:testdata/fb/comments/fakefb_first_page/expected.json:generic-api-key:930
+189c42fdf1be9c3a95ebe62ec97d1f0eead262d4:testdata/fb/comments/fakefb_first_page/response.ndjson:generic-api-key:1
+57d59d839244b08b16f1b1d0ff75baaad8f646b1:testdata/tt/post_list/har_filtered_anchor/response.json:jwt:1
+57d59d839244b08b16f1b1d0ff75baaad8f646b1:testdata/tt/post_list/har_pinned_first/response.json:jwt:1
+6484c11a7d415232cfccf61822771db883bdfcd6:testdata/fb/comments/fakefb_first_page/expected.json:generic-api-key:912
+6484c11a7d415232cfccf61822771db883bdfcd6:testdata/fb/comments/fakefb_first_page/expected.json:generic-api-key:921
+6484c11a7d415232cfccf61822771db883bdfcd6:testdata/fb/comments/fakefb_first_page/expected.json:generic-api-key:930
+6484c11a7d415232cfccf61822771db883bdfcd6:testdata/fb/comments/fakefb_first_page/response.ndjson:generic-api-key:1

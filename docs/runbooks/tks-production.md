@@ -4,6 +4,21 @@ For the owner and the master (M18; decision D-026: there is no pilot server, tks
 
 The commands below run `tksctl` inside a tks pod with `kubectl`, by whoever holds access to the cluster (the master, or the owner with access). Each command is one block.
 
+## Go-live checklist
+
+Every box ticked before the first accounts go in (M16, H3); who does it in brackets.
+
+1. **Legal:** counsel's sign-off is recorded (D15; build-status Decisions). (owner)
+2. **Commit:** the pinned commit's CI is green on `main`, all jobs: tests, integration, `schema-compat`, `deploy` (chart checks, the three images, the image scan) and `guard` (gitleaks). (master)
+3. **Images:** the platform built all three from that commit (hand-over §2). (master)
+4. **Secrets:** `platform-credentials` with the five roles and `S3_BUCKET_BACKUPS`; `proxies`; `tks-env` (hand-over §4, §5). (master, owner)
+5. **Monitoring:** Prometheus scrapes namespace `tks`; the alerts and the dashboard are on (`alerts.enabled`, `dashboards.enabled`, `serviceMonitor.enabled`), with kube-state-metrics and cAdvisor for the memory, OOM, eviction and backup alerts. (master)
+6. **Backups:** after the first sync, one backup taken by hand and listed ([`tks-backup.md`](tks-backup.md#commands)), before any account is added. (master)
+7. **Egress:** the egress policy on with the platform's and the proxies' addresses (`networkPolicy.egress`, hand-over §10), or a recorded decision to leave it off. (master)
+8. **Rollback:** the previous commit's SHA written down ([`tks-rollback.md`](tks-rollback.md)); for the first release, "stop" is the rollback (`tksctl stop`). (master)
+9. **First run:** sections 1 and 2 below pass, the canary runs `ok`. (master)
+10. **Accounts:** the first 50 to 100 imported (section 3) and the report read after a few hours (section 4). (owner)
+
 ## 1. Before the first sync
 
 1. The platform's Secrets exist in namespace `tks`: `platform-credentials` (with the five roles), `proxies`, `tks-env` (handover §4, §5).
@@ -134,4 +149,4 @@ When a report's cost per 1,000 accounts differs from the estimate (≈ $1.26 a d
 
 - Media downloads stay off (`tt.media.include: false`) until the service that deletes the files exists ([`tks-media.md`](tks-media.md)).
 - Discovery stays off until the owner switches it on ([`tks-discovery.md`](tks-discovery.md)).
-- The backup job, egress policy and the rest of the hardening come in M16.
+- The table-by-table narrowing of the roles' rights waits for the canary's `pg_stat_statements` (M16's finding).
