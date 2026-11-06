@@ -44,15 +44,20 @@ type Emitter struct {
 }
 
 // Map maps a batch of tt.*.v1 records to contract events. owners gives the
-// stored account of each post's user id, for its URL and Post.account.
-func Map(msgs []proto.Message, owners map[int64]*Owner) []*Event {
+// stored account of each post's user id, for its URL and Post.account;
+// subtitles the stored subtitle tracks of each post, for Post.captions.
+func Map(msgs []proto.Message, owners map[int64]*Owner, subtitles map[int64][]*ttv1.Subtitle) []*Event {
 	var out []*Event
 	for _, m := range msgs {
 		switch m := m.(type) {
 		case *ttv1.Account:
 			out = append(out, Account(m)...)
 		case *ttv1.Post:
-			out = append(out, Post(m, owners[m.UserId])...)
+			out = append(out, Post(m, owners[m.UserId], captionTracks(subtitles[m.PostId]))...)
+		case *ttv1.PostSubtitles:
+			if e := PostCaptions(m, subtitles[m.PostId]); e != nil {
+				out = append(out, e)
+			}
 		case *ttv1.PostMetrics:
 			out = append(out, PostMetrics(m)...)
 		case *ttv1.Comment:
@@ -94,7 +99,11 @@ func (e *Emitter) Emit(ctx context.Context, msgs []proto.Message) error {
 	if err != nil {
 		return fmt.Errorf("content: owners: %w", err)
 	}
-	return e.Send(ctx, Map(msgs, owners))
+	subs, err := e.storedSubtitles(ctx, msgs)
+	if err != nil {
+		return fmt.Errorf("content: subtitles: %w", err)
+	}
+	return e.Send(ctx, Map(msgs, owners, subs))
 }
 
 // Send passes events through the change gate and produces those that

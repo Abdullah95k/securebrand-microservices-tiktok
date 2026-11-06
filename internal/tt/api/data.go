@@ -29,12 +29,15 @@ type PostCounts struct {
 // the account's own content and not gated (ADR 0007 §6); the people it
 // mentions are, and the link, which names the account's username.
 type Post struct {
-	PostID           int64           `json:"post_id,string"`
-	UserID           int64           `json:"user_id,string"`
-	CreatedAt        time.Time       `json:"created_at"`
-	Kind             string          `json:"kind"`
-	URL              *string         `json:"url,omitempty"`
-	Caption          *string         `json:"caption,omitempty"`
+	PostID    int64     `json:"post_id,string"`
+	UserID    int64     `json:"user_id,string"`
+	CreatedAt time.Time `json:"created_at"`
+	Kind      string    `json:"kind"`
+	URL       *string   `json:"url,omitempty"`
+	Caption   *string   `json:"caption,omitempty"`
+	// Title is a photo post's own title (imagePost.title), not gated like
+	// the caption.
+	Title            *string         `json:"title,omitempty"`
 	TextRanges       json.RawMessage `json:"text_ranges,omitempty"`
 	Hashtags         []string        `json:"hashtags,omitempty"`
 	DurationMS       *int64          `json:"duration_ms,omitempty"`
@@ -74,7 +77,7 @@ const postSelect = `SELECT p.post_id, p.user_id, p.created_at, p.kind, a.usernam
 	p.duration_ms, p.width, p.height, p.cover_media_id::text, p.photo_count, p.music_id, p.is_pinned, p.is_ad, p.labels,
 	p.comments_disabled, p.region, p.text_language, p.discovered_via, p.play_count, p.like_count, p.comment_count,
 	p.share_count, p.save_count, p.repost_count, p.comments_collected, p.replies_collected, p.completeness, p.comments_state,
-	p.comments_synced_at, p.status, p.unavailable_since, p.status_code, p.status_region, p.first_seen_at, p.last_seen_at
+	p.comments_synced_at, p.status, p.unavailable_since, p.status_code, p.status_region, p.first_seen_at, p.last_seen_at, p.title
 	FROM posts p LEFT JOIN accounts a ON a.user_id = p.user_id`
 
 // scanPost reads a postSelect row; without pii, the link and who the
@@ -88,7 +91,7 @@ func scanPost(pii bool) pgx.RowToFunc[Post] {
 			&p.DurationMS, &p.Width, &p.Height, &p.CoverMediaID, &p.PhotoCount, &p.MusicID, &p.IsPinned, &p.IsAd, &p.Labels,
 			&p.CommentsDisabled, &p.Region, &p.TextLanguage, &p.DiscoveredVia, &c.Plays, &c.Likes, &c.Comments, &c.Shares,
 			&c.Saves, &c.Reposts, &p.CommentsCollected, &p.RepliesCollected, &p.Completeness, &p.CommentsState,
-			&p.CommentsSyncedAt, &p.Status, &p.UnavailableSince, &p.StatusCode, &p.StatusRegion, &p.FirstSeenAt, &p.LastSeenAt)
+			&p.CommentsSyncedAt, &p.Status, &p.UnavailableSince, &p.StatusCode, &p.StatusRegion, &p.FirstSeenAt, &p.LastSeenAt, &p.Title)
 		if err != nil {
 			return p, err
 		}
@@ -556,6 +559,45 @@ func (s *Server) postMedia(w http.ResponseWriter, r *http.Request) {
 		out = []Media{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"media": out})
+}
+
+// Subtitle is one of a video's subtitle tracks (M17): TikTok's
+// speech-to-text (asr) or a machine translation of it (mt), with its
+// WebVTT file. Like the caption, the account's own content: not gated.
+type Subtitle struct {
+	Language   string    `json:"language"`
+	Source     string    `json:"source"`
+	SourceName string    `json:"source_name"`
+	Version    *string   `json:"version,omitempty"`
+	Format     *string   `json:"format,omitempty"`
+	SizeBytes  *int64    `json:"size_bytes,omitempty"`
+	Body       *string   `json:"body,omitempty"`
+	Skipped    *string   `json:"skipped,omitempty"`
+	FirstSeen  time.Time `json:"first_seen_at"`
+	LastSeen   time.Time `json:"last_seen_at"`
+}
+
+func (s *Server) postSubtitles(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathInt(r, "post")
+	if !ok {
+		problem(w, http.StatusBadRequest, "invalid post id", "post id must be numeric")
+		return
+	}
+	rows, err := s.ReadDB.Query(r.Context(), `SELECT language, source, source_name, version, format, size_bytes, body, skipped,
+		first_seen_at, last_seen_at FROM post_subtitles WHERE post_id = $1 ORDER BY source, language`, id)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Subtitle])
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if out == nil {
+		out = []Subtitle{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"subtitles": out})
 }
 
 func (s *Server) getMedia(w http.ResponseWriter, r *http.Request) {

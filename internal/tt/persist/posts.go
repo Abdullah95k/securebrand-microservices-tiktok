@@ -19,7 +19,7 @@ var postCols = []string{"created_at", "post_id", "user_id", "kind", "caption", "
 	"duration_ms", "width", "height", "cover_media_id", "photo_count", "music_id", "is_pinned", "is_ad", "labels",
 	"category", "playlist_id", "comments_disabled", "region", "text_language", "discovered_via",
 	"play_count", "like_count", "comment_count", "share_count", "save_count", "repost_count",
-	"content_hash", "status", "first_seen_at", "last_seen_at", "stored_at", "first_mode"}
+	"content_hash", "status", "first_seen_at", "last_seen_at", "stored_at", "first_mode", "title"}
 
 // mention is one person a post or comment mentions.
 type mention struct {
@@ -97,7 +97,8 @@ func postRow(p *ttv1.Post, storedAt time.Time) []any {
 		rangesJSON(p.TextRanges), tags, tagIDs, nilIfZero(p.DurationMs), nilIfZero32(p.Width), nilIfZero32(p.Height),
 		mediaUUID(p.CoverMediaId), photos, p.MusicId, p.Pinned, p.Ad, labels, p.Category, nilIfEmpty(p.PlaylistId),
 		p.CommentsDisabled, nilIfEmpty(p.Region), nilIfEmpty(p.TextLanguage), via,
-		c.Plays, c.Likes, c.Comments, c.Shares, c.Saves, c.Reposts, hashOf(p.Obs), status, seen, seen, storedAt, modeName(p.Obs)}
+		c.Plays, c.Likes, c.Comments, c.Shares, c.Saves, c.Reposts, hashOf(p.Obs), status, seen, seen, storedAt, modeName(p.Obs),
+		nilIfEmpty(p.Title)}
 }
 
 // unavailableKept is true, in an upsert of posts, when the stored post was

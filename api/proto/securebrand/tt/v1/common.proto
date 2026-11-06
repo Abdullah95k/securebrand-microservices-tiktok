@@ -42,3 +42,31 @@ message TextRange {
   // A mention's person.
   Person person = 5;
 }
+
+// SubtitleSource is who made a subtitle track (subtitleInfos[].Source).
+enum SubtitleSource {
+  SUBTITLE_SOURCE_UNSPECIFIED = 0;
+  // ASR: TikTok's own speech-to-text of the video's speech.
+  SUBTITLE_SOURCE_ASR = 1;
+  // MT: TikTok's machine translation of another track.
+  SUBTITLE_SOURCE_MT = 2;
+}
+
+// SubtitleInfo is one subtitle track a video's item lists
+// (video.subtitleInfos), without its link: the link is signed and expires,
+// and the track's text goes on tt.subtitle.v1 (PostSubtitles).
+message SubtitleInfo {
+  // LanguageCodeName, as served (ara-SA, eng-US).
+  string language = 1;
+  // LanguageID, as served.
+  string language_id = 2;
+  SubtitleSource source = 3;
+  // Source, as served (ASR, MT), also when SubtitleSource does not know it.
+  string source_name = 4;
+  // Version, as served (the speech-to-text model's, e.g. 1:whisper_lid).
+  string version = 5;
+  // Format, as served (webvtt).
+  string format = 6;
+  // Size: the file's size in bytes, as served.
+  int64 size_bytes = 7;
+}

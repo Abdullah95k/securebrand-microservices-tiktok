@@ -151,6 +151,18 @@ func (e *Emitter) Media(ctx context.Context, b *kafka.Batch, src Source, m *ttv1
 	return b.AddProto(ctx, topics.Media, m.MediaId, m)
 }
 
+// Subtitles publishes the subtitle files a read fetched for one post. The
+// text is the account's own speech, not gated, like its caption (ADR 0007
+// §6).
+func (e *Emitter) Subtitles(ctx context.Context, b *kafka.Batch, src Source, s *ttv1.PostSubtitles) error {
+	if s == nil || s.PostId == 0 || len(s.Tracks) == 0 {
+		return nil
+	}
+	key := strconv.FormatInt(s.PostId, 10)
+	e.stamp(src, "subtitles:"+key, s, func(o *commonv1.Observation) { s.Obs = o })
+	return b.AddProto(ctx, topics.Subtitle, key, s)
+}
+
 // Comment applies the privacy rules and publishes a comment.
 func (e *Emitter) Comment(ctx context.Context, b *kafka.Batch, src Source, c *ttv1.Comment) error {
 	e.Privatize(c)

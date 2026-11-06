@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,6 +144,75 @@ func checkContent(t *testing.T, s *Stack) {
 	if n := count(t, s, `SELECT count(*) FROM accounts WHERE page_read_at IS NOT NULL`); int64(len(accounts)) < n {
 		t.Errorf("%d accounts in content.account.v1, %d read from their page", len(accounts), n)
 	}
+	checkCaptions(t, s, pub)
 	t.Logf("content events: %d posts (%d stored), %d comments, %d accounts, %d metrics", len(pub["content.post.v1"]), stored,
 		len(pub["content.comment.v1"]), len(pub["content.account.v1"]), len(pub["content.metrics.v1"]))
+}
+
+// checkCaptions checks M17's fields against the store: the latest captions
+// a post's events carry (full or partial) are its stored subtitle files'
+// text, speech-to-text first; a photo post's title and a post's AI text are
+// on its latest full event.
+func checkCaptions(t *testing.T, s *Stack, pub published) {
+	t.Helper()
+	captions := map[string][]*contentv1.CaptionTrack{}
+	full := map[string]*contentv1.Post{}
+	for _, m := range pub["content.post.v1"] {
+		p := m.(*contentv1.Post)
+		if len(p.Captions) > 0 {
+			captions[p.Envelope.Id] = p.Captions
+		}
+		if !p.Envelope.Partial {
+			full[p.Envelope.Id] = p
+		}
+	}
+	rows, err := s.DB.Query(context.Background(), `SELECT 'tt:post:' || post_id, language, body FROM post_subtitles
+		WHERE body IS NOT NULL ORDER BY post_id, source, language`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{}
+	for rows.Next() {
+		var id, lang, body string
+		if err := rows.Scan(&id, &lang, &body); err != nil {
+			t.Fatal(err)
+		}
+		want[id] = append(want[id], content.SubtitleLanguage(lang)+"|"+content.VTTText(body))
+	}
+	rows.Close()
+	if len(want) == 0 {
+		t.Error("no subtitles stored")
+	}
+	for id, w := range want {
+		var got []string
+		for _, c := range captions[id] {
+			got = append(got, c.Language+"|"+c.Text)
+		}
+		if strings.Join(got, "\n") != strings.Join(w, "\n") {
+			t.Errorf("post %s: captions %q, want %q", id, got, w)
+		}
+	}
+	rows, err = s.DB.Query(context.Background(), `SELECT 'tt:post:' || post_id, coalesce(title, ''), coalesce(labels->>'ai_description', '')
+		FROM posts WHERE status = 'visible'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	titles := 0
+	for rows.Next() {
+		var id, title, ai string
+		if err := rows.Scan(&id, &title, &ai); err != nil {
+			t.Fatal(err)
+		}
+		if title != "" {
+			titles++
+		}
+		if p := full[id]; p.GetTitle().GetText() != title || p.GetLabels().GetAiLabelText() != ai {
+			t.Errorf("post %s: event's title %q and AI text %q, stored %q and %q", id, p.GetTitle().GetText(),
+				p.GetLabels().GetAiLabelText(), title, ai)
+		}
+	}
+	rows.Close()
+	if titles == 0 {
+		t.Error("no photo post's title stored")
+	}
 }

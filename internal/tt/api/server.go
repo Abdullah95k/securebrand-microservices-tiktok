@@ -109,6 +109,7 @@ func (s *Server) routes(r chi.Router) {
 	r.Get("/posts/{post}/comments", require(ScopeDataRead, s.listComments))
 	r.Get("/posts/{post}/metrics", require(ScopeDataRead, s.postMetrics))
 	r.Get("/posts/{post}/media", require(ScopeDataRead, s.postMedia))
+	r.Get("/posts/{post}/subtitles", require(ScopeDataRead, s.postSubtitles))
 	r.Get("/music/{music}", require(ScopeDataRead, s.getMusic))
 	r.Get("/media/{media}", require(ScopeDataRead, s.getMedia))
 

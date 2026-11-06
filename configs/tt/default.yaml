@@ -241,6 +241,18 @@ tt:
     # tks-media-downloader stores the files and keeps them: it sets no TTL
     # and deletes nothing (another service deletes them: owner, 2026-11-02).
     cookie_domains: [tiktok.com]
+  # Videos' subtitle tracks (M17): TikTok's speech-to-text (ASR) of about
+  # half the videos, mostly Arabic, and machine translations of it (MT), as
+  # WebVTT files of a few KB behind links that expire in about two days. The
+  # account stage fetches each new track with the reading identity (its
+  # tt_chain_token goes to tt.media.cookie_domains only, as for videos) and
+  # publishes it on tt.subtitle.v1; a stored track is not fetched again.
+  # Off in production until the platform has made tt.subtitle.v1.
+  subtitles:
+    include: true
+    max_bytes: 262144
+    max_tracks: 4
+    timeout: 20s
   # Retention of what tks stores, in days; 0 keeps it for good. The owner
   # chose (2026-11-01) that tks deletes nothing, so every value is 0; a
   # positive one turns that step back on (ADR 0007 §14). privacy.retention

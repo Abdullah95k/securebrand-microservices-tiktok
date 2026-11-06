@@ -72,6 +72,9 @@ message PostLabels {
   repeated string warnings = 3;
   // anchors (links to products, places, effects), as served.
   string anchors_json = 4;
+  // AIGCDescription: the creator's own text about AI in the post, as
+  // served (empty on most posts).
+  string ai_description = 5;
 }
 
 // Post is published on tt.post.v1, keyed by post_id, when a post is read in
@@ -119,6 +122,11 @@ message Post {
   // T30).
   optional int64 status_code = 26;
   string status_region = 27;
+  // imagePost.title: a photo post's own title, apart from its caption.
+  string title = 28;
+  // The subtitle tracks the video's item lists (video.subtitleInfos), in
+  // TikTok's order; their texts go on tt.subtitle.v1.
+  repeated SubtitleInfo subtitles = 29;
 }
 
 // PostMetrics is published on tt.post_metrics.v1, keyed by post_id, when a

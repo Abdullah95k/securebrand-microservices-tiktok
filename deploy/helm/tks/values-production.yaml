@@ -63,6 +63,11 @@ config:
     content:
       enabled: false
       production: true
+    # Videos' subtitle texts (M17) go on tt.subtitle.v1, which the platform
+    # makes (hand-over §6): on once it exists. A crawler producing to a
+    # missing topic would retry its tasks until the topic is made.
+    subtitles:
+      include: false
     cost:
       # The owner's prices and budget (2026-11-05), for tks_cost_* and
       # tksctl report.

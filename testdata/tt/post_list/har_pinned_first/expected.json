@@ -419,8 +419,56 @@
           "reposts": "0"
         },
         "status": "POST_STATUS_VISIBLE",
-        "discovered_via": "DISCOVERED_VIA_LIST"
-      }
+        "discovered_via": "DISCOVERED_VIA_LIST",
+        "subtitles": [
+          {
+            "language": "eng-US",
+            "language_id": "2",
+            "source": "SUBTITLE_SOURCE_MT",
+            "source_name": "MT",
+            "version": "4",
+            "format": "webvtt",
+            "size_bytes": "2717"
+          },
+          {
+            "language": "ara-SA",
+            "language_id": "34",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:whisper_lid",
+            "format": "webvtt",
+            "size_bytes": "3225"
+          }
+        ]
+      },
+      "subtitles": [
+        {
+          "expires": "2026-11-02T21:58:23Z",
+          "info": {
+            "language": "eng-US",
+            "language_id": "2",
+            "source": "SUBTITLE_SOURCE_MT",
+            "source_name": "MT",
+            "version": "4",
+            "format": "webvtt",
+            "size_bytes": "2717"
+          },
+          "url": "https://v16-webapp.tiktok.com/scrubbed/3495b1deff1a"
+        },
+        {
+          "expires": "2026-11-02T21:58:23Z",
+          "info": {
+            "language": "ara-SA",
+            "language_id": "34",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:whisper_lid",
+            "format": "webvtt",
+            "size_bytes": "3225"
+          },
+          "url": "https://v16-webapp.tiktok.com/scrubbed/0421d0dea68b"
+        }
+      ]
     },
     {
       "media": [
@@ -607,8 +655,34 @@
           "reposts": "0"
         },
         "status": "POST_STATUS_VISIBLE",
-        "discovered_via": "DISCOVERED_VIA_LIST"
-      }
+        "discovered_via": "DISCOVERED_VIA_LIST",
+        "subtitles": [
+          {
+            "language": "cmn-Hans-CN",
+            "language_id": "1",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:whisper_lid",
+            "format": "webvtt",
+            "size_bytes": "695"
+          }
+        ]
+      },
+      "subtitles": [
+        {
+          "expires": "2026-11-02T21:58:30Z",
+          "info": {
+            "language": "cmn-Hans-CN",
+            "language_id": "1",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:whisper_lid",
+            "format": "webvtt",
+            "size_bytes": "695"
+          },
+          "url": "https://v16-webapp.tiktok.com/scrubbed/638527dc29f5"
+        }
+      ]
     },
     {
       "media": [
@@ -793,8 +867,34 @@
           "reposts": "0"
         },
         "status": "POST_STATUS_VISIBLE",
-        "discovered_via": "DISCOVERED_VIA_LIST"
-      }
+        "discovered_via": "DISCOVERED_VIA_LIST",
+        "subtitles": [
+          {
+            "language": "ara-SA",
+            "language_id": "34",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:whisper_lid",
+            "format": "webvtt",
+            "size_bytes": "4432"
+          }
+        ]
+      },
+      "subtitles": [
+        {
+          "expires": "2026-11-02T21:59:01Z",
+          "info": {
+            "language": "ara-SA",
+            "language_id": "34",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:whisper_lid",
+            "format": "webvtt",
+            "size_bytes": "4432"
+          },
+          "url": "https://v16-webapp.tiktok.com/scrubbed/bd0db47ad321"
+        }
+      ]
     },
     {
       "media": [
@@ -979,8 +1079,34 @@
           "reposts": "0"
         },
         "status": "POST_STATUS_VISIBLE",
-        "discovered_via": "DISCOVERED_VIA_LIST"
-      }
+        "discovered_via": "DISCOVERED_VIA_LIST",
+        "subtitles": [
+          {
+            "language": "ara-SA",
+            "language_id": "34",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:whisper_lid",
+            "format": "webvtt",
+            "size_bytes": "3360"
+          }
+        ]
+      },
+      "subtitles": [
+        {
+          "expires": "2026-11-02T21:58:49Z",
+          "info": {
+            "language": "ara-SA",
+            "language_id": "34",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:whisper_lid",
+            "format": "webvtt",
+            "size_bytes": "3360"
+          },
+          "url": "https://v16-webapp.tiktok.com/scrubbed/e7d9399f007d"
+        }
+      ]
     },
     {
       "media": [
