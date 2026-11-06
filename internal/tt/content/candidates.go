@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	contracts "github.com/abdullah95k/securebrand-contracts"
 	contentv1 "github.com/abdullah95k/securebrand-contracts/gen/go/securebrand/content/v1"
 	discoveryv1 "github.com/abdullah95k/securebrand-contracts/gen/go/securebrand/discovery/v1"
 	"google.golang.org/protobuf/proto"
@@ -107,6 +108,9 @@ type storedSource struct {
 	first    time.Time
 	seen     int64
 	evidence []byte
+	// A keyword search's keyword (how "search", via its id): the shared
+	// keyword list's id, the stored spelling and its language.
+	keywordID, keyword, language string
 }
 
 func (c *Candidates) load(ctx context.Context, from time.Time, after string, n int) ([]*storedCandidate, error) {
@@ -169,7 +173,58 @@ func (c *Candidates) load(ctx context.Context, from time.Time, after string, n i
 			cd.sources = append(cd.sources, s)
 		}
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	return out, c.keywords(ctx, out)
+}
+
+// keywords names the keyword of every keyword search source (part C, M12:
+// via is the keyword's id in discovery_keywords) by the shared keyword
+// list's id, contracts.KeywordID(group, language, spelling), so every
+// service names the same keyword the same way.
+func (c *Candidates) keywords(ctx context.Context, cds []*storedCandidate) error {
+	var ids []int64
+	for _, cd := range cds {
+		for _, s := range cd.sources {
+			if s.how == "search" {
+				if id, err := strconv.ParseInt(s.via, 10, 64); err == nil {
+					ids = append(ids, id)
+				}
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := c.E.DB.Query(ctx, `SELECT id::text, grp, language, term FROM discovery_keywords WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type kw struct{ group, language, term string }
+	by := map[string]kw{}
+	for rows.Next() {
+		var id string
+		var k kw
+		if err := rows.Scan(&id, &k.group, &k.language, &k.term); err != nil {
+			return err
+		}
+		by[id] = k
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, cd := range cds {
+		for i := range cd.sources {
+			s := &cd.sources[i]
+			if k, ok := by[s.via]; ok && s.how == "search" {
+				s.keywordID, s.keyword, s.language = contracts.KeywordID(k.group, k.language, k.term), k.term, k.language
+			}
+		}
+	}
+	return nil
 }
 
 // candidateSource maps a source's how (account_sources) to the contract's.
@@ -251,7 +306,7 @@ func (cd *storedCandidate) event() *Event {
 		m.Source = candidateSource(cd.sources[0].how)
 	}
 	for _, s := range cd.sources {
-		ev := &discoveryv1.Evidence{Via: s.how, Sightings: s.seen}
+		ev := &discoveryv1.Evidence{Via: s.how, Sightings: s.seen, KeywordId: s.keywordID, Keyword: s.keyword, Language: s.language}
 		if s.via != "" {
 			ev.Via = s.how + ":" + s.via
 		}

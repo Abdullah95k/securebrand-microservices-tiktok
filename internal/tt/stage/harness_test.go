@@ -123,7 +123,8 @@ func newHarness(t *testing.T, o tttest.Options) *harness {
 	h.w = &Worker{D: d, LeaseTTL: time.Minute, MaxAttempts: 6,
 		Stages: map[tkstaskv1.Kind]Stage{tkstaskv1.Kind_KIND_ACCOUNT: &AccountStage{D: d, SoftPause: 10 * time.Millisecond},
 			tkstaskv1.Kind_KIND_POST: &PostStage{D: d}, tkstaskv1.Kind_KIND_THREAD: &ThreadStage{D: d},
-			tkstaskv1.Kind_KIND_FOLLOWS: &FollowsStage{D: d, SoftPause: 10 * time.Millisecond}}}
+			tkstaskv1.Kind_KIND_FOLLOWS:  &FollowsStage{D: d, SoftPause: 10 * time.Millisecond},
+			tkstaskv1.Kind_KIND_DISCOVER: &DiscoverStage{D: d, SoftPause: 10 * time.Millisecond}}}
 	return h
 }
 

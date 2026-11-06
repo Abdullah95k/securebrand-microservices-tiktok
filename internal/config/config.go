@@ -399,6 +399,80 @@ type Discovery struct {
 	// accounts (docs/tiktok/discovery-plan.md §9; sources following and
 	// follower).
 	Follows FollowLists `koanf:"follows"`
+	// Part C, TikTok's discovery pages (docs/tiktok/discovery-plan.md §8;
+	// sources search, hashtag, sound, related and feed): Pages paces every
+	// page read, the others say what each source reads and how often.
+	Pages    DiscoveryPages `koanf:"pages"`
+	Search   SearchPages    `koanf:"search"`
+	Hashtags UsedPages      `koanf:"hashtags"`
+	Sounds   UsedPages      `koanf:"sounds"`
+	Related  RelatedPages   `koanf:"related"`
+	Feed     FeedPages      `koanf:"feed"`
+}
+
+// DiscoveryPages paces discovery part C's reads (docs/tiktok/
+// discovery-plan.md §8): every read is one target (a keyword, a hashtag, a
+// sound, a post's related posts, the feed) read up to its source's
+// max_pages, in the backfill lane, which the budget pauses.
+type DiscoveryPages struct {
+	// Batch is how many targets the leader sends to be read per tick;
+	// MaxRunning caps the reads running fleet-wide.
+	Batch      int `koanf:"batch"`
+	MaxRunning int `koanf:"max_running"`
+	// DayPages caps the pages every part C read together fetches in a UTC
+	// day (0: no cap; the budget still pauses the lane).
+	DayPages int `koanf:"day_pages"`
+	// RetryAfter: a claimed target whose read did not record is due again
+	// after this.
+	RetryAfter time.Duration `koanf:"retry_after"`
+	// Refresh is how often the leader picks the hashtags, sounds and posts
+	// monitored accounts use as targets (a query over their recent posts).
+	Refresh time.Duration `koanf:"refresh"`
+}
+
+// SearchPages is keyword search over the Iraq list (discovery-plan §8.2).
+// From US exits TikTok answers a logged-out search with 2483 ("Please
+// login"); from Iraq it served 9 pages (T37). So search runs only through a
+// tier TikTok places in or near Iraq: Tier empty is off, whatever the
+// source switch says.
+type SearchPages struct {
+	Tier     string        `koanf:"tier"`
+	Every    time.Duration `koanf:"every"`
+	MaxPages int           `koanf:"max_pages"`
+}
+
+// UsedPages are hashtags' or sounds' posts (discovery-plan §8.2): those
+// that at least MinAccounts monitored accounts used in posts of the last
+// Window, the Top most used, plus, for hashtags with Keywords, the Iraq
+// list's one-word terms as hashtags. Each is read every Every, up to
+// MaxPages pages, newest first as TikTok serves them. Skip lists hashtags
+// never read (fyp and its kind: worldwide, not Iraqi).
+type UsedPages struct {
+	Every       time.Duration `koanf:"every"`
+	MaxPages    int           `koanf:"max_pages"`
+	Top         int           `koanf:"top"`
+	MinAccounts int           `koanf:"min_accounts"`
+	Window      time.Duration `koanf:"window"`
+	Keywords    bool          `koanf:"keywords"`
+	Skip        []string      `koanf:"skip"`
+}
+
+// RelatedPages are monitored posts' related posts (discovery-plan §8.2):
+// each post of a monitored account made within Window is read once, the
+// most played first, up to PerTick new posts a tick.
+type RelatedPages struct {
+	Window  time.Duration `koanf:"window"`
+	PerTick int           `koanf:"per_tick"`
+}
+
+// FeedPages is the For You feed: Reads reads every Every. From US exits it
+// is American (C6 run 2), so it is worth running only through a tier
+// TikTok places in or near Iraq (Tier; empty takes the list class's
+// routing).
+type FeedPages struct {
+	Tier  string        `koanf:"tier"`
+	Every time.Duration `koanf:"every"`
+	Reads int           `koanf:"reads"`
 }
 
 // FollowLists paces discovery part D (docs/tiktok/discovery-plan.md §9):
@@ -1193,6 +1267,28 @@ func (t TT) validate() []error {
 		f.DayPages < 0 || f.PageSize <= 0 || f.KnownPages <= 0 || f.Batch <= 0 || f.MaxRunning <= 0 {
 		errs = append(errs, errors.New("tt.discovery.follows: following_every, followers_every, retry_after, max_pages, page_size, "+
 			"known_pages, batch and max_running > 0; day_pages >= 0 (0: no cap)"))
+	}
+	if p := t.Discovery.Pages; p.Batch <= 0 || p.MaxRunning <= 0 || p.DayPages < 0 || p.RetryAfter <= 0 || p.Refresh <= 0 {
+		errs = append(errs, errors.New("tt.discovery.pages: batch, max_running, retry_after and refresh > 0; day_pages >= 0 (0: no cap)"))
+	}
+	if s := t.Discovery.Search; s.Every <= 0 || s.MaxPages <= 0 {
+		errs = append(errs, errors.New("tt.discovery.search: every and max_pages > 0"))
+	}
+	for name, tier := range map[string]string{"search": t.Discovery.Search.Tier, "feed": t.Discovery.Feed.Tier} {
+		if tier != "" && tier != "direct" && !slices.ContainsFunc(t.Proxy.Tiers, func(p ProxyTier) bool { return p.Name == tier }) {
+			errs = append(errs, fmt.Errorf("tt.discovery.%s.tier %q is not one of tt.proxy.tiers", name, tier))
+		}
+	}
+	for name, u := range map[string]UsedPages{"hashtags": t.Discovery.Hashtags, "sounds": t.Discovery.Sounds} {
+		if u.Every <= 0 || u.MaxPages <= 0 || u.Top < 0 || u.MinAccounts <= 0 || u.Window <= 0 {
+			errs = append(errs, fmt.Errorf("tt.discovery.%s: every, max_pages, min_accounts and window > 0; top >= 0", name))
+		}
+	}
+	if r := t.Discovery.Related; r.Window <= 0 || r.PerTick < 0 {
+		errs = append(errs, errors.New("tt.discovery.related: window > 0, per_tick >= 0"))
+	}
+	if f := t.Discovery.Feed; f.Every <= 0 || f.Reads <= 0 {
+		errs = append(errs, errors.New("tt.discovery.feed: every and reads > 0"))
 	}
 	for name := range t.Discovery.Sources {
 		if !slices.Contains(DiscoverySources, name) {

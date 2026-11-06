@@ -107,9 +107,10 @@ func Task(kind tkstaskv1.Kind, lane tkstaskv1.Lane) string {
 	switch kind {
 	case tkstaskv1.Kind_KIND_MEDIA:
 		return TaskMedia
-	case tkstaskv1.Kind_KIND_ACCOUNT, tkstaskv1.Kind_KIND_ENTRY, tkstaskv1.Kind_KIND_FOLLOWS:
-		// Entry checks and follow-list reads share the account stage's
-		// topics and consumers: the worker runs each by its kind.
+	case tkstaskv1.Kind_KIND_ACCOUNT, tkstaskv1.Kind_KIND_ENTRY, tkstaskv1.Kind_KIND_FOLLOWS, tkstaskv1.Kind_KIND_DISCOVER:
+		// Entry checks, follow-list reads and discovery page reads share
+		// the account stage's topics and consumers: the worker runs each by
+		// its kind.
 		stage = "account"
 	case tkstaskv1.Kind_KIND_POST:
 		stage = "post"
