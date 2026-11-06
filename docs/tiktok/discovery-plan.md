@@ -80,7 +80,7 @@ fbs built this pattern for Facebook after tks was copied (ADR 0004 in fbs; `inte
 | `source` and `discovered_at` on the schedule | Where an account came from | `account_sources` (§5.1), with the evidence |
 
 From tks itself:
-- the `creator` list (plain HTTP, unsigned, 15 posts with `locationCreated` and the author's counts) **is the entry check** (§4);
+- the `creator` list (plain HTTP, unsigned, 15 posts and the author's counts) **is the entry check** (§4); its posts carry no `locationCreated` (T39, C6 run 2);
 - the browser signer pool signs search and the other calls (D11);
 - the operations registry (switches per call), the budget, the canary and fakett.
 
@@ -92,7 +92,7 @@ TikTok shows no country on an account. In the recordings, `region` is the viewer
 
 | Signal | Source | Strength |
 |---|---|---|
-| Recent posts made in Iraq (`locationCreated: IQ`) | The entry check's list read | **Strong**: one is enough |
+| Recent posts made in Iraq (`locationCreated: IQ`) | The entry check's list read | **Strong**: one is enough. **Never fires:** TikTok's web answers don't carry `locationCreated` (T39, C6 run 2) |
 | Bio or nickname names Iraq, the Kurdistan Region or an Iraqi place (the keyword list, normalized) | Account | **Strong** |
 | An Iraqi phone number (`+964`, `00964`, `07xx…`) or a `.iq` link in the bio | Account | **Strong** |
 | Captions or hashtags name Iraqi places (#العراق, #بغداد, #هەولێر, …) in recent posts | The entry check's posts | Medium; strong when in several posts |
