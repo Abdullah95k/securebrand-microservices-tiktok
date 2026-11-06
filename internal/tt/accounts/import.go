@@ -333,3 +333,42 @@ func BatchReport(ctx context.Context, db *pgxpool.Pool, client uuid.UUID, admin 
 	rows.Close()
 	return out, rows.Err()
 }
+
+// Batch is an import as the review page lists it: its labels, whether it
+// was a dry run, its counts (lines, added, joined, already, duplicates,
+// rejected, queued) and when it ran.
+type Batch struct {
+	ID         uuid.UUID        `json:"batch"`
+	Labels     []string         `json:"labels"`
+	DryRun     bool             `json:"dry_run"`
+	Counts     map[string]int64 `json:"counts"`
+	CreatedAt  time.Time        `json:"created_at"`
+	FinishedAt *time.Time       `json:"finished_at,omitempty"`
+}
+
+// Batches lists a client's imports (every client's for an admin), the
+// newest first, those made before before when it is set.
+func Batches(ctx context.Context, db *pgxpool.Pool, client uuid.UUID, admin bool, before time.Time, limit int) ([]Batch, error) {
+	rows, err := db.Query(ctx, `SELECT id, labels, dry_run, counts, created_at, finished_at FROM import_batches
+		WHERE ($1 OR api_client_id = $2) AND ($3::timestamptz IS NULL OR created_at < $3)
+		ORDER BY created_at DESC, id DESC LIMIT $4`, admin, client, nilIfZeroTime(before), limit)
+	if err != nil {
+		return nil, err
+	}
+	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Batch, error) {
+		var b Batch
+		err := r.Scan(&b.ID, &b.Labels, &b.DryRun, &b.Counts, &b.CreatedAt, &b.FinishedAt)
+		return b, err
+	})
+	if out == nil {
+		out = []Batch{}
+	}
+	return out, err
+}
+
+func nilIfZeroTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}

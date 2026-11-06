@@ -30,6 +30,9 @@ type Keyword struct {
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 	LastSearchedAt *time.Time `json:"last_searched_at,omitempty"`
+	// AccountsFound is how many accounts its searches found (KeywordHits),
+	// when asked for.
+	AccountsFound *int64 `json:"accounts_found,omitempty"`
 }
 
 // ErrInvalid is a keyword the store refuses; ErrDuplicate one whose

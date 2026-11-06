@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/ratelimit"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/accounts"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/discovery"
@@ -169,7 +170,8 @@ func (s *Server) budget(ctx context.Context) *ratelimit.BudgetState {
 }
 
 // listKeywords lists the discovery keywords (?language=, ?group=,
-// ?enabled=, cursor-paged by id with ?after=).
+// ?enabled=, cursor-paged by id with ?after=); ?hits=true adds how many
+// accounts each keyword's searches found.
 func (s *Server) listKeywords(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	f := discovery.KeywordFilter{Language: q.Get("language"), Group: q.Get("group"), Limit: limitParam(r)}
@@ -196,6 +198,21 @@ func (s *Server) listKeywords(w http.ResponseWriter, r *http.Request) {
 	}
 	if out == nil {
 		out = []discovery.Keyword{}
+	}
+	if q.Get("hits") == "true" {
+		ids := make([]int64, len(out))
+		for i, k := range out {
+			ids[i] = k.ID
+		}
+		hits, err := discovery.KeywordHits(r.Context(), s.ReadDB, ids)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		for i := range out {
+			n := hits[out[i].ID]
+			out[i].AccountsFound = &n
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"keywords": out})
 }
@@ -265,29 +282,65 @@ func (s *Server) updateKeyword(w http.ResponseWriter, r *http.Request) {
 }
 
 // listFound lists the accounts discovery found and does not monitor (or
-// added), with their state, entry check, Iraq score and evidence
-// (docs/tiktok/discovery-plan.md §3, §4): ?state=dormant is the dormant
-// list, ?state=not_iraqi the accounts close to the threshold; the latest
-// found first, cursor-paged with ?after=. Usernames need pii:read.
+// added), with their state, entry check, Iraq score, evidence and sources
+// (docs/tiktok/discovery-plan.md §3, §4, §11): ?state=dormant is the
+// dormant list, ?state=not_iraqi&order=score the accounts closest to the
+// threshold; ?source= a way found (with ?via=: the keyword's id for search,
+// the monitored account's user id for part B), ?label= a label on its
+// schedule (the caller's; any client's for an admin), ?min_score= and
+// ?max_score=, ?since= and ?until= when first found. The latest found
+// first, cursor-paged with ?after=. Usernames need pii:read.
 func (s *Server) listFound(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	state := q.Get("state")
-	if state != "" && !slices.Contains(discovery.States, state) {
+	ctx := r.Context()
+	c := clientFrom(ctx)
+	f := discovery.Filter{State: q.Get("state"), How: q.Get("source"), Via: q.Get("via"), Label: q.Get("label"), After: q.Get("after"),
+		Limit: limitParam(r)}
+	if f.State != "" && !slices.Contains(discovery.States, f.State) {
 		problem(w, http.StatusBadRequest, "invalid state", "state must be one of "+strings.Join(discovery.States, ", "))
 		return
 	}
-	var after int64
-	if v := q.Get("after"); v != "" {
-		n, err := strconv.ParseInt(v, 10, 64)
-		if err != nil || n <= 0 {
-			problem(w, http.StatusBadRequest, "invalid after", "after must be the next cursor of a previous page")
-			return
-		}
-		after = n
+	if f.How != "" && !slices.Contains(config.DiscoverySources, f.How) {
+		problem(w, http.StatusBadRequest, "invalid source", "source must be one of "+strings.Join(config.DiscoverySources, ", "))
+		return
 	}
-	ctx := r.Context()
-	limit := limitParam(r)
-	out, err := discovery.List(ctx, s.ReadDB, state, after, limit, clientFrom(ctx).Has(ScopePIIRead))
+	if f.Via != "" && f.How == "" {
+		problem(w, http.StatusBadRequest, "invalid via", "via needs a source")
+		return
+	}
+	if f.Label != "" && !c.Has(ScopeAdmin) {
+		f.LabelClient = &c.ID
+	}
+	switch q.Get("order") {
+	case "", "found":
+	case "score":
+		f.ByScore = true
+	default:
+		problem(w, http.StatusBadRequest, "invalid order", "order must be found or score")
+		return
+	}
+	for name, dst := range map[string]**float64{"min_score": &f.MinScore, "max_score": &f.MaxScore} {
+		if v := q.Get(name); v != "" {
+			n, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				problem(w, http.StatusBadRequest, "invalid "+name, name+" must be a number")
+				return
+			}
+			*dst = &n
+		}
+	}
+	var ok bool
+	if f.Since, ok = timeParam(w, r, "since"); !ok {
+		return
+	}
+	if f.Until, ok = timeParam(w, r, "until"); !ok {
+		return
+	}
+	out, next, err := discovery.Search(ctx, s.ReadDB, f, c.Has(ScopePIIRead))
+	if errors.Is(err, discovery.ErrBadCursor) {
+		problem(w, http.StatusBadRequest, "invalid after", "after must be the next cursor of a previous page with the same order")
+		return
+	}
 	if err != nil {
 		serverError(w, err)
 		return
@@ -298,8 +351,97 @@ func (s *Server) listFound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := map[string]any{"accounts": out, "counts": counts}
+	if next != "" {
+		resp["next"] = next
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// removeFound takes a found account out of discovery for good: it is
+// blocked, discovery stops monitoring it if it had added it, and no source
+// adds it back (discovery-plan §5.5, §11). Its data stays.
+func (s *Server) removeFound(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathInt(r, "id")
+	if !ok {
+		problem(w, http.StatusBadRequest, "invalid id", "id must be a found account's id")
+		return
+	}
+	ctx := r.Context()
+	dc, err := discovery.EnsureClient(ctx, s.DB, s.Cfg.TT.Discovery.Client)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	out, err := discovery.Remove(ctx, s.DB, dc, clientFrom(ctx).ID, id, s.now())
+	if errors.Is(err, discovery.ErrNotFound) {
+		problem(w, http.StatusNotFound, "unknown account", "discovery found no account with this id")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// discoveryStats is the review page's cost and capacity
+// (discovery-plan §11, §12): accounts found and added per source and UTC
+// day, discovery's reads and their data per day, the candidates by state,
+// the admission queue with what draining it within a day takes, and the
+// switches and the score's threshold. ?days= (1 to 31, default 7).
+func (s *Server) discoveryStats(w http.ResponseWriter, r *http.Request) {
+	days := 7
+	if v := r.URL.Query().Get("days"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 31 {
+			problem(w, http.StatusBadRequest, "invalid days", "days must be 1 to 31")
+			return
+		}
+		days = n
+	}
+	ctx := r.Context()
+	now := s.now().UTC()
+	daily, err := discovery.Daily(ctx, s.ReadDB, now.AddDate(0, 0, 1-days), now)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	counts, err := discovery.Counts(ctx, s.ReadDB)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	queue, err := accounts.QueueStatus(ctx, s.ReadDB, s.Cfg, s.budget(ctx), now)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	d := s.Cfg.TT.Discovery
+	sources := map[string]bool{}
+	for _, src := range config.DiscoverySources {
+		sources[src] = d.SourceOn(src)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"days": daily, "counts": counts, "admission": queue, "enabled": d.Enabled,
+		"sources": sources, "max_new_per_day": d.MaxNewPerDay, "score_pass": d.Score.Pass})
+}
+
+// listImports lists the caller's imports (every client's for an admin),
+// the newest first; ?before= (RFC 3339) pages back.
+func (s *Server) listImports(w http.ResponseWriter, r *http.Request) {
+	before, ok := timeParam(w, r, "before")
+	if !ok {
+		return
+	}
+	c := clientFrom(r.Context())
+	limit := limitParam(r)
+	out, err := accounts.Batches(r.Context(), s.ReadDB, c.ID, c.Has(ScopeAdmin), before, limit)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	resp := map[string]any{"imports": out}
 	if len(out) == limit {
-		resp["next"] = strconv.FormatInt(out[len(out)-1].Cursor, 10)
+		resp["next_before"] = out[len(out)-1].CreatedAt.Format(time.RFC3339Nano)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

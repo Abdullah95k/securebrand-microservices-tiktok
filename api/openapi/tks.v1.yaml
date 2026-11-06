@@ -9,7 +9,13 @@ info:
     Scopes: `jobs:write`, `accounts:write`, `data:read`, `pii:read`, `discovery:read`,
     `discovery:write`, `admin` (implies all).
     tks deletes nothing it collects and erases no one (owner, 2026-11-01; ADR 0007 §14).
-    Errors use RFC 9457 problem documents (`application/problem+json`).
+    Errors use RFC 9457 problem documents (`application/problem+json`). A change (any method but
+    GET, HEAD and OPTIONS) that a browser marks as sent from another site (`Sec-Fetch-Site:
+    cross-site` or `same-site`) is refused with 403; programs send no such header.
+
+    **The discovery review page** is served by tks-api at `/review/`, outside this API: static
+    files that hold no data and call these endpoints with the key the viewer gives
+    (docs/tiktok/discovery-plan.md §11).
 
     **Ids are strings.** TikTok's user, post, comment and music ids do not fit a JavaScript
     number, so they are JSON strings of digits, in requests and answers.
@@ -208,6 +214,16 @@ paths:
       responses:
         "200": {description: Accounts}
         "404": {$ref: '#/components/responses/Problem'}
+  /imports:
+    get:
+      summary: Your imports, the newest first
+      description: Requires `accounts:write`; an admin sees every client's. Each with its labels, dry run and counts.
+      parameters:
+        - {in: query, name: before, schema: {type: string, format: date-time}, description: The next_before of the previous page}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        "200": {description: '{imports, next_before}'}
+        "400": {$ref: '#/components/responses/Problem'}
   /accounts/{account}:
     parameters: [{$ref: '#/components/parameters/Account'}]
     get:
@@ -434,6 +450,7 @@ paths:
         - {in: query, name: group, schema: {type: string}}
         - {in: query, name: enabled, schema: {type: boolean}}
         - {in: query, name: after, schema: {type: integer}, description: The last id of the previous page}
+        - {in: query, name: hits, schema: {type: boolean}, description: 'Add accounts_found: how many accounts the keyword''s searches found'}
         - {$ref: '#/components/parameters/Limit'}
       responses:
         "200": {description: Keywords}
@@ -477,19 +494,55 @@ paths:
         "409": {$ref: '#/components/responses/Problem'}
   /discovery/accounts:
     get:
-      summary: Accounts discovery found, with their entry check, Iraq score and evidence (discovery:read)
+      summary: Accounts discovery found, with their entry check, Iraq score, evidence and sources (discovery:read)
       description: >-
         Every account a discovery source found and tks does not monitor, and those it added
-        (docs/tiktok/discovery-plan.md §3, §4). state=dormant is the dormant list (private, no post
+        (docs/tiktok/discovery-plan.md §3, §4, §11). state=dormant is the dormant list (private, no post
         in 90 days, never posted, banned, gone or unreadable; read again only when found after
         next_check_at); state=not_iraqi holds the public, active accounts whose score does not pass
-        (yet). The latest found first; counts gives every state's total. Usernames need pii:read.
+        (yet), closest to the threshold first with order=score. Each account has an id (tks's own,
+        for removing it) and the sources that found it. The latest found first; counts gives every
+        state's total. Usernames need pii:read.
       parameters:
         - {in: query, name: state, schema: {type: string, enum: [pending, checking, qualified, added, not_iraqi, dormant, blocked]}}
-        - {in: query, name: after, schema: {type: string}, description: The next cursor of the previous page}
+        - {in: query, name: source, schema: {type: string, enum: [mention, reply, commenter, search, hashtag, sound, feed, related, following, follower]}}
+        - {in: query, name: via, schema: {type: string}, description: 'With source: what led to it (a keyword''s id for search, a monitored account''s user id for mention, reply and commenter)'}
+        - {in: query, name: label, schema: {type: string}, description: 'A label on the account''s schedule: the caller''s, or any client''s for admin'}
+        - {in: query, name: min_score, schema: {type: number}}
+        - {in: query, name: max_score, schema: {type: number}}
+        - {in: query, name: since, schema: {type: string, format: date-time}, description: First found at or after}
+        - {in: query, name: until, schema: {type: string, format: date-time}, description: First found before}
+        - {in: query, name: order, schema: {type: string, enum: [found, score], default: found}}
+        - {in: query, name: after, schema: {type: string}, description: The next cursor of the previous page (same order)}
         - {$ref: '#/components/parameters/Limit'}
       responses:
         "200": {description: 'Found accounts ({accounts, counts, next})'}
+        "400": {$ref: '#/components/responses/Problem'}
+  /discovery/accounts/{id}/remove:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: integer}, description: The found account's id}
+    post:
+      summary: Remove a found account for good (discovery:write)
+      description: >-
+        The review page's remove button (discovery-plan §11): the account is blocked for the
+        caller, so no source adds it back (§5.5); discovery's own registration and the caller's are
+        removed, and its schedule stops when no client is left on it. Its data stays. Registering
+        the account again (POST /accounts) lifts the caller's block. Idempotent.
+      responses:
+        "200": {description: '{state: blocked, monitoring_stopped, still_monitored}'}
+        "404": {$ref: '#/components/responses/Problem'}
+  /discovery/stats:
+    get:
+      summary: Discovery's cost and capacity (discovery:read)
+      description: >-
+        Accounts found and added per source and UTC day (an account found by two sources counts
+        under each), discovery's own reads per day by job kind (jobs, requests, wire bytes), found
+        accounts by state, the admission queue with what draining it within a day takes, the
+        switches, the daily test cap and the score's threshold (discovery-plan §11, §12).
+      parameters:
+        - {in: query, name: days, schema: {type: integer, minimum: 1, maximum: 31, default: 7}}
+      responses:
+        "200": {description: '{days, counts, admission, enabled, sources, max_new_per_day, score_pass}'}
         "400": {$ref: '#/components/responses/Problem'}
   /admin/operations:
     get:

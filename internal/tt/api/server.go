@@ -61,8 +61,11 @@ func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer, requestLog)
 	timeout := s.requestTimeout()
+	// The discovery review page (discovery-plan §11): static files that
+	// hold no data; the page calls /v1 with the viewer's own key.
+	r.Mount("/review", reviewHandler())
 	r.Route("/v1", func(r chi.Router) {
-		r.Use(auth.middleware)
+		r.Use(sameOrigin, auth.middleware)
 		// Results stream for as long as the job's data takes; every other
 		// request is cut off after http.write_timeout.
 		r.Get("/jobs/{id}/results", require(ScopeDataRead, s.jobResults))
@@ -92,6 +95,7 @@ func (s *Server) routes(r chi.Router) {
 	r.Post("/accounts", require(ScopeAccountsWrite, s.registerAccount))
 	r.Post("/accounts/import", require(ScopeAccountsWrite, s.importAccounts))
 	r.Get("/accounts/imports/{batch}", require(ScopeAccountsWrite, s.importReport))
+	r.Get("/imports", require(ScopeAccountsWrite, s.listImports))
 	r.Get("/accounts", require(ScopeDataRead, s.listAccounts))
 	r.Get("/accounts/{account}", require(ScopeDataRead, s.getAccount))
 	r.Patch("/accounts/{account}", require(ScopeAccountsWrite, s.updateAccount))
@@ -110,6 +114,8 @@ func (s *Server) routes(r chi.Router) {
 	r.Get("/admission", require(ScopeDataRead, s.admission))
 	r.Get("/discovery/keywords", require(ScopeDiscoveryRead, s.listKeywords))
 	r.Get("/discovery/accounts", require(ScopeDiscoveryRead, s.listFound))
+	r.Post("/discovery/accounts/{id}/remove", require(ScopeDiscoveryWrite, s.removeFound))
+	r.Get("/discovery/stats", require(ScopeDiscoveryRead, s.discoveryStats))
 	r.Post("/discovery/keywords", require(ScopeDiscoveryWrite, s.addKeyword))
 	r.Patch("/discovery/keywords/{id}", require(ScopeDiscoveryWrite, s.updateKeyword))
 
