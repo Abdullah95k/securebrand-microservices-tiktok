@@ -25,7 +25,7 @@ var tables = []string{
 	"api_clients", "jobs", "crawl_cursors", "account_schedule", "account_registrations", "post_refresh",
 	"discovery_keywords", "account_sources", "account_labels", "account_blocks", "import_batches", "import_lines",
 	"operations", "client_params", "canary_runs", "post_status_changes", "discovery_candidates", "discovery_sightings",
-	"follows", "follow_lists",
+	"follows", "follow_lists", "content_state",
 }
 
 func tablesIn(t *testing.T, db interface {
@@ -203,6 +203,7 @@ func TestSchemaHoldsData(t *testing.T) {
 		VALUES ('follower', 'followers', 7, 8, 'MS4wother', false, 0, now())`)
 	exec(`INSERT INTO follows (user_id, direction, person_user_id, author_key, first_seen_at, last_seen_at) VALUES (7, 'follower', 8, $1, now(), now())`, key)
 	exec(`INSERT INTO follow_lists (user_id, direction, state) VALUES (7, 'following', 'hidden')`)
+	exec(`INSERT INTO content_state (id, content_hash, observed_at) VALUES ('post/tt:post:1', $1, now())`, key)
 	for _, tb := range tables {
 		var rows int
 		if err := db.QueryRow(ctx, "SELECT count(*) FROM "+pgx.Identifier{tb}.Sanitize()).Scan(&rows); err != nil {

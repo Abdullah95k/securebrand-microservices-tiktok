@@ -1,3 +1,5 @@
+github.com/abdullah95k/securebrand-contracts v1.2.0 h1:yPEbGql79pxDMeyB/meqS/nLD0FoEs4Rl17DZxJwizw=
+github.com/abdullah95k/securebrand-contracts v1.2.0/go.mod h1:u+FKXRwTV6g6eohS61WtlVDEEawSW1mmtbM7rsK+/6Y=
 github.com/alicebob/miniredis/v2 v2.40.0 h1:6IgTQbvm2JiMYZ8yur/acNJzVjtSOWCelxXbk/LUBXc=
 github.com/alicebob/miniredis/v2 v2.40.0/go.mod h1:TcL7YfarKPGDAthEtl5NBeHZfeUQj6OXMm/+iu5cLMM=
 github.com/andybalholm/brotli v1.2.6 h1:ftYnfj6usCp+UGV5kSJ3+chpMQgU+gJf/AxsUQ52REI=

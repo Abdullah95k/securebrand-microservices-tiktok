@@ -38,6 +38,12 @@ tt:
   # (s3.raw_rest_prefix).
   capture_raw: failures
   capture_raw_sample: 0.01
+  # The shared contract's content.* events (M15), published by the
+  # persister for each changed row. Off until the platform has made the
+  # content.* topics.
+  content:
+    enabled: false
+    production: false
   proxy:
     tiers: []
     routing:

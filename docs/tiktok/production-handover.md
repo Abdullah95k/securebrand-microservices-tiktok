@@ -72,6 +72,8 @@ The rights are by kind (read, or read and write rows), not table by table: the c
 
 Every topic tks produces or consumes is in the platform's list (`configs/tt/topics.yaml` against build-status's "Production platform" table): the account, post and thread lanes, `tks.task.media`, the retries (`tks.task.retry.30s`, `.5m`, `.1h`), `tks.task.dlq`, `tks.persist.dlq` and the `tt.*.v1` topics, **including `tt.follow.v1`** (already added; 168 h). **No other topic is missing.** The chart's topic hook is off (`hooks.topics: false`), and no schema is registered (`hooks.schemas: false`).
 
+**The shared contract's topics (M15a).** tks's persister can publish the contract's events on `content.account.v1`, `content.account_snapshot.v1`, `content.post.v1`, `content.comment.v1`, `content.metrics.v1`, `content.media.v1` and `content.audio.v1` (user `tks-kafka` is already allowed `content.*`). They are shared with the other collectors, so tks does not create them and they are not in its list. It is **off** (`tt.content.enabled: false` in `values-production.yaml`): once the platform has made these topics, set it to `true` (or `TKS_TT__CONTENT__ENABLED=true`) and restart the persister. With it on and a topic missing, the persister stops writing until the topic exists (nothing is lost; it retries).
+
 Pod maximums are at most the partitions of the topics each component reads: 3 for the crawlers (account, post, thread), the persister and the media downloader. When the platform adds partitions, raise `components.<name>.autoscale.max` with them.
 
 ## 7. Storage

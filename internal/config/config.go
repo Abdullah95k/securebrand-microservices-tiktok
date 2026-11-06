@@ -233,6 +233,17 @@ type FB struct {
 // data is kept (docs/tiktok ADR 0006 §6, ADR 0007 §4). Defaults are in
 // configs/tt/default.yaml; values marked there as after Phase 0 are
 // provisional.
+// Content is tt.content: the shared contract's events (securebrand.content.v1,
+// Abdullah95k/securebrand-contracts), published by the persister for each
+// changed row alongside tt.*. Off until the platform has made the content.*
+// topics: a missing topic would hold the persister back.
+type Content struct {
+	Enabled bool `koanf:"enabled"`
+	// Production applies the contract's production checks to every event
+	// before it leaves (reserved platforms, test-only values).
+	Production bool `koanf:"production"`
+}
+
 type TT struct {
 	BaseURL string `koanf:"base_url"`
 	// OperationSeed is the registry seed's path in configs (configs.FS).
@@ -260,6 +271,9 @@ type TT struct {
 	// CaptureRawSample is the share of good answers kept for good with
 	// capture_raw all or sample (0.01: the 1 % sample).
 	CaptureRawSample float64        `koanf:"capture_raw_sample"`
+	// Content publishes the shared contract's content.* events from the
+	// persister (M15; docs/tiktok/contract-mapping.md).
+	Content Content `koanf:"content"`
 	Proxy            Proxy          `koanf:"proxy"`
 	QueryBreaker     breaker.Config `koanf:"query_breaker"`
 	AIMD             AIMD           `koanf:"aimd"`

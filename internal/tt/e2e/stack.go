@@ -45,6 +45,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/testenv"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/app"
 	ttclient "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/client"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/content"
 	ttpersist "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/persist"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/sign"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/task"
@@ -168,6 +169,9 @@ func Start(t *testing.T, o Options) *Stack {
 	cfg.TT.RequestTimeout = 10 * time.Second
 	cfg.TT.AIMD.Enabled = false
 	cfg.TT.CaptureRaw = "none"
+	// The shared contract's events, checked as production checks them; the
+	// content.* topics are made below, as the platform makes them.
+	cfg.TT.Content.Enabled, cfg.TT.Content.Production = true, true
 	cfg.TT.Signer.Mode = config.SignerBrowser
 	cfg.TT.CommentsPageSize = 10 // continuations within a post's comments
 	cfg.Crawler.YieldPages = 2   // and within a list
@@ -223,6 +227,9 @@ func Start(t *testing.T, o Options) *Stack {
 	}
 	for i := range doc.Topics {
 		doc.Topics[i].Partitions = min(doc.Topics[i].Partitions, 3)
+	}
+	for _, tp := range content.Topics {
+		doc.Topics = append(doc.Topics, kafka.TopicSpec{Name: tp, Partitions: 3, Retention: 168 * time.Hour})
 	}
 	if err := kafka.EnsureTopics(ctx, producer.Client(), prefix, doc.Topics, 1); err != nil {
 		t.Fatal(err)
