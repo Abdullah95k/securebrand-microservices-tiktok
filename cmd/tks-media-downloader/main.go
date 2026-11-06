@@ -16,7 +16,6 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/httpserver"
 	plog "github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/log"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/run"
-	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/s3x"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/app"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/ttstore"
 )
@@ -32,7 +31,7 @@ func main() {
 }
 
 func runMedia(ctx context.Context, cfg *config.Config) error {
-	db, err := ttstore.Open(ctx, cfg.Postgres.DSN, cfg.Postgres.MaxConns)
+	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, cfg.Postgres.MaxConns)
 	if err != nil {
 		return err
 	}
@@ -40,7 +39,7 @@ func runMedia(ctx context.Context, cfg *config.Config) error {
 	if err := ttstore.CheckSchema(ctx, db); err != nil {
 		return err
 	}
-	s3, err := s3x.Open(ctx, cfg.S3.Endpoint, cfg.S3.AccessKey, cfg.S3.SecretKey, cfg.S3.Region, cfg.S3.UseSSL, cfg.S3.MediaBucket)
+	s3, err := app.OpenS3(ctx, cfg, cfg.S3.MediaBucket)
 	if err != nil {
 		return err
 	}

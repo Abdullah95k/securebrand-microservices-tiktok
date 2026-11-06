@@ -41,7 +41,7 @@ func dlqReplay(ctx context.Context, cfg *config.Config, args []string) (*dlq.Res
 		return nil, err
 	}
 	defer func() { _ = rdb.Close() }()
-	db, err := ttstore.Open(ctx, cfg.Postgres.DSN, 2)
+	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, 2)
 	if err != nil {
 		return nil, err
 	}

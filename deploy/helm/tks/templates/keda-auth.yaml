@@ -7,9 +7,17 @@ metadata:
   labels: {{- include "tks.labels" . | nindent 4 }}
 spec:
   secretTargetRef:
+    {{- if .Values.keda.authKeys }}
+    {{- range $param, $key := .Values.keda.authKeys }}
+    - parameter: {{ $param }}
+      name: {{ $.Values.keda.authSecret }}
+      key: {{ $key }}
+    {{- end }}
+    {{- else }}
     {{- range .Values.keda.authParams }}
     - parameter: {{ . }}
       name: {{ $.Values.keda.authSecret }}
       key: {{ . }}
+    {{- end }}
     {{- end }}
 {{- end }}

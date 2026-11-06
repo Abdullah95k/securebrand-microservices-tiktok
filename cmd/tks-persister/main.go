@@ -29,7 +29,7 @@ func main() {
 }
 
 func runPersister(ctx context.Context, cfg *config.Config) error {
-	db, err := ttstore.Open(ctx, cfg.Postgres.DSN, cfg.Postgres.MaxConns)
+	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, cfg.Postgres.MaxConns)
 	if err != nil {
 		return err
 	}

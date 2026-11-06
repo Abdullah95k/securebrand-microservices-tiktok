@@ -47,7 +47,7 @@ func discoveryKeywords(ctx context.Context, cfg *config.Config, action string, a
 	if err != nil {
 		return nil, err
 	}
-	db, err := ttstore.Open(ctx, cfg.Postgres.DSN, 4)
+	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, 4)
 	if err != nil {
 		return nil, err
 	}

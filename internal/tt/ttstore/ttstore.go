@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/registry"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/store"
 	ttmigrations "github.com/abdullah95k/securebrand-microservices-tiktok/migrations/tt"
@@ -40,6 +41,9 @@ var Tables = store.Tables{
 		"posts":    {"caption", "text_ranges", "labels"},
 		"comments": {"text", "text_ranges"},
 	},
+	// Partitions are created as the tables' owner, whatever role asks
+	// (migration 00011; M18).
+	Func: "tt.ensure_partition",
 }
 
 // Open creates a pool whose connections all use search_path tt, and checks
@@ -94,8 +98,16 @@ func CheckSchema(ctx context.Context, pool *pgxpool.Pool) error {
 
 func provider(ctx context.Context, pool *pgxpool.Pool) (*goose.Provider, *sql.DB, error) {
 	// goose creates its version table first, so the schema must exist.
-	if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{Schema}.Sanitize()); err != nil {
-		return nil, nil, fmt.Errorf("ttstore: create schema: %w", err)
+	// Only the owner creates it; a component's role (M18) may read the
+	// status of a schema that exists.
+	var exists bool
+	if err := pool.QueryRow(ctx, "SELECT to_regnamespace($1) IS NOT NULL", Schema).Scan(&exists); err != nil {
+		return nil, nil, fmt.Errorf("ttstore: schema: %w", err)
+	}
+	if !exists {
+		if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{Schema}.Sanitize()); err != nil {
+			return nil, nil, fmt.Errorf("ttstore: create schema: %w", err)
+		}
 	}
 	db := stdlib.OpenDBFromPool(pool)
 	p, err := goose.NewProvider(goose.DialectPostgres, db, ttmigrations.FS, goose.WithTableName(VersionTable))
@@ -172,3 +184,13 @@ func EnsurePartitions(ctx context.Context, pool *pgxpool.Pool, now time.Time, w 
 // Registry is schema tt's operation registry: fbs's fb_queries and
 // fb_client_params under tks's names (ADR 0006 §3).
 var Registry = registry.Tables{Queries: "operations", Params: "client_params"}
+
+// OpenConfig opens the component's pool from its configuration: the DSN,
+// or the server's parts with the component's own role (config.Postgres).
+func OpenConfig(ctx context.Context, p config.Postgres, maxConns int32) (*pgxpool.Pool, error) {
+	u, err := p.URL()
+	if err != nil {
+		return nil, err
+	}
+	return Open(ctx, u, maxConns)
+}

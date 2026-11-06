@@ -67,7 +67,7 @@ func NewMedia(ctx context.Context, cfg *config.Config, o MediaOptions) (*Media, 
 		drain = 60 * time.Second
 	}
 	m := &Media{Producer: producer,
-		Downloader: &ttmedia.Downloader{DB: o.DB, S3: o.S3, Bucket: cfg.S3.MediaBucket, Producer: producer, HTTP: hc,
+		Downloader: &ttmedia.Downloader{DB: o.DB, S3: o.S3, Bucket: cfg.S3.MediaBucket, Prefix: cfg.S3.MediaPrefix, Producer: producer, HTTP: hc,
 			CookieDomains: cfg.TT.Media.CookieDomains, MaxBytes: cfg.Media.MaxBytes, Presign: cfg.Media.Presign,
 			PresignTTL: cfg.Media.PresignTTL, Now: o.Now},
 		Ledger: &ttmedia.Ledger{DB: o.DB, Producer: producer, MaxRetryableFailures: cfg.Media.MaxRetryableFailures, Now: o.Now},

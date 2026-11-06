@@ -485,8 +485,9 @@ func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteAccount unregisters the caller and records the removal as a block,
-// so discovery never adds the account back (discovery-plan §5.5); the
-// schedule is disabled once no client is registered. The account's data
+// so discovery never adds the account back (discovery-plan §5.5); an
+// account discovery added is unregistered from discovery too (owner,
+// 2026-11-06); the schedule is disabled once no client is registered. The account's data
 // stays (tks deletes nothing: ADR 0007 §14).
 func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	ref, ok := accountRef(w, r)
@@ -504,7 +505,7 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	if found {
 		uid = acc.UserID
 	}
-	schedRef, registered, err := s.scheduleRef(ctx, ref, uid)
+	schedRef, _, err := s.scheduleRef(ctx, ref, uid)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -513,22 +514,19 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if registered {
-		err := pgx.BeginFunc(ctx, s.DB, func(tx pgx.Tx) error {
-			if _, err := tx.Exec(ctx, `DELETE FROM account_registrations WHERE api_client_id = $1 AND account_ref = $2`, c.ID, schedRef); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `DELETE FROM account_labels WHERE api_client_id = $1 AND account_ref = $2`, c.ID, schedRef); err != nil {
-				return err
-			}
-			_, err := tx.Exec(ctx, `UPDATE account_schedule SET enabled = false WHERE account_ref = $1
-				AND NOT EXISTS (SELECT 1 FROM account_registrations WHERE account_ref = $1)`, schedRef)
-			return err
-		})
-		if err != nil {
-			serverError(w, err)
-			return
-		}
+	// Also an account discovery added stops (owner, 2026-11-06), as the
+	// review page's Remove does.
+	dc := ""
+	if s.Cfg != nil {
+		dc = s.Cfg.TT.Discovery.Client
+	}
+	err = pgx.BeginFunc(ctx, s.DB, func(tx pgx.Tx) error {
+		_, err := accounts.Remove(ctx, tx, c.ID, dc, []string{schedRef}, s.now())
+		return err
+	})
+	if err != nil {
+		serverError(w, err)
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

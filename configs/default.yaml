@@ -19,6 +19,22 @@ postgres:
   dsn: "postgres://fbs:fbs@localhost:5432/fbs?sslmode=disable"
   read_dsn: ""             # optional read replica for API reads
   max_conns: 20
+  # On the production platform the server comes in parts (host, port,
+  # database, user, password, sslmode, ca: a PEM as a value), which win over
+  # dsn; read_user opens the API's read pool as a read-only role. roles
+  # names each component's login role: `tksctl migrate up` grants them
+  # their rights (docs/runbooks/tks-production.md).
+  host: ""
+  port: 5432
+  database: ""
+  user: ""
+  password: ""
+  read_user: ""
+  read_password: ""
+  sslmode: ""
+  ca: ""
+  ca_file: ""
+  roles: {api: "", reader: "", persister: "", scheduler: "", crawler: ""}
 
 redis:
   addr: "localhost:6379"
@@ -62,6 +78,13 @@ s3:
   region: "us-east-1"
   media_bucket: "tks-media"
   raw_bucket: "tks-raw"
+  # Off where the platform owns the buckets (production).
+  create_buckets: true
+  # Key prefixes: media objects, and raw answers kept for good (failures
+  # and the sample) or not (the rest; the platform expires tks/30d/).
+  media_prefix: ""
+  raw_keep_prefix: "raw-failures/"
+  raw_rest_prefix: "raw/"
 
 fb:
   # Base URL of the Facebook web surface. Tests and local dev point this at fakefb.

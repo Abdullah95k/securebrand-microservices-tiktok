@@ -26,6 +26,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/app"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/canary"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/cost"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/halt"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/ttstore"
 )
 
@@ -43,7 +44,7 @@ func main() {
 }
 
 func runCanary(ctx context.Context, cfg *config.Config, once bool) (int, error) {
-	db, err := ttstore.Open(ctx, cfg.Postgres.DSN, cfg.Postgres.MaxConns)
+	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, cfg.Postgres.MaxConns)
 	if err != nil {
 		return 0, err
 	}
@@ -59,7 +60,18 @@ func runCanary(ctx context.Context, cfg *config.Config, once bool) (int, error) 
 	if err := c.InitMetrics(ctx); err != nil {
 		slog.Warn("canary: last run unknown", "err", err)
 	}
+	rdb, err := connect.Redis(ctx, cfg)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = rdb.Close() }()
+	// The stop switch (tksctl stop): a stopped tks sends no canary checks.
+	stop := halt.NewGate(rdb, cfg.Kafka.TopicPrefix)
 	check := func(ctx context.Context) (canary.Report, error) {
+		if err := stop.Refresh(ctx); err == nil && stop.Stopped() {
+			slog.Info("canary: tks is stopped (tksctl stop); run skipped")
+			return canary.Report{Status: canary.StatusSkipped}, nil
+		}
 		ctx, cancel := context.WithTimeout(ctx, cfg.TT.Canary.Timeout)
 		defer cancel()
 		if err := c.Registry.Reload(ctx); err != nil {
@@ -85,11 +97,6 @@ func runCanary(ctx context.Context, cfg *config.Config, once bool) (int, error) 
 	loops := []run.Func{ops.Run}
 	if c.Signer != nil {
 		// The signer pages' browser time, priced by tks's cost (A5).
-		rdb, err := connect.Redis(ctx, cfg)
-		if err != nil {
-			return 0, err
-		}
-		defer func() { _ = rdb.Close() }()
 		loops = append(loops, func(ctx context.Context) error {
 			return cost.RunBrowserTime(ctx, rdb, cfg.Kafka.TopicPrefix, c.Signer, time.Minute)
 		})

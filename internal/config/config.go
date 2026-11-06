@@ -92,10 +92,45 @@ type HTTP struct {
 	WriteTimeout time.Duration `koanf:"write_timeout"`
 }
 
+// Postgres is the database: a DSN, or (when Host is set, as on the
+// production platform) the server's parts, which win over the DSN. User is
+// the component's own role (each component logs in with its own: M18);
+// ReadUser, when set, opens the API's read pool as a read-only role on the
+// same server. CA is a PEM certificate given as a value (CAFile as a
+// file); with sslmode require it makes the connection verify the server's
+// certificate, as libpq does. Roles are granted their rights by `tksctl
+// migrate up` (ttstore.Grant).
 type Postgres struct {
 	DSN      string `koanf:"dsn"`
 	ReadDSN  string `koanf:"read_dsn"`
 	MaxConns int32  `koanf:"max_conns"`
+
+	Host         string `koanf:"host"`
+	Port         int    `koanf:"port"`
+	Database     string `koanf:"database"`
+	User         string `koanf:"user"`
+	Password     string `koanf:"password"`
+	ReadUser     string `koanf:"read_user"`
+	ReadPassword string `koanf:"read_password"`
+	SSLMode      string `koanf:"sslmode"`
+	CA           string `koanf:"ca"`
+	CAFile       string `koanf:"ca_file"`
+	// Roles are the login roles of the components, granted their rights
+	// after each migration; empty ones are skipped.
+	Roles PostgresRoles `koanf:"roles"`
+}
+
+// PostgresRoles names each component's role (docs/runbooks/tks-production.md).
+type PostgresRoles struct {
+	// API writes registrations, jobs, keys, imports and reviews.
+	API string `koanf:"api"`
+	// Reader is read-only: the API's read pool, and people reading the data.
+	Reader    string `koanf:"reader"`
+	Persister string `koanf:"persister"`
+	Scheduler string `koanf:"scheduler"`
+	// Crawler is every component that reads TikTok: the crawlers, the
+	// canary and the media downloader.
+	Crawler string `koanf:"crawler"`
 }
 
 type Redis struct {
@@ -140,6 +175,16 @@ type S3 struct {
 	Region      string `koanf:"region"`
 	MediaBucket string `koanf:"media_bucket"`
 	RawBucket   string `koanf:"raw_bucket"`
+	// CreateBuckets makes missing buckets at start; off where the platform
+	// owns them (production), which also skips the existence check.
+	CreateBuckets bool `koanf:"create_buckets"`
+	// MediaPrefix starts every media object's key ("tks/" in production).
+	MediaPrefix string `koanf:"media_prefix"`
+	// RawKeepPrefix holds the raw answers kept for good (failures and the
+	// sample: "tks/keep/" in production); RawRestPrefix the others
+	// ("tks/30d/", which the platform expires after 30 days).
+	RawKeepPrefix string `koanf:"raw_keep_prefix"`
+	RawRestPrefix string `koanf:"raw_rest_prefix"`
 }
 
 type FB struct {
@@ -200,13 +245,16 @@ type TT struct {
 	IdentityMaxRequestsMax int `koanf:"identity_max_requests_max"`
 	// AccountRPS caps one account's requests fleet wide; AccountRPSP0 for
 	// on-demand jobs. GlobalRPS is the fleet's ceiling and AIMD's start.
-	AccountRPS       int            `koanf:"account_rps"`
-	AccountRPSP0     int            `koanf:"account_rps_p0"`
-	GlobalRPS        int            `koanf:"global_rps"`
-	ListPageSize     int            `koanf:"list_page_size"`
-	CommentsPageSize int            `koanf:"comments_page_size"`
-	RepliesPageSize  int            `koanf:"replies_page_size"`
-	CaptureRaw       string         `koanf:"capture_raw"`
+	AccountRPS       int    `koanf:"account_rps"`
+	AccountRPSP0     int    `koanf:"account_rps_p0"`
+	GlobalRPS        int    `koanf:"global_rps"`
+	ListPageSize     int    `koanf:"list_page_size"`
+	CommentsPageSize int    `koanf:"comments_page_size"`
+	RepliesPageSize  int    `koanf:"replies_page_size"`
+	CaptureRaw       string `koanf:"capture_raw"`
+	// CaptureRawSample is the share of good answers kept for good with
+	// capture_raw all or sample (0.01: the 1 % sample).
+	CaptureRawSample float64        `koanf:"capture_raw_sample"`
 	Proxy            Proxy          `koanf:"proxy"`
 	QueryBreaker     breaker.Config `koanf:"query_breaker"`
 	AIMD             AIMD           `koanf:"aimd"`
@@ -942,6 +990,7 @@ func (c *Config) Validate() error {
 			break
 		}
 	}
+	c.Kafka.SASL.Mechanism = strings.ToLower(strings.TrimSpace(c.Kafka.SASL.Mechanism))
 	switch c.Kafka.SASL.Mechanism {
 	case "", "plain", "scram-sha-256", "scram-sha-512":
 	default:
@@ -952,6 +1001,9 @@ func (c *Config) Validate() error {
 	}
 	if s := c.Scheduler.PostRefresh.DeletionCountSlack; s < 0 || s >= 1 {
 		errs = append(errs, errors.New("scheduler.post_refresh.deletion_count_slack must be in [0, 1)"))
+	}
+	if err := c.Postgres.validate(); err != nil {
+		errs = append(errs, err)
 	}
 	if c.RegistrySync.Interval <= 0 || c.RegistrySync.Timeout <= 0 {
 		errs = append(errs, errors.New("registry_sync.interval and registry_sync.timeout must be > 0"))
@@ -989,9 +1041,9 @@ func (t TT) validate() []error {
 		errs = append(errs, errors.New("tt.list_page_size, tt.comments_page_size and tt.replies_page_size must be > 0"))
 	}
 	switch t.CaptureRaw {
-	case "all", "failures", "none":
+	case "all", "sample", "failures", "none":
 	default:
-		errs = append(errs, fmt.Errorf("tt.capture_raw %q must be all, failures or none", t.CaptureRaw))
+		errs = append(errs, fmt.Errorf("tt.capture_raw %q must be all, sample, failures or none", t.CaptureRaw))
 	}
 	switch t.Signer.Mode {
 	case SignerNone:

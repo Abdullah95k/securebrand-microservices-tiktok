@@ -126,6 +126,28 @@ func TestRemovalBlocks(t *testing.T) {
 	if n := one[int64](t, e.db, `SELECT count(*) FROM account_blocks`); n != 1 {
 		t.Fatalf("%d blocks after re-registering, want 1 (never_seen)", n)
 	}
+	// An account discovery added stops when a client removes it (owner,
+	// 2026-11-06), as the review page's Remove does.
+	ctx := context.Background()
+	if _, err := e.db.Exec(ctx, `INSERT INTO api_clients (id, name, key_prefix, key_hash, scopes)
+		VALUES (gen_random_uuid(), 'discovery', 'tksd_test', '\x00', '{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.db.Exec(ctx, `INSERT INTO account_schedule (account_ref, enabled, interval_seconds, next_run_at, origin)
+		VALUES ('u:found', true, 9900, now(), 'discovery')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.db.Exec(ctx, `INSERT INTO account_registrations (api_client_id, account_ref)
+		SELECT id, 'u:found' FROM api_clients WHERE name = 'discovery'`); err != nil {
+		t.Fatal(err)
+	}
+	e.want(204, "a", "DELETE", "/accounts/found", nil, nil)
+	if n := one[int64](t, e.db, `SELECT count(*) FROM account_schedule WHERE account_ref = 'u:found' AND enabled`); n != 0 {
+		t.Fatal("a discovered account removed by a client is still checked")
+	}
+	if n := one[int64](t, e.db, `SELECT count(*) FROM account_registrations WHERE account_ref = 'u:found'`); n != 0 {
+		t.Fatalf("%d registrations left", n)
+	}
 }
 
 // Keywords: discovery:read lists, discovery:write adds and switches.

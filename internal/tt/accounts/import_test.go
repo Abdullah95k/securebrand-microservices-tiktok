@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
@@ -158,6 +159,10 @@ func TestImportDisableMissing(t *testing.T) {
 	rep = f.importText(t, f.a, strings.Join(list[1:], "\n"), ImportOptions{DisableMissing: true})
 	if d := rep.Disabled; d.Removed != 1 {
 		t.Fatalf("applied: %+v", d)
+	}
+	// Kept out of discovery, as DELETE does (owner, 2026-11-06).
+	if n := f.one(t, `SELECT count(*) FROM account_blocks WHERE api_client_id = $1 AND account_ref = 'u:acct00'`, f.a); n != 1 {
+		t.Errorf("no block for a dropped account")
 	}
 	// acct00 stays scheduled: b is still registered.
 	if n := f.one(t, `SELECT count(*) FROM account_schedule WHERE account_ref = 'u:acct00' AND enabled`); n != 1 {
@@ -346,5 +351,40 @@ func TestBlocks(t *testing.T) {
 	}
 	if b, _ := Blocked(ctx, f.db, "u:gone", 0); b {
 		t.Error("the client's own registration did not lift its block")
+	}
+}
+
+// Remove (owner, 2026-11-06): an account discovery added stops when a
+// client removes it, and the client's block keeps it out.
+func TestRemoveStopsDiscovered(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	dc := uuid.New()
+	if _, err := f.db.Exec(ctx, `INSERT INTO api_clients (id, name, key_prefix, key_hash, scopes) VALUES ($1, 'discovery', 'tksd_test', '\x00', '{}')`, dc); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Register(ctx, f.db, Registration{ClientID: dc, Ref: "u:found", Origin: OriginDiscovery, Enabled: true, Now: f.now}); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.one(t, `SELECT count(*) FROM account_schedule WHERE account_ref = 'u:found' AND enabled`); n != 1 {
+		t.Fatal("not scheduled")
+	}
+	var out Removed
+	err := pgx.BeginFunc(ctx, f.db, func(tx pgx.Tx) error {
+		var err error
+		out, err = Remove(ctx, tx, f.a, f.cfg.TT.Discovery.Client, []string{"u:found"}, f.now)
+		return err
+	})
+	if err != nil || out.Stopped != 1 {
+		t.Fatalf("remove: %+v %v", out, err)
+	}
+	if n := f.one(t, `SELECT count(*) FROM account_registrations WHERE account_ref = 'u:found'`); n != 0 {
+		t.Errorf("%d registrations left", n)
+	}
+	if n := f.one(t, `SELECT count(*) FROM account_blocks WHERE api_client_id = $1 AND account_ref = 'u:found'`, f.a); n != 1 {
+		t.Error("no block")
+	}
+	if blocked, err := Blocked(ctx, f.db, "u:found", 0); err != nil || !blocked {
+		t.Errorf("discovery could add it back: %v %v", blocked, err)
 	}
 }

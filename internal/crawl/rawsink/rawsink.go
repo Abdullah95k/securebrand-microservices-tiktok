@@ -1,7 +1,9 @@
 // Package rawsink batches raw TikTok responses into zstd-compressed JSONL
 // objects in S3 so payloads can be re-parsed after a parser fix
-// or a question about one. Failures go under raw-failures/, everything else
-// under raw/.
+// or a question about one. Failures and a sample of the other answers go
+// under KeepPrefix (kept for good), the other answers, when kept at all,
+// under RestPrefix (the production platform expires tks/30d/ after 30
+// days; M18).
 package rawsink
 
 import (
@@ -10,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"sync"
 	"time"
@@ -27,6 +30,14 @@ type Sink struct {
 	pod     string
 	maxSize int
 
+	// KeepPrefix and RestPrefix start the objects' keys ("raw-failures/"
+	// and "raw/" by default). Sample is the share of good answers kept
+	// under KeepPrefix; the others go under RestPrefix when KeepRest is set
+	// and are dropped otherwise.
+	KeepPrefix, RestPrefix string
+	Sample                 float64
+	KeepRest               bool
+
 	mu   sync.Mutex
 	bufs map[string]*bytes.Buffer // prefix/query -> JSONL
 	seq  int
@@ -34,33 +45,43 @@ type Sink struct {
 
 func New(s3 *minio.Client, bucket string) *Sink {
 	pod, _ := os.Hostname()
-	return &Sink{s3: s3, bucket: bucket, pod: pod, maxSize: 8 << 20, bufs: map[string]*bytes.Buffer{}}
+	return &Sink{s3: s3, bucket: bucket, pod: pod, maxSize: 8 << 20, bufs: map[string]*bytes.Buffer{},
+		KeepPrefix: "raw-failures/", RestPrefix: "raw/", KeepRest: true}
 }
 
 // Line is one captured response (one JSONL line of a raw object).
 type Line struct {
-	At    time.Time       `json:"at"`
-	Query string          `json:"query"`
-	Class string          `json:"class"`
-	Vars  map[string]any  `json:"vars,omitempty"`
-	Body  json.RawMessage `json:"body,omitempty"`
-	Text  string          `json:"text,omitempty"`
+	At    time.Time `json:"at"`
+	Query string    `json:"query"`
+	Class string    `json:"class"`
+	// Sample marks a good answer kept as part of the sample.
+	Sample bool            `json:"sample,omitempty"`
+	Vars   map[string]any  `json:"vars,omitempty"`
+	Body   json.RawMessage `json:"body,omitempty"`
+	Text   string          `json:"text,omitempty"`
 }
 
 // Capture buffers one response.
 func (s *Sink) Capture(ctx context.Context, query string, cls detect.Class, body []byte, vars map[string]any) {
-	prefix := "raw"
-	if cls != detect.OK {
-		prefix = "raw-failures"
+	prefix, sample := s.KeepPrefix, false
+	if cls == detect.OK {
+		switch {
+		case s.Sample > 0 && rand.Float64() < s.Sample:
+			sample = true
+		case s.KeepRest:
+			prefix = s.RestPrefix
+		default:
+			return
+		}
 	}
-	l := Line{At: time.Now().UTC(), Query: query, Class: cls.String(), Vars: vars}
+	l := Line{At: time.Now().UTC(), Query: query, Class: cls.String(), Sample: sample, Vars: vars}
 	if json.Valid(body) {
 		l.Body = body
 	} else {
 		l.Text = string(body)
 	}
 	b, _ := json.Marshal(l)
-	key := prefix + "/" + query
+	key := prefix + query
 	s.mu.Lock()
 	buf := s.bufs[key]
 	if buf == nil {
