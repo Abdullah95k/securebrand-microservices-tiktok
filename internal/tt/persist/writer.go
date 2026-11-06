@@ -32,6 +32,7 @@ import (
 	sharedpersist "github.com/abdullah95k/securebrand-microservices-tiktok/internal/persist"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/store"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/discovery"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/ttstore"
 )
 
@@ -46,6 +47,11 @@ type Writer struct {
 	// Now is the clock of stored_at and the delay of new posts (build brief
 	// §8 A2); nil is time.Now.
 	Now func() time.Time
+	// Sightings says which of discovery part B's sources (mention, reply,
+	// commenter) the persister records for the leader to count
+	// (tt.discovery's SourceOn; docs/tiktok/discovery-plan.md §7); nil
+	// records none.
+	Sightings func(source string) bool
 }
 
 func (w *Writer) now() time.Time {
@@ -232,13 +238,20 @@ func (w *Writer) Accounts(ctx context.Context, as []*ttv1.Account) error {
 			metrics.PersistRows.WithLabelValues("account", "rejected").Inc()
 			continue
 		}
+		got := sightingCounts{}
 		err := pgx.BeginFunc(ctx, w.DB, func(tx pgx.Tx) error {
 			n++
-			return writeAccount(ctx, tx, a)
+			clear(got)
+			bio, err := writeAccount(ctx, tx, a)
+			if err != nil || !bio || !w.on(discovery.SourceMention) {
+				return err
+			}
+			return recordBio(ctx, tx, a, got)
 		})
 		if err != nil {
 			return fmt.Errorf("persist: account %d: %w", a.UserId, err)
 		}
+		got.publish()
 	}
 	written("account", n, start)
 	return nil
@@ -251,24 +264,26 @@ func accountStatus(s ttv1.AccountStatus) string {
 	return enumName(s, "ACCOUNT_STATUS_")
 }
 
-func writeAccount(ctx context.Context, tx pgx.Tx, a *ttv1.Account) error {
+// writeAccount writes one account record; bio reports a new account's bio,
+// or a bio that changed, for discovery part B.
+func writeAccount(ctx context.Context, tx pgx.Tx, a *ttv1.Account) (bio bool, err error) {
 	seen := observed(a.Obs)
 	status := accountStatus(a.Status)
 	if status != "active" {
 		tag, err := tx.Exec(ctx, `UPDATE accounts SET status = $2, last_seen_at = $3
 			WHERE user_id = $1 AND last_seen_at <= $3`, a.UserId, status, seen)
 		if err != nil || tag.RowsAffected() > 0 || a.SecUid == "" {
-			return err
+			return false, err
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO accounts (user_id, sec_uid, username, author_key, status, first_seen_at, last_seen_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $6) ON CONFLICT DO NOTHING`, a.UserId, a.SecUid, nilIfEmpty(a.Username), a.AuthorKey, status, seen)
-		return err
+		return false, err
 	}
 	if a.SecUid == "" || len(a.AuthorKey) == 0 {
 		// An account row is keyed by both; the parsers never publish one
 		// without them.
 		metrics.PersistRows.WithLabelValues("account", "rejected").Inc()
-		return nil
+		return false, nil
 	}
 	page := a.Source == ttv1.AccountSource_ACCOUNT_SOURCE_PROFILE_PAGE
 	full := page || a.Source == ttv1.AccountSource_ACCOUNT_SOURCE_USER_DETAIL
@@ -289,7 +304,7 @@ func writeAccount(ctx context.Context, tx pgx.Tx, a *ttv1.Account) error {
 		return fmt.Sprintf("CASE WHEN $29 OR t.page_read_at IS NULL THEN COALESCE(EXCLUDED.%[1]s, t.%[1]s) ELSE t.%[1]s END", col)
 	}
 	var changed bool
-	err := tx.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO accounts AS t (user_id, sec_uid, username, nickname, bio, bio_link, bio_link_risk, avatar_url, avatar_media_id,
 			verified, private, organization, language, created_at, username_modified_at, nickname_modified_at,
 			follower_count, following_count, heart_count, video_count, likes_given_count, friend_count,
@@ -320,34 +335,35 @@ func writeAccount(ctx context.Context, tx pgx.Tx, a *ttv1.Account) error {
 			OR old.username IS DISTINCT FROM new.username OR old.nickname IS DISTINCT FROM new.nickname
 			OR old.follower_count IS DISTINCT FROM new.follower_count OR old.following_count IS DISTINCT FROM new.following_count
 			OR old.heart_count IS DISTINCT FROM new.heart_count OR old.video_count IS DISTINCT FROM new.video_count
-			OR old.verified IS DISTINCT FROM new.verified OR old.private IS DISTINCT FROM new.private`,
+			OR old.verified IS DISTINCT FROM new.verified OR old.private IS DISTINCT FROM new.private,
+			coalesce(new.bio, '') <> '' AND old.bio IS DISTINCT FROM new.bio`,
 		a.UserId, a.SecUid, nilIfEmpty(a.Username), nilIfEmpty(a.Nickname), a.Bio, a.BioLink, a.BioLinkRisk,
 		nilIfEmpty(a.AvatarUrl), mediaUUID(a.AvatarMediaId), a.Verified, a.Private, a.Organization, nilIfEmpty(a.Language),
 		tsp(a.CreatedAt), tsp(a.UsernameModifiedAt), tsp(a.NicknameModifiedAt),
 		c.Followers, c.Following, c.Hearts, c.Videos, c.LikesGiven, c.Friends,
-		a.AuthorKey, hashOf(a.Obs), seen, refreshed, pageRead, page, exact).Scan(&changed)
+		a.AuthorKey, hashOf(a.Obs), seen, refreshed, pageRead, page, exact).Scan(&changed, &bio)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil // an older observation than the stored one
+		return false, nil // an older observation than the stored one
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if a.Username != "" {
 		if _, err := tx.Exec(ctx, `INSERT INTO account_usernames (user_id, username, first_seen_at, last_seen_at)
 			VALUES ($1, $2, $3, $3) ON CONFLICT (user_id, username) DO UPDATE SET
 				first_seen_at = LEAST(account_usernames.first_seen_at, EXCLUDED.first_seen_at),
 				last_seen_at = GREATEST(account_usernames.last_seen_at, EXCLUDED.last_seen_at)`, a.UserId, a.Username, seen); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if !changed {
-		return nil
+		return bio, nil
 	}
 	_, err = optionalInsert(ctx, tx, `INSERT INTO account_snapshots (user_id, captured_at, username, nickname, follower_count,
 			following_count, heart_count, video_count, verified, private)
 		SELECT user_id, $2, username, nickname, follower_count, following_count, heart_count, video_count, verified, private
 		FROM accounts WHERE user_id = $1 ON CONFLICT DO NOTHING`, a.UserId, seen)
-	return err
+	return bio, err
 }
 
 var musicCols = []string{"music_id", "title", "author_name", "original", "duration_ms", "album", "cover_media_id",

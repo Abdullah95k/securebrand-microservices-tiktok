@@ -301,6 +301,11 @@ type Discovery struct {
 	Entry EntryCheck `koanf:"entry"`
 	// Score is the Iraq score's weights and thresholds (discovery-plan §3).
 	Score IraqScore `koanf:"score"`
+	// CountBatch is how many of part B's sightings (people a monitored
+	// account's new posts, bio and comments bring in: discovery-plan §7)
+	// the leader counts at a time; it counts batches for up to a few
+	// seconds a tick.
+	CountBatch int `koanf:"count_batch"`
 }
 
 // EntryCheck is discovery's entry check (docs/tiktok/discovery-plan.md §4):
@@ -1024,6 +1029,9 @@ func (t TT) validate() []error {
 	if k := t.Cost; k.Interval < time.Minute || k.IPMonthUSD < 0 || k.IPs < 0 || k.BrowserHourUSD < 0 || k.ComputeUSDPerAccount < 0 ||
 		k.StorageGBMonthUSD < 0 || k.BudgetPerAccountUSD < 0 || k.AlertShare <= 0 || k.AlertShare > 1 {
 		errs = append(errs, errors.New("tt.cost: interval >= 1m; prices, ips and budget_per_account_usd >= 0; alert_share in (0, 1]"))
+	}
+	if t.Discovery.CountBatch <= 0 {
+		errs = append(errs, errors.New("tt.discovery.count_batch must be positive"))
 	}
 	if t.Discovery.MaxNewPerDay < 0 || t.Discovery.Client == "" {
 		errs = append(errs, errors.New("tt.discovery: max_new_per_day >= 0 (0: no cap) and client set"))

@@ -230,6 +230,9 @@ type Source struct {
 	At         time.Time
 	Evidence   json.RawMessage
 	Score      *float64
+	// Seen is how many times this finding saw it (0 counts as 1): part B
+	// counts a batch of sightings of one person at once.
+	Seen int64
 }
 
 // AddSource records a source, or counts it again: the first time stays,
@@ -250,12 +253,13 @@ func sourceSQL(s Source) (string, []any) {
 	if len(s.Evidence) > 0 {
 		ev = s.Evidence
 	}
-	return `INSERT INTO account_sources AS x (account_ref, how, via, user_id, api_client_id, first_at, last_at, evidence, score)
-		VALUES ($1,$2,$3,$4,$5,$6,$6,$7,$8)
-		ON CONFLICT (account_ref, how, via) DO UPDATE SET last_at = greatest(x.last_at, EXCLUDED.last_at), seen = x.seen + 1,
+	seen := max(s.Seen, 1)
+	return `INSERT INTO account_sources AS x (account_ref, how, via, user_id, api_client_id, first_at, last_at, evidence, score, seen)
+		VALUES ($1,$2,$3,$4,$5,$6,$6,$7,$8,$9)
+		ON CONFLICT (account_ref, how, via) DO UPDATE SET last_at = greatest(x.last_at, EXCLUDED.last_at), seen = x.seen + EXCLUDED.seen,
 			user_id = coalesce(x.user_id, EXCLUDED.user_id), evidence = coalesce(EXCLUDED.evidence, x.evidence),
 			score = coalesce(EXCLUDED.score, x.score)`,
-		[]any{s.AccountRef, s.How, s.Via, s.UserID, s.ClientID, s.At, ev, s.Score}
+		[]any{s.AccountRef, s.How, s.Via, s.UserID, s.ClientID, s.At, ev, s.Score, seen}
 }
 
 // Block records that a client removed an account, so discovery never adds

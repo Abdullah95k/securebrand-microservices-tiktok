@@ -58,6 +58,9 @@ type Finding struct {
 	// post, goes on the dormant list at once.
 	Private *bool
 	Posts   *int64
+	// Seen is how many times the source saw it in this finding (0 counts
+	// as 1): part B counts a batch of sightings at once.
+	Seen int64
 }
 
 // Observed is what Observe did with a finding.
@@ -165,8 +168,8 @@ func (d *Discoverer) Observe(ctx context.Context, f Finding) (Observed, error) {
 				next = &t
 			}
 			if _, err := tx.Exec(ctx, `INSERT INTO discovery_candidates (account_ref, user_id, username, state, reason, first_seen_at,
-				last_seen_at, checked_at, next_check_at) VALUES ($1,$2,$3,$4,$5,$6,$6,CASE WHEN $4 = 'dormant' THEN $6::timestamptz END,$7)`,
-				ref, nilIfZero(f.UserID), nilIfEmpty(f.Username), c.state, nilIfEmpty(c.reason), f.At, next); err != nil {
+				last_seen_at, checked_at, next_check_at, seen) VALUES ($1,$2,$3,$4,$5,$6,$6,CASE WHEN $4 = 'dormant' THEN $6::timestamptz END,$7,$8)`,
+				ref, nilIfZero(f.UserID), nilIfEmpty(f.Username), c.state, nilIfEmpty(c.reason), f.At, next, max(f.Seen, 1)); err != nil {
 				return err
 			}
 		} else {
@@ -182,10 +185,10 @@ func (d *Discoverer) Observe(ctx context.Context, f Finding) (Observed, error) {
 			case c.state == StateAdded:
 				state = StatePending // registered once, its schedule since removed or disabled by its owner
 			}
-			if _, err := tx.Exec(ctx, `UPDATE discovery_candidates SET last_seen_at = greatest(last_seen_at, $2), seen = seen + 1,
+			if _, err := tx.Exec(ctx, `UPDATE discovery_candidates SET last_seen_at = greatest(last_seen_at, $2), seen = seen + $6,
 				user_id = coalesce(user_id, $3), state = $4, attempts = CASE WHEN $4 <> state THEN 0 ELSE attempts END,
 				username = coalesce($5, username), updated_at = now() WHERE account_ref = $1`,
-				ref, f.At, nilIfZero(f.UserID), state, nilIfEmpty(f.Username)); err != nil {
+				ref, f.At, nilIfZero(f.UserID), state, nilIfEmpty(f.Username), max(f.Seen, 1)); err != nil {
 				return err
 			}
 			c.state = state
@@ -211,7 +214,8 @@ func (d *Discoverer) Observe(ctx context.Context, f Finding) (Observed, error) {
 }
 
 func (d *Discoverer) source(ref string, f Finding) accounts.Source {
-	return accounts.Source{AccountRef: ref, How: f.How, Via: f.Via, UserID: nilIfZero(f.UserID), At: f.At, Evidence: f.Evidence}
+	return accounts.Source{AccountRef: ref, How: f.How, Via: f.Via, UserID: nilIfZero(f.UserID), At: f.At, Evidence: f.Evidence,
+		Seen: f.Seen}
 }
 
 type candidate struct {
