@@ -111,7 +111,7 @@ func Import(ctx context.Context, db *pgxpool.Pool, cfg *config.Config, lines []L
 		}
 	}
 	if o.DisableMissing {
-		d, err := disableMissing(ctx, db, o, inFile)
+		d, err := disableMissing(ctx, db, o, inFile, cfg.TT.Discovery.Client)
 		rep.Disabled = d
 		if err != nil {
 			return rep, err
@@ -223,10 +223,12 @@ func importChunk(ctx context.Context, db *pgxpool.Pool, cfg *config.Config, line
 	return tx.Commit(ctx)
 }
 
-// disableMissing removes the client's registrations of accounts the file
-// did not name; a schedule no client is registered to any more is
-// disabled. The accounts' data stays (ADR 0007 §14).
-func disableMissing(ctx context.Context, db *pgxpool.Pool, o ImportOptions, inFile map[string]bool) (*Disabled, error) {
+// disableMissing removes the accounts the file did not name, as DELETE
+// /v1/accounts does (Remove): the client's registrations go and a block
+// keeps discovery from adding them back; a schedule no client is
+// registered to any more is disabled. The accounts' data stays (ADR 0007
+// §14).
+func disableMissing(ctx context.Context, db *pgxpool.Pool, o ImportOptions, inFile map[string]bool, discoveryClient string) (*Disabled, error) {
 	rows, err := db.Query(ctx, `SELECT account_ref FROM account_registrations WHERE api_client_id = $1 ORDER BY account_ref`, o.ClientID)
 	if err != nil {
 		return nil, err
@@ -253,16 +255,10 @@ func disableMissing(ctx context.Context, db *pgxpool.Pool, o ImportOptions, inFi
 		return d, nil
 	}
 	err = pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `DELETE FROM account_registrations WHERE api_client_id = $1 AND account_ref = ANY($2)`, o.ClientID, d.Refs)
-		if err != nil {
-			return err
-		}
-		d.Removed = int(tag.RowsAffected())
-		if _, err := tx.Exec(ctx, `DELETE FROM account_labels WHERE api_client_id = $1 AND account_ref = ANY($2)`, o.ClientID, d.Refs); err != nil {
-			return err
-		}
-		_, err = tx.Exec(ctx, `UPDATE account_schedule s SET enabled = false WHERE s.account_ref = ANY($1)
-			AND NOT EXISTS (SELECT 1 FROM account_registrations g WHERE g.account_ref = s.account_ref)`, d.Refs)
+		// Removed as DELETE /v1/accounts removes one (owner, 2026-11-06):
+		// kept out of discovery too, and stopped if discovery added it.
+		d.Removed = len(d.Refs)
+		_, err := Remove(ctx, tx, o.ClientID, discoveryClient, d.Refs, time.Now())
 		return err
 	})
 	return d, err
