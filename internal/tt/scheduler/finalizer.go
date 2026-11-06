@@ -266,9 +266,9 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 				return fmt.Errorf("entry: %w", err)
 			}
 		}
-	case dispatch.KindFollows:
-		// A list read moves no schedule either: its stage wrote the list's
-		// next read (tt.follow_lists).
+	case dispatch.KindFollows, dispatch.KindDiscover:
+		// A list or discovery page read moves no schedule either: its stage
+		// wrote the next read (tt.follow_lists, tt.discovery_targets).
 	default:
 		if err := f.schedule(ctx, jid, final, mode, params, created, acc); err != nil {
 			return err
@@ -283,7 +283,7 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 		return err
 	}
 	metrics.Jobs.WithLabelValues(final, laneName).Inc()
-	if kind != dispatch.KindOnDemand && kind != dispatch.KindEntry && kind != dispatch.KindFollows {
+	if kind != dispatch.KindOnDemand && kind != dispatch.KindEntry && kind != dispatch.KindFollows && kind != dispatch.KindDiscover {
 		metrics.Checks.WithLabelValues(checkKind(kind, mode), final, f.window(ctx, jid, kind, mode, created, now)).Inc()
 	}
 	_ = f.Jobs.Expire(ctx, id, 24*time.Hour)
