@@ -140,7 +140,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       - name: Helm lint and render
         run: |
           go install github.com/yannh/kubeconform/cmd/kubeconform@v0.6.7
