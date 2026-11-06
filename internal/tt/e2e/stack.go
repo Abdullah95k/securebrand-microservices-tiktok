@@ -134,14 +134,27 @@ func Start(t *testing.T, o Options) *Stack {
 	ctx := context.Background()
 	brokers := testenv.Kafka(t)
 	rdb := testenv.Redis(t)
-	db, err := ttstore.Open(ctx, testenv.EmptyPostgres(t), 16)
+	dsn := testenv.EmptyPostgres(t)
+	owner, err := ttstore.Open(ctx, dsn, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(owner.Close)
+	if err := ttstore.MigrateUp(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
+	// Every component runs as a role that owns nothing, with the rights
+	// tksctl migrate up grants in production (M18): what the pipeline
+	// needs beyond them fails here.
+	role, roleDSN := testenv.Role(t, owner, dsn)
+	if _, err := ttstore.Grant(ctx, owner, config.PostgresRoles{Persister: role}); err != nil {
+		t.Fatal(err)
+	}
+	db, err := ttstore.Open(ctx, roleDSN, 16)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(db.Close)
-	if err := ttstore.MigrateUp(ctx, db); err != nil {
-		t.Fatal(err)
-	}
 
 	cfg, err := config.Load("")
 	if err != nil {

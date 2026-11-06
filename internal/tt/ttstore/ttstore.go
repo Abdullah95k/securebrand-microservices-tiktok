@@ -41,6 +41,9 @@ var Tables = store.Tables{
 		"posts":    {"caption", "text_ranges", "labels"},
 		"comments": {"text", "text_ranges"},
 	},
+	// Partitions are created as the tables' owner, whatever role asks
+	// (migration 00011; M18).
+	Func: "tt.ensure_partition",
 }
 
 // Open creates a pool whose connections all use search_path tt, and checks

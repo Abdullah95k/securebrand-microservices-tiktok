@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -129,3 +130,25 @@ func SchemaRegistry(t testing.TB) string {
 // TopicPrefix returns a unique prefix so tests sharing a broker never see
 // each other's records.
 func TopicPrefix() string { return fmt.Sprintf("t%d.", rand.Int64N(1<<40)) }
+
+// Role creates a login role for the test (dropped at cleanup, with what it
+// was granted in the test's database) and returns its name and dsn with the
+// role's credentials. owner is a pool on dsn's database as its owner.
+func Role(t testing.TB, owner *pgxpool.Pool, dsn string) (string, string) {
+	t.Helper()
+	ctx := context.Background()
+	name := fmt.Sprintf("tks_role_%d", rand.Int64N(1<<40))
+	if _, err := owner.Exec(ctx, "CREATE ROLE "+name+" LOGIN PASSWORD 'role'"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = owner.Exec(context.Background(), "DROP OWNED BY "+name)
+		_, _ = owner.Exec(context.Background(), "DROP ROLE IF EXISTS "+name)
+	})
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.User = url.UserPassword(name, "role")
+	return name, u.String()
+}

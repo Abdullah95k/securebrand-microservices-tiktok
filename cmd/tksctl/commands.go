@@ -28,6 +28,9 @@ type migrateResult struct {
 	Status     []string `json:"status"`
 	Operations int      `json:"operations_seeded,omitempty"`
 	Partitions int      `json:"partitions_created,omitempty"`
+	// Grants are the components' roles and the rights they were given
+	// (postgres.roles; M18).
+	Grants ttstore.Grants `json:"grants,omitempty"`
 }
 
 // migrate runs schema tt's migrations on postgres.dsn (database tks), then,
@@ -44,7 +47,9 @@ func migrate(ctx context.Context, cfg *config.Config, sub string) (*migrateResul
 	case "down":
 		err = ttstore.MigrateDown(ctx, db)
 	case "up":
-		err = migrateUp(ctx, cfg, db, res)
+		if err = migrateUp(ctx, cfg, db, res); err == nil {
+			res.Grants, err = ttstore.Grant(ctx, db, cfg.Postgres.Roles)
+		}
 	}
 	if err != nil {
 		return nil, err

@@ -33,6 +33,11 @@ type Tables struct {
 	Daily []string
 	// LZ4 are each table's large text and jsonb columns that compress well.
 	LZ4 map[string][]string
+	// Func, when set, is a SECURITY DEFINER function that creates a
+	// partition as the tables' owner (parent, child, from, to, lz4 columns;
+	// it returns whether it created one), so roles that own no table can
+	// create partitions too (tks: tt.ensure_partition, M18).
+	Func string
 }
 
 // PartitionWindow describes which partitions must exist.
@@ -63,7 +68,7 @@ func (t Tables) Ensure(ctx context.Context, pool *pgxpool.Pool, now time.Time, w
 			if !w.wanted(tb, m.AddDate(0, 1, 0)) {
 				continue
 			}
-			ok, err := ensureRange(ctx, pool, tb, monthName(tb, m), m, m.AddDate(0, 1, 0), t.LZ4[tb])
+			ok, err := t.ensureRange(ctx, pool, tb, monthName(tb, m), m, m.AddDate(0, 1, 0))
 			if err != nil {
 				return created, err
 			}
@@ -79,7 +84,7 @@ func (t Tables) Ensure(ctx context.Context, pool *pgxpool.Pool, now time.Time, w
 			if !w.wanted(tb, d.AddDate(0, 0, 1)) {
 				continue
 			}
-			ok, err := ensureRange(ctx, pool, tb, dayName(tb, d), d, d.AddDate(0, 0, 1), t.LZ4[tb])
+			ok, err := t.ensureRange(ctx, pool, tb, dayName(tb, d), d, d.AddDate(0, 0, 1))
 			if err != nil {
 				return created, err
 			}
@@ -97,12 +102,12 @@ func (t Tables) EnsureFor(ctx context.Context, pool *pgxpool.Pool, table string,
 	for _, d := range t.Daily {
 		if d == table {
 			d := dayStart(ts)
-			_, err := ensureRange(ctx, pool, table, dayName(table, d), d, d.AddDate(0, 0, 1), t.LZ4[table])
+			_, err := t.ensureRange(ctx, pool, table, dayName(table, d), d, d.AddDate(0, 0, 1))
 			return err
 		}
 	}
 	m := monthStart(ts)
-	_, err := ensureRange(ctx, pool, table, monthName(table, m), m, m.AddDate(0, 1, 0), t.LZ4[table])
+	_, err := t.ensureRange(ctx, pool, table, monthName(table, m), m, m.AddDate(0, 1, 0))
 	return err
 }
 
@@ -112,13 +117,22 @@ func IsNoPartition(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23514" && strings.Contains(pgErr.Message, "no partition")
 }
 
-func ensureRange(ctx context.Context, pool *pgxpool.Pool, table, name string, from, to time.Time, lz4 []string) (bool, error) {
+func (t Tables) ensureRange(ctx context.Context, pool *pgxpool.Pool, table, name string, from, to time.Time) (bool, error) {
+	lz4 := t.LZ4[table]
 	var exists bool
 	if err := pool.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", name).Scan(&exists); err != nil {
 		return false, err
 	}
 	if exists {
 		return false, nil
+	}
+	if t.Func != "" {
+		var created bool
+		err := pool.QueryRow(ctx, "SELECT "+t.Func+"($1, $2, $3, $4, $5)", table, name, from, to, lz4).Scan(&created)
+		if err != nil {
+			return false, fmt.Errorf("store: create partition %s: %w", name, err)
+		}
+		return created, nil
 	}
 	err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", partitionLockKey); err != nil {
