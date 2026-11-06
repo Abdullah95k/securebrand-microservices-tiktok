@@ -4,7 +4,7 @@ What the platform needs to deploy tks (M18, decision D-026: tks's first real run
 
 ## 1. The commit to pin
 
-**The merge commit of M16's pull request on `main`** (production hardening; it adds the backup image and the backup job, so M18's commit, `a7a5dfab763d2170d47b155487950d4c6eb0dc15`, is superseded). Its full SHA is in [`build-status.md`](build-status.md) (Log, M16) once the pull request is merged. Pin the full 40-character SHA, never a branch.
+**`3bca5c0b379c62904f64ad03dac736856cc80c98`**: the merge commit of M16's pull request ([#61](https://github.com/Abdullah95k/securebrand-microservices-tiktok/pull/61)) on `main` (production hardening; it adds the backup image and the backup job, so it supersedes M18's `a7a5dfab763d2170d47b155487950d4c6eb0dc15`). Pin this full SHA, never a branch. A later tks commit to deploy is announced the same way, in [`build-status.md`](build-status.md).
 
 ## 2. Images (the platform builds all three)
 
