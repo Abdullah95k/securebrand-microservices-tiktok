@@ -270,13 +270,13 @@ type TT struct {
 	CaptureRaw       string `koanf:"capture_raw"`
 	// CaptureRawSample is the share of good answers kept for good with
 	// capture_raw all or sample (0.01: the 1 % sample).
-	CaptureRawSample float64        `koanf:"capture_raw_sample"`
+	CaptureRawSample float64 `koanf:"capture_raw_sample"`
 	// Content publishes the shared contract's content.* events from the
 	// persister (M15; docs/tiktok/contract-mapping.md).
-	Content Content `koanf:"content"`
-	Proxy            Proxy          `koanf:"proxy"`
-	QueryBreaker     breaker.Config `koanf:"query_breaker"`
-	AIMD             AIMD           `koanf:"aimd"`
+	Content      Content        `koanf:"content"`
+	Proxy        Proxy          `koanf:"proxy"`
+	QueryBreaker breaker.Config `koanf:"query_breaker"`
+	AIMD         AIMD           `koanf:"aimd"`
 	// Browser is the bootstrap fallback for shell pages; the signer has
 	// its own pages.
 	Browser   Browser    `koanf:"browser"`
