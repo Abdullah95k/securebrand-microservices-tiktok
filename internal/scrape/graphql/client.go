@@ -87,6 +87,9 @@ type Client struct {
 	// rejected or failing to parse, so a Facebook change does not turn into
 	// a wave of wasted requests. nil disables them.
 	Breakers *breaker.Set
+	// Halt, when set, holds every request while tks is stopped (tksctl
+	// stop; internal/tt/halt).
+	Halt interface{ Wait(context.Context) error }
 	// Signer, when set, gives each built request its final URL and headers
 	// just before it is sent (TikTok's calls that need a signature: docs/
 	// tiktok ADR 0006 §4). nil sends every request as built (fbs, igs).
@@ -311,6 +314,11 @@ func (c *Client) do(ctx context.Context, id *session.Identity, q registry.Query,
 
 // pace applies identity pacing, then the per-page and global fleet limits.
 func (c *Client) pace(ctx context.Context, id *session.Identity, req Request) error {
+	if c.Halt != nil {
+		if err := c.Halt.Wait(ctx); err != nil {
+			return err
+		}
+	}
 	if err := id.Wait(ctx); err != nil {
 		return err
 	}

@@ -37,7 +37,9 @@ commands:
   accounts import FILE --client NAME [--label L]... [--dry-run] [--disable-missing [--confirm] [--force]]
   accounts import --report BATCH --client NAME [--problems]
   discovery keywords seed | discovery keywords import --file F | discovery keywords list [--language L] [--group G]
-  dlq replay [--topic tks.task.dlq|tks.persist.dlq] [--reason R] [--max N] [--idle D]`)
+  dlq replay [--topic tks.task.dlq|tks.persist.dlq] [--reason R] [--max N] [--idle D]
+  report [--from "YYYY-MM-DD HH:MM"] [--to ...] [--hours 24] [--prometheus URL] [--check] [--json]   (Iraq time)
+  stop --reason R | start`)
 	os.Exit(2)
 }
 
@@ -86,6 +88,12 @@ func main() {
 		out, err = discoveryKeywords(ctx, cfg, rest[0], rest[1:])
 	case "dlq replay":
 		out, err = dlqReplay(ctx, cfg, rest)
+	case "report ":
+		out, err = runReport(ctx, cfg, rest)
+	case "stop ":
+		out, err = runStop(ctx, cfg, rest)
+	case "start ":
+		out, err = runStart(ctx, cfg)
 	default:
 		usage()
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
 	"github.com/redis/go-redis/v9"
+	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/configs"
 	tkstaskv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tks/task/v1"
@@ -40,6 +41,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/cost"
 	ttdetect "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/detect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/emit"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/halt"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/sign"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/stage"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/topics"
@@ -63,6 +65,9 @@ type Crawler struct {
 	// Lanes are the backfill (p2) lanes of every stage, which the traffic
 	// budget pauses.
 	Lanes []laneRef
+	// Halt is the stop switch (tksctl stop): while it is set no task starts
+	// and no request goes to TikTok.
+	Halt *halt.Gate
 	// Budget is the traffic budget's gate (nil without scheduler.budget):
 	// it closes Lanes while the budget holds backfill back. Its Run
 	// refreshes it every 15 seconds; Refresh does it now.
@@ -157,11 +162,13 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 		Decode:   ttclient.Decode,
 		Breakers: breaker.New(tc.QueryBreaker),
 	}
+	gate := halt.NewGate(rdb, cfg.Kafka.TopicPrefix)
+	client.Halt = gate
 	client.Breakers.OnChange = func(key string, from, to breaker.State) {
 		metrics.BreakerState.WithLabelValues("query:" + key).Set(float64(to))
 		slog.Warn("tt: operation breaker", "operation", key, "from", from.String(), "to", to.String())
 	}
-	c := &Crawler{Registry: reg}
+	c := &Crawler{Registry: reg, Halt: gate}
 	// Comments and replies are signed by TikTok's own script in a browser
 	// page (build brief D11); everything else goes out as built.
 	signer := o.Signer
@@ -205,6 +212,7 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 		}}
 	c.Deps, c.Worker = deps, worker
 	c.Components = []run.Func{
+		gate.Run,
 		func(ctx context.Context) error { return reg.Run(ctx, tc.RegistryRefresh) },
 		// Identities of crawlers that stop after this one started (a rolling
 		// update starts the new pod first).
@@ -278,6 +286,15 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 	return c, nil
 }
 
+// handle runs a task once tks is not stopped (tksctl stop): a stopped
+// crawler holds its tasks, uncommitted, until it starts again.
+func (c *Crawler) handle(ctx context.Context, rec *kgo.Record) error {
+	if err := c.Halt.Wait(ctx); err != nil {
+		return err
+	}
+	return c.Worker.Handle(ctx, rec)
+}
+
 // ConsumerGroup is a stage lane's consumer group, apart from the copied
 // Facebook pipeline's (tks-crawler-<stage>-<lane>).
 func ConsumerGroup(stage string, lane tkstaskv1.Lane) string {
@@ -341,7 +358,7 @@ func (c *Crawler) consumers(cfg *config.Config, kcfg kafka.ClientConfig, produce
 				ClientConfig: kcfg, Group: ConsumerGroup(s, lane), Topics: []string{topics.Task(kind, lane)},
 				MaxInflight: n, MaxInflightPerPartition: cfg.Crawler.MaxInflightPerPartition, DrainTimeout: drain,
 				Slots: shared,
-			}, c.Worker.Handle)
+			}, c.handle)
 			if err != nil {
 				return err
 			}
