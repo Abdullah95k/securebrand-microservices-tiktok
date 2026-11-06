@@ -98,8 +98,16 @@ func CheckSchema(ctx context.Context, pool *pgxpool.Pool) error {
 
 func provider(ctx context.Context, pool *pgxpool.Pool) (*goose.Provider, *sql.DB, error) {
 	// goose creates its version table first, so the schema must exist.
-	if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{Schema}.Sanitize()); err != nil {
-		return nil, nil, fmt.Errorf("ttstore: create schema: %w", err)
+	// Only the owner creates it; a component's role (M18) may read the
+	// status of a schema that exists.
+	var exists bool
+	if err := pool.QueryRow(ctx, "SELECT to_regnamespace($1) IS NOT NULL", Schema).Scan(&exists); err != nil {
+		return nil, nil, fmt.Errorf("ttstore: schema: %w", err)
+	}
+	if !exists {
+		if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+pgx.Identifier{Schema}.Sanitize()); err != nil {
+			return nil, nil, fmt.Errorf("ttstore: create schema: %w", err)
+		}
 	}
 	db := stdlib.OpenDBFromPool(pool)
 	p, err := goose.NewProvider(goose.DialectPostgres, db, ttmigrations.FS, goose.WithTableName(VersionTable))

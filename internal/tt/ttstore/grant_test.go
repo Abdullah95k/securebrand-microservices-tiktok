@@ -52,6 +52,10 @@ func TestGrantRoles(t *testing.T) {
 	if err := ttstore.CheckSchema(ctx, writer); err != nil {
 		t.Fatal(err)
 	}
+	// tksctl migrate status, as a component's role.
+	if st, err := ttstore.MigrateStatus(ctx, reader); err != nil || len(st) == 0 {
+		t.Fatalf("status as the reader: %v %v", st, err)
+	}
 
 	// A partition years back, created by the writer as the tables' owner.
 	old := time.Date(2019, 3, 10, 0, 0, 0, 0, time.UTC)

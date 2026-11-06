@@ -1,0 +1,86 @@
+# tks: hand-over to the master (production)
+
+What the platform needs to deploy tks (M18, decision D-026: tks's first real run is in production). Written for the master session; the owner's part is in [`../runbooks/tks-production.md`](../runbooks/tks-production.md). Synthetic examples only.
+
+## 1. The commit to pin
+
+**The merge commit of M18's pull request on `main`.** Its full SHA is in [`build-status.md`](build-status.md) (Log, M18) once the pull request is merged. Pin the full 40-character SHA, never a branch.
+
+## 2. Images (the platform builds both)
+
+| Image | Dockerfile | Target | Build context | Used by |
+|---|---|---|---|---|
+| `registry.digitalocean.com/securebrand/tks` | `deploy/docker/Dockerfile` | `runtime` (the last stage; also the default) | the repository root (`.`) | every component except the signer, and the migrate hook |
+| `registry.digitalocean.com/securebrand/tks-browser` | `deploy/docker/Dockerfile` | `browser` (Debian with Chromium) | the repository root (`.`) | `tks-signer` only |
+
+Both images hold every tks binary (`/usr/local/bin/tks-*`, `tksctl`). Tag both with the pinned commit's SHA.
+
+## 3. Chart
+
+- **Chart path:** `deploy/helm/tks`
+- **Values file:** `deploy/helm/tks/values-production.yaml` (layered over the chart's `values.yaml`)
+- **Namespace:** `tks`
+- **Helm keys for the images:**
+
+  | Key | Value |
+  |---|---|
+  | `image.repository` | `registry.digitalocean.com/securebrand/tks` (already in the values file) |
+  | `image.tag` | the commit SHA |
+  | `image.browserRepository` | `registry.digitalocean.com/securebrand/tks-browser` (already in the values file) |
+  | `image.browserTag` | the commit SHA |
+
+  `imagePullSecrets` if the cluster needs one to pull from the registry.
+
+Rendered and checked in CI on every pull request (`make chart-check`: `helm lint`, `kubeconform`, and `scripts/check-production-render.py`, which checks the conventions below).
+
+## 4. Secrets in namespace `tks`
+
+| Secret | Keys | From |
+|---|---|---|
+| `platform-credentials` | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_SSLMODE`, `POSTGRES_DATABASE`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_CA_CERT`; `KAFKA_BROKERS`, `KAFKA_USER`, `KAFKA_PASSWORD`, `KAFKA_SASL_MECHANISM`, `KAFKA_TLS`, `KAFKA_CA_CERT`; `VALKEY_HOST`, `VALKEY_PORT`, `VALKEY_PASSWORD`, `VALKEY_TLS`, `VALKEY_CA_CERT`; `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET_RAW`, `S3_BUCKET_MEDIA`; `SCHEMA_REGISTRY_URL`; **and the roles below** | the platform |
+| `proxies` | `proxies.yaml`: `tt.proxy.tiers` in tks's format, each tier with `country` | the platform, from the owner |
+| `tks-env` | `TKS_PRIVACY__AUTHOR_HMAC_KEY` (a secret of 64 hex characters: `openssl rand -hex 32`, made once and **never changed**), `TKS_TT__CANARY__ACCOUNTS` (3 or more of the owner's public accounts, comma separated) | made once for tks; not in git |
+
+Notes on the mapping (`deploy/helm/tks/templates/_helpers.tpl`, `tks.platformEnv`):
+- CA certificates are read as values (PEM); tks writes Postgres's to a file itself. `KAFKA_SASL_MECHANISM` may be `SCRAM-SHA-256` in any case. `KAFKA_TLS` and `VALKEY_TLS` are `true` or `false`. `S3_ENDPOINT` may be a URL (`https://…`) or a host.
+- Optional keys (a missing one is left unset): the three CAs, `KAFKA_TLS`, `VALKEY_TLS`, `VALKEY_PASSWORD`, `POSTGRES_PORT` (5432), `POSTGRES_SSLMODE`, `S3_REGION`, `SCHEMA_REGISTRY_URL`.
+- Not read yet: `S3_BUCKET_BACKUPS` (the backup job, M16) and `CONTRACT_VERSION` (the shared contract, M15).
+- KEDA reads the brokers from the scaled container (`bootstrapServersFromEnv`), and `KAFKA_USER`, `KAFKA_PASSWORD`, `KAFKA_CA_CERT` through a `TriggerAuthentication`, with SASL SCRAM-SHA-256 over TLS.
+
+## 5. PostgreSQL roles
+
+Besides the owner (`POSTGRES_USER`, which owns the database and runs the migrations), please create these **login roles** and deliver each as `POSTGRES_<ROLE>_USER` and `POSTGRES_<ROLE>_PASSWORD` in `platform-credentials`:
+
+| Role (suggested name) | Keys | Used by | Rights tks grants |
+|---|---|---|---|
+| `tks_api` | `POSTGRES_API_USER`, `POSTGRES_API_PASSWORD` | `tks-api` (it registers accounts, jobs, keys, imports and review decisions, so it writes) | read and write rows |
+| `tks_reader` | `POSTGRES_READER_USER`, `POSTGRES_READER_PASSWORD` | the API's read pool; people reading the data | **read only** |
+| `tks_persister` | `POSTGRES_PERSISTER_USER`, `POSTGRES_PERSISTER_PASSWORD` | `tks-persister` | read and write rows |
+| `tks_scheduler` | `POSTGRES_SCHEDULER_USER`, `POSTGRES_SCHEDULER_PASSWORD` | `tks-scheduler` | read and write rows |
+| `tks_crawler` | `POSTGRES_CRAWLER_USER`, `POSTGRES_CRAWLER_PASSWORD` | the crawlers, `tks-canary`, `tks-media-downloader` | read and write rows |
+
+`tks-signer` gets no database credentials. The names are free: tks uses whatever the keys hold.
+
+The roles need only `LOGIN` (no `CREATEDB`, no `CREATEROLE`, nothing owned). **The migrate hook grants their rights** after every migration (`tksctl migrate up`, `ttstore.Grant`): `CONNECT` (and `TEMPORARY` for writers) on the database, `USAGE` on schema `tt`, row rights on every table and sequence (also those later migrations add), and `EXECUTE` on `tt.ensure_partition`, a `SECURITY DEFINER` function that creates monthly and daily partitions as the owner. The writers can neither change nor drop the schema, truncate a table, nor rewrite the migrations' record; the end-to-end suite runs every component as such a role. A role missing when the hook runs fails the hook (and the sync), by design.
+
+The rights are by kind (read, or read and write rows), not table by table: the components share code paths (the API registers accounts through the same code discovery uses), so a per-table list could not be proven complete before production. Narrowing it is M16's, from what the canary shows.
+
+## 6. Topics
+
+Every topic tks produces or consumes is in the platform's list (`configs/tt/topics.yaml` against build-status's "Production platform" table): the account, post and thread lanes, `tks.task.media`, the retries (`tks.task.retry.30s`, `.5m`, `.1h`), `tks.task.dlq`, `tks.persist.dlq` and the `tt.*.v1` topics, **including `tt.follow.v1`** (already added; 168 h). **No other topic is missing.** The chart's topic hook is off (`hooks.topics: false`), and no schema is registered (`hooks.schemas: false`).
+
+Pod maximums are at most the partitions of the topics each component reads: 3 for the crawlers (account, post, thread), the persister and the media downloader. When the platform adds partitions, raise `components.<name>.autoscale.max` with them.
+
+## 7. Storage
+
+- Raw answers in `S3_BUCKET_RAW`: failures and a 1 % sample of good answers under **`tks/keep/`** (kept for good); with `tt.capture_raw: all` the other answers under **`tks/30d/`** (production uses `sample`, so `tks/30d/` stays empty until someone switches it). tks never deletes raw files.
+- Media files in `S3_BUCKET_MEDIA` under **`tks/`** (downloads are off: `tt.media.include: false`).
+- tks makes no bucket and sets no lifecycle rule (`s3.create_buckets: false`).
+
+## 8. Monitoring
+
+The first-run report (`tksctl report`) reads Prometheus for requests, signatures, blocks, proxy data and containers. Please give the operator the Prometheus URL that scrapes namespace `tks`. If the cluster runs the Prometheus Operator, set `serviceMonitor.enabled`, `alerts.enabled` and `dashboards.enabled` to `true` in the GitOps values.
+
+## 9. The stop switch
+
+`tksctl stop --reason "…"` (from any tks pod) stops work without touching the deployment: no task starts and no request goes to TikTok until `tksctl start`. It lives in Valkey, so Argo CD's self-heal does not undo it. Use it rather than scaling to zero.

@@ -27,7 +27,7 @@ EXPOSE 8080 9090
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/tks-signer"]
 
 # The default image: static binaries only.
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 COPY --from=build /out/ /usr/local/bin/
 USER nonroot:nonroot
 EXPOSE 8080 9090
