@@ -40,7 +40,7 @@ spec:
               imagePullPolicy: {{ .Values.image.pullPolicy }}
               command: ["/usr/local/bin/tksctl"]
               args: ["backup", "run", "--part-mb", {{ .Values.backup.partMB | quote }}]
-              env: {{- include "tks.env" (dict "root" $root "c" $c) | nindent 16 }}
+              env: {{- include "tks.env" (dict "root" $root "c" $c "name" "backup") | nindent 16 }}
                 {{- with .Values.backup.bucket }}
                 - name: TKS_S3__BACKUP_BUCKET
                   value: {{ . | quote }}
@@ -48,6 +48,6 @@ spec:
               {{- include "tks.envFrom" $root | nindent 14 }}
               resources: {{- toYaml .Values.backup.resources | nindent 16 }}
               securityContext: {{- toYaml .Values.securityContext | nindent 16 }}
-              volumeMounts: {{- include "tks.volumeMounts" $root | nindent 16 }}
-          volumes: {{- include "tks.volumesFor" (dict "root" $root "configMap" (printf "%s-config" (include "tks.fullname" $root)) "tmpMB" 64) | nindent 12 }}
+              volumeMounts: {{- include "tks.volumeMounts" (dict "root" $root "name" "backup") | nindent 16 }}
+          volumes: {{- include "tks.volumesFor" (dict "root" $root "name" "backup" "configMap" (printf "%s-config" (include "tks.fullname" $root)) "tmpMB" 64) | nindent 12 }}
 {{- end }}

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Checks the chart rendered with values-production.yaml (M18) against the
 production platform's conventions: images from the platform's registry at
-one commit, every container's credentials from platform-credentials and
-proxies, each component's own Postgres role (the signer none, the migrate
+one commit, every container's credentials from platform-credentials, the
+Secret proxies mounted only by the pods that reach TikTok (the crawlers, the
+canary and the signer; the others start without it), each component's own Postgres role (the signer none, the migrate
 hook the owner's, the backup job the read-only one), no topic hook, KEDA
 maxima at most 3 or the partitions, the backup job's bucket from
 S3_BUCKET_BACKUPS (M16).
@@ -15,6 +16,9 @@ REGISTRY = "registry.digitalocean.com/securebrand/"
 ROLES = {"api": "API", "scheduler": "SCHEDULER", "persister": "PERSISTER", "signer": None, "canary": "CRAWLER",
          "media-downloader": "CRAWLER", "crawler-account": "CRAWLER", "crawler-post": "CRAWLER",
          "crawler-thread": "CRAWLER", "crawler-retry": "CRAWLER", "backup": "READER"}
+# The pods that reach TikTok through the exits and mount the Secret proxies;
+# every other pod and hook must start without it (the master, 2026-11-07).
+PROXIED = {"tks-crawler-account", "tks-crawler-post", "tks-crawler-thread", "tks-crawler-retry", "tks-canary", "tks-signer"}
 
 
 def env_of(container):
@@ -57,8 +61,11 @@ def main(path):
                 if user != want:
                     errs.append(f"{name}: Postgres user {user}, want {want}")
             vols = {v["name"]: v for v in spec.get("volumes", [])}
-            if vols.get("secret-files", {}).get("secret", {}).get("secretName") != "proxies":
+            mounted = vols.get("secret-files", {}).get("secret", {}).get("secretName")
+            if name in PROXIED and mounted != "proxies":
                 errs.append(f"{name}: proxies not mounted from the Secret proxies")
+            if name not in PROXIED and mounted is not None:
+                errs.append(f"{name}: mounts {mounted}, but must start without the proxies")
         if kind == "ScaledObject":
             n = d["spec"]["maxReplicaCount"]
             if n > 3:

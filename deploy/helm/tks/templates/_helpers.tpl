@@ -16,9 +16,18 @@ app.kubernetes.io/instance: {{ .root.Release.Name }}
 app.kubernetes.io/component: {{ .name }}
 {{- end -}}
 
+{{/* "true" when the pod or hook named .name mounts secretFiles (the
+proxies): those in secretFiles.components, or every one when the list is
+empty. Takes (dict "root" $root "name" $name). The others start without
+the Secret and never see the proxy credentials. */}}
+{{- define "tks.secretFilesOn" -}}
+{{- $sf := .root.Values.secretFiles -}}
+{{- if and $sf.existingSecret (or (empty $sf.components) (has .name $sf.components)) -}}true{{- end -}}
+{{- end -}}
+
 {{- define "tks.configFiles" -}}
-{{- if .Values.secretFiles.existingSecret -}}
-/etc/tks/config.yaml,/etc/tks-secret/{{ .Values.secretFiles.key }}
+{{- if include "tks.secretFilesOn" . -}}
+/etc/tks/config.yaml,/etc/tks-secret/{{ .root.Values.secretFiles.key }}
 {{- else -}}
 /etc/tks/config.yaml
 {{- end -}}
@@ -31,7 +40,7 @@ passes hook=true. */}}
 {{- $root := .root -}}
 {{- $c := .c | default dict -}}
 - name: TKS_CONFIG
-  value: {{ include "tks.configFiles" $root | quote }}
+  value: {{ include "tks.configFiles" (dict "root" $root "name" .name) | quote }}
 {{- if $root.Values.components.signer.enabled }}
 # tks-signer's Service, for tt.signer.mode remote.
 - name: TKS_TT__SIGNER__REMOTE_URL
@@ -116,29 +125,26 @@ envFrom:
 {{- end -}}
 
 {{- define "tks.volumeMounts" -}}
+{{- $root := .root -}}
 - name: config
   mountPath: /etc/tks
   readOnly: true
-{{- if .Values.secretFiles.existingSecret }}
+{{- if include "tks.secretFilesOn" . }}
 - name: secret-files
   mountPath: /etc/tks-secret
   readOnly: true
 {{- end }}
-{{- if .Values.tlsFiles.existingSecret }}
+{{- if $root.Values.tlsFiles.existingSecret }}
 - name: tls-files
-  mountPath: {{ .Values.tlsFiles.mountPath }}
+  mountPath: {{ $root.Values.tlsFiles.mountPath }}
   readOnly: true
 {{- end }}
 - name: tmp
   mountPath: /tmp
 {{- end -}}
 
-{{- define "tks.volumes" -}}
-{{- include "tks.volumesFor" (dict "root" . "configMap" (printf "%s-config" (include "tks.fullname" .))) -}}
-{{- end -}}
-
 {{- define "tks.hookVolumes" -}}
-{{- include "tks.volumesFor" (dict "root" . "configMap" (printf "%s-hook-config" (include "tks.fullname" .))) -}}
+{{- include "tks.volumesFor" (dict "root" .root "name" .name "configMap" (printf "%s-hook-config" (include "tks.fullname" .root))) -}}
 {{- end -}}
 
 {{- define "tks.volumesFor" -}}
@@ -146,7 +152,7 @@ envFrom:
 - name: config
   configMap:
     name: {{ .configMap }}
-{{- if $root.Values.secretFiles.existingSecret }}
+{{- if include "tks.secretFilesOn" . }}
 - name: secret-files
   secret:
     secretName: {{ $root.Values.secretFiles.existingSecret }}

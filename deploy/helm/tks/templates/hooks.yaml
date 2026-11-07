@@ -25,9 +25,9 @@ spec:
           image: "{{ $root.Values.image.repository }}:{{ $root.Values.image.tag | default $root.Chart.AppVersion }}"
           command: ["/usr/local/bin/tksctl"]
           args: {{- toYaml .args | nindent 12 }}
-          env: {{- include "tks.env" (dict "root" $root "hook" true) | nindent 12 }}
+          env: {{- include "tks.env" (dict "root" $root "hook" true "name" .name) | nindent 12 }}
           {{- include "tks.envFrom" $root | nindent 10 }}
           securityContext: {{- toYaml $root.Values.securityContext | nindent 12 }}
-          volumeMounts: {{- include "tks.volumeMounts" $root | nindent 12 }}
-      volumes: {{- include "tks.hookVolumes" $root | nindent 8 }}
+          volumeMounts: {{- include "tks.volumeMounts" (dict "root" $root "name" .name) | nindent 12 }}
+      volumes: {{- include "tks.hookVolumes" (dict "root" $root "name" .name) | nindent 8 }}
 {{- end }}
