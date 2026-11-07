@@ -133,7 +133,7 @@ func (s *AccountStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 		return retry(t, st.Cursor, "30s", "watermark: "+err.Error(), c)
 	}
 	q, _ := d.Client.Registry.Get(listQuery)
-	src := emit.Source{JobID: t.JobId, Query: listQuery, Variant: q.DocID, ParserVersion: parse.Version, Mode: w.mode}
+	src := emit.Source{JobID: t.JobId, Query: listQuery, Variant: q.DocID, ParserVersion: parse.Version, Mode: w.mode, Region: regionOf(id)}
 	popt := parse.Options{AuthorKey: d.Emit.Key, Query: listQuery, Variant: q.DocID}
 	finished := false
 	softRetried := false
@@ -195,7 +195,7 @@ func (s *AccountStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 				return out
 			}
 		}
-		children, out, stop := s.posts(ctx, b, t, sc, &st, &w, src, res, edgeIDs, fetcherOf(id), c)
+		children, out, stop := s.posts(ctx, b, t, sc, &st, &w, src, res, edgeIDs, id, c)
 		if stop {
 			return out
 		}
@@ -373,7 +373,7 @@ func (s *AccountStage) profile(ctx context.Context, t *tkstaskv1.Task, sc *tksta
 	a := res.Account
 	sc.UserId, sc.SecUid, sc.Username = a.UserId, a.SecUid, a.Username
 	b := d.Producer.NewBatch()
-	src := emit.Source{JobID: t.JobId, Query: "profile_page", ParserVersion: parse.Version, Mode: t.Mode}
+	src := emit.Source{JobID: t.JobId, Query: "profile_page", ParserVersion: parse.Version, Mode: t.Mode, Region: regionOf(id)}
 	if err := d.Emit.Account(ctx, b, src, a); err != nil {
 		return retry(t, "", "30s", err.Error(), c), true
 	}
@@ -488,9 +488,11 @@ func (w walk) boundReason() string {
 // posts emits a list page's posts within the age window and returns the
 // post tasks of those whose comments are due.
 func (s *AccountStage) posts(ctx context.Context, b *kafka.Batch, t *tkstaskv1.Task, sc *tkstaskv1.AccountScope, st *checkpoint.State, w *walk,
-	src emit.Source, res parse.PostListResult, edgeIDs []int64, f fetcher, c map[string]int64) ([]*tkstaskv1.Task, Outcome, bool) {
+	src emit.Source, res parse.PostListResult, edgeIDs []int64, id *session.Identity, c map[string]int64) ([]*tkstaskv1.Task, Outcome, bool) {
+	f := fetcherOf(id)
 	d := s.D
 	var children []*tkstaskv1.Task
+	var kept []parse.PostBundle
 	repeated := map[int64]bool{}
 	for _, id := range edgeIDs {
 		repeated[id] = true
@@ -536,6 +538,7 @@ func (s *AccountStage) posts(ctx context.Context, b *kafka.Batch, t *tkstaskv1.T
 		}
 		c["posts"]++
 		c["media_queued"] += n
+		kept = append(kept, pb)
 		child, state := s.commentsTask(ctx, t, sc, w.mode, p)
 		if child == nil {
 			_, _ = d.Jobs.SetPost(ctx, t.JobId, p.PostId, created.Unix(), p.GetCounts().GetComments(), state)
@@ -548,6 +551,9 @@ func (s *AccountStage) posts(ctx context.Context, b *kafka.Batch, t *tkstaskv1.T
 		if collected, _ := d.Jobs.SetPost(ctx, t.JobId, p.PostId, created.Unix(), p.GetCounts().GetComments(), jobs.PostPending); !collected {
 			children = append(children, child)
 		}
+	}
+	if err := d.subtitles(ctx, b, t, src, id, kept, c); err != nil {
+		return nil, retry(t, st.Cursor, "30s", "subtitles: "+err.Error(), c), true
 	}
 	return children, Outcome{}, false
 }

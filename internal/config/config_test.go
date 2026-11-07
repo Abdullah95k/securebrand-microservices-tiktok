@@ -238,3 +238,32 @@ func TestTTFromFile(t *testing.T) {
 		t.Fatalf("%+v", c.TT)
 	}
 }
+
+// The contract's media hand-off: 72 hours and sb-analysis by default, never
+// under the contract's 24 hours, never without a consumer.
+func TestContentMediaSettings(t *testing.T) {
+	c, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := c.TT.Content.Media; m.DeleteAfter != 72*time.Hour || len(m.RequiredConsumers) != 1 || m.RequiredConsumers[0] != "sb-analysis" {
+		t.Errorf("defaults %+v", m)
+	}
+	for name, tc := range map[string]struct {
+		after     time.Duration
+		consumers []string
+		ok        bool
+	}{
+		"24h":         {24 * time.Hour, []string{"sb-analysis"}, true},
+		"23h":         {23 * time.Hour, []string{"sb-analysis"}, false},
+		"no consumer": {72 * time.Hour, nil, false},
+		"empty name":  {72 * time.Hour, []string{""}, false},
+		"two of them": {96 * time.Hour, []string{"sb-analysis", "sb-archive"}, true},
+	} {
+		c, _ := Load("")
+		c.TT.Content.Media.DeleteAfter, c.TT.Content.Media.RequiredConsumers = tc.after, tc.consumers
+		if err := c.Validate(); (err == nil) != tc.ok {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

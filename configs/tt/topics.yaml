@@ -41,6 +41,9 @@ topics:
   # Discovery part D: people on monitored accounts' following and followers
   # lists, keyed by the account (ADR 0007 §23).
   - {name: tt.follow.v1,          partitions: 24, retention: 168h}
+  # Videos' subtitle texts (TikTok's speech-to-text and its translations),
+  # keyed by the post (M17, ADR 0007 §26).
+  - {name: tt.subtitle.v1,        partitions: 24, retention: 168h}
   - {name: tt.media.ready.v1,     partitions: 24, retention: 168h}
   - {name: tt.media.processed.v1, partitions: 24, retention: 168h}
   - {name: tt.media.deleted.v1,   partitions: 12, retention: 168h}

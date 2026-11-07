@@ -95,7 +95,8 @@ func (s *EntryStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 			return out
 		}
 	}
-	src := emit.Source{JobID: t.JobId, Query: listQuery, Variant: q.DocID, ParserVersion: parse.Version, Mode: t.Mode}
+	src := emit.Source{JobID: t.JobId, Query: listQuery, Variant: q.DocID, ParserVersion: parse.Version, Mode: t.Mode, Region: regionOf(id)}
+	var kept []parse.PostBundle
 	for _, pb := range res.Posts {
 		p := pb.Post
 		if p.UserId != 0 && sc.UserId != 0 && p.UserId != sc.UserId {
@@ -113,6 +114,10 @@ func (s *EntryStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 			return retry(t, "", "30s", err.Error(), c)
 		}
 		c["posts"]++
+		kept = append(kept, pb)
+	}
+	if err := d.subtitles(ctx, b, t, src, id, kept, c); err != nil {
+		return retry(t, "", "30s", "subtitles: "+err.Error(), c)
 	}
 	if err := b.Wait(ctx); err != nil {
 		return retry(t, "", "30s", "produce: "+err.Error(), c)

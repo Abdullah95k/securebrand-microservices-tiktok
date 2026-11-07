@@ -2,6 +2,7 @@ package parse
 
 import (
 	"strings"
+	"time"
 
 	"github.com/tidwall/gjson"
 	"google.golang.org/protobuf/proto"
@@ -17,6 +18,19 @@ type PostBundle struct {
 	Metrics *ttv1.PostMetrics // the counts at this read (captured_at is the emitter's)
 	Music   *ttv1.Music
 	Media   []*ttv1.Media // covers, photos, video renditions, the music cover
+	// Subtitles are the video's subtitle tracks with their links
+	// (Post.subtitles carries them without), for the crawler to fetch
+	// before the links expire (M17).
+	Subtitles []SubtitleTrack
+}
+
+// SubtitleTrack is one of video.subtitleInfos with its link.
+type SubtitleTrack struct {
+	Info *ttv1.SubtitleInfo
+	// URL is the WebVTT file's link (Url), signed; Expires its UrlExpire,
+	// zero when not served.
+	URL     string
+	Expires time.Time
 }
 
 // PostListResult is one parsed page of a post list.
@@ -173,6 +187,7 @@ func post(it gjson.Result, via ttv1.DiscoveredVia, o Options, rep *Report, dropp
 		p.CommentsDisabled = proto.Bool(s.Int() != 0)
 	}
 	p.Labels = labels(it)
+	p.Title = it.Get("imagePost.title").String()
 	p.Hashtags, p.TextRanges = textExtra(it, o, dropped)
 	st, st2 := it.Get("stats"), it.Get("statsV2")
 	if !st.Exists() && !st2.Exists() {
@@ -218,6 +233,10 @@ func post(it gjson.Result, via ttv1.DiscoveredVia, o Options, rep *Report, dropp
 		}
 		b.Media = append(b.Media, md.videos(v)...)
 	}
+	b.Subtitles = subtitles(v.Get("subtitleInfos"))
+	for _, st := range b.Subtitles {
+		p.Subtitles = append(p.Subtitles, st.Info)
+	}
 	if mu := it.Get("music"); mu.Exists() {
 		b.Music = music(mu, o, md, &b, dropped)
 		if b.Music != nil {
@@ -240,7 +259,46 @@ func labels(it gjson.Result) *ttv1.PostLabels {
 	if a := it.Get("anchors"); a.IsArray() && len(a.Array()) > 0 {
 		l.AnchorsJson = a.Raw
 	}
+	l.AiDescription = it.Get("AIGCDescription").String()
 	return l
+}
+
+// subtitles reads video.subtitleInfos (C2, C6: on about half the videos;
+// TikTok's speech-to-text, ASR, and machine translations of it, MT). A track
+// without a link or a language is skipped; a language and source served
+// twice is read once.
+func subtitles(infos gjson.Result) []SubtitleTrack {
+	var out []SubtitleTrack
+	seen := map[string]bool{}
+	for _, si := range infos.Array() {
+		u, lang := si.Get("Url").String(), si.Get("LanguageCodeName").String()
+		src := si.Get("Source").String()
+		if u == "" || lang == "" || seen[lang+"|"+src] {
+			continue
+		}
+		seen[lang+"|"+src] = true
+		info := &ttv1.SubtitleInfo{Language: lang, LanguageId: si.Get("LanguageID").String(), Source: SubtitleSource(src),
+			SourceName: src, Version: si.Get("Version").String(), Format: si.Get("Format").String(), SizeBytes: si.Get("Size").Int()}
+		t := SubtitleTrack{Info: info, URL: u}
+		if e := si.Get("UrlExpire").Int(); e > 0 {
+			t.Expires = time.Unix(e, 0).UTC()
+		} else if x := URLExpiry(u); x != nil {
+			t.Expires = x.AsTime()
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+// SubtitleSource maps subtitleInfos' Source.
+func SubtitleSource(s string) ttv1.SubtitleSource {
+	switch strings.ToUpper(s) {
+	case "ASR":
+		return ttv1.SubtitleSource_SUBTITLE_SOURCE_ASR
+	case "MT":
+		return ttv1.SubtitleSource_SUBTITLE_SOURCE_MT
+	}
+	return ttv1.SubtitleSource_SUBTITLE_SOURCE_UNSPECIFIED
 }
 
 // textExtra reads a caption's hashtags and mentions. challenges carry the

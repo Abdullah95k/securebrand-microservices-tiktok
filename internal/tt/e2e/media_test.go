@@ -10,9 +10,16 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/abdullah95k/securebrand-contracts/conformance"
+	mediav1 "github.com/abdullah95k/securebrand-contracts/gen/go/securebrand/media/v1"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
+
 	commonv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/common/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakett"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/content"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/topics"
 )
 
@@ -60,6 +67,43 @@ func mediaReady(t *testing.T, s *Stack, n int) []*commonv1.MediaReady {
 	return out
 }
 
+// contractRecords reads a shared topic until it holds n records, and
+// decodes each by its sb-type header.
+func contractRecords(t *testing.T, s *Stack, topic string, n int) []proto.Message {
+	t.Helper()
+	cl, err := kgo.NewClient(kgo.SeedBrokers(s.Cfg.Kafka.Brokers...), kgo.ConsumeTopics(s.Cfg.Kafka.TopicPrefix+topic),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cl.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var out []proto.Message
+	for len(out) < n {
+		fs := cl.PollFetches(ctx)
+		if ctx.Err() != nil {
+			t.Fatalf("%s: %d records, want %d", topic, len(out), n)
+		}
+		fs.EachRecord(func(r *kgo.Record) {
+			name := kafka.HeaderValue(r, content.HeaderType)
+			mt, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(name))
+			if err != nil {
+				t.Fatalf("%s: sb-type %q: %v", topic, name, err)
+			}
+			m := mt.New().Interface()
+			if err := proto.Unmarshal(r.Value, m); err != nil {
+				t.Fatal(err)
+			}
+			if kafka.HeaderValue(r, content.HeaderContract) == "" {
+				t.Errorf("%s: no sb-contract header", topic)
+			}
+			out = append(out, m)
+		})
+	}
+	return out
+}
+
 // TestMediaDownloads runs the crawler with media on (build brief D5's
 // switch) and tks-media-downloader against fakett, whose video host refuses
 // a video without a tt_chain_token a page issued (T18):
@@ -68,8 +112,13 @@ func mediaReady(t *testing.T, s *Stack, n int) []*commonv1.MediaReady {
 //  2. a check (the sd policy) downloads the videos with the reading
 //     identity's cookie: none refused; covers handed over before are not
 //     downloaded again;
-//  3. tks deletes nothing: the files stay, no deletion time is announced,
-//     and a file the deleting service removes is only marked deleted.
+//  3. the shared contract's hand-off (M15b): every file is announced on
+//     content.media.ready.v1 too, with the deleting service's deadline
+//     (72 h after it was stored) and its required consumer;
+//  4. tks deletes nothing: the files stay, its own events carry no deletion
+//     time, and a file the deleting service removes (on either topic) is
+//     only marked deleted; a consumer's retryable failure on the
+//     contract's topic announces the file again, on both.
 func TestMediaDownloads(t *testing.T) {
 	s := Start(t, Options{Spec: fakett.Spec{Seed: 21, Accounts: 2, PostsPerAccount: 6, MaxComments: 3, MaxReplies: 1,
 		PostSpacing: 20 * time.Hour}, Faults: fakett.Faults{MediaNeedsCookie: true}, Config: func(c *config.Config) {
@@ -142,7 +191,42 @@ func TestMediaDownloads(t *testing.T) {
 		t.FailNow()
 	}
 
-	// 3. The deleting service removes a video and says so; tks only marks it.
+	// 3. The contract's hand-off.
+	opt := conformance.Options{Production: true}
+	stored := map[string]time.Time{}
+	rows, err := s.DB.Query(ctx, `SELECT media_id::text, stored_at FROM media WHERE status = 'ready'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id string
+		var at time.Time
+		if err := rows.Scan(&id, &at); err != nil {
+			t.Fatal(err)
+		}
+		stored[id] = at
+	}
+	rows.Close()
+	for _, m := range contractRecords(t, s, content.TopicMediaReady, int(all)) {
+		ev := m.(*mediav1.MediaReady)
+		if err := content.Check(ev, opt); err != nil {
+			t.Errorf("content.media.ready.v1: %v", err)
+		}
+		at, ok := stored[content.MediaID(ev.MediaId)]
+		if !ok {
+			t.Errorf("ready event for %s, not a stored file", ev.MediaId)
+			continue
+		}
+		if !ev.StoredAt.AsTime().Equal(at) || ev.DeleteAfter.AsTime().Sub(at) != 72*time.Hour || ev.Attempt != 1 ||
+			len(ev.RequiredConsumers) != 1 || ev.RequiredConsumers[0] != "sb-analysis" || ev.AccountId == "" {
+			t.Errorf("ready event %v", ev)
+		}
+	}
+	if t.Failed() {
+		t.FailNow()
+	}
+
+	// 4. The deleting service removes a video and says so; tks only marks it.
 	var id, bucket, key string
 	if err := s.DB.QueryRow(ctx, `SELECT media_id::text, s3_bucket, s3_key FROM media WHERE kind = 'video' AND post_id = $1`, np.ID).
 		Scan(&id, &bucket, &key); err != nil {
@@ -158,6 +242,54 @@ func TestMediaDownloads(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitCount(t, s, 1, `SELECT count(*) FROM media WHERE media_id = $1 AND status = 'deleted' AND deleted_at IS NOT NULL`, id)
+	// The same on the contract's topics: a cover deleted, and the
+	// analysis service's retryable failure on another, announced again.
+	var cover, retried string
+	if err := s.DB.QueryRow(ctx, `SELECT media_id::text FROM media WHERE kind = 'cover' AND post_id = $1`, np.ID).Scan(&cover); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.QueryRow(ctx, `SELECT media_id::text FROM media WHERE kind = 'avatar' AND status = 'ready' LIMIT 1`).
+		Scan(&retried); err != nil {
+		t.Fatal(err)
+	}
+	recs := make([]*kgo.Record, 0, 2)
+	for _, m := range []proto.Message{
+		&mediav1.MediaDeleted{EventId: "e2e-deleted", MediaId: content.ID("media", cover), Platform: "tt",
+			Reason: mediav1.DeleteReason_DELETE_REASON_PROCESSED, DeletedAt: timestamppb.New(w.Clock())},
+		&mediav1.MediaProcessed{EventId: "e2e-retry", MediaId: content.ID("media", retried), Platform: "tt", Consumer: "sb-analysis",
+			Status: mediav1.ProcessStatus_PROCESS_STATUS_FAILED_RETRYABLE, Reason: "undecodable", ProcessedAt: timestamppb.New(w.Clock())},
+	} {
+		topic := content.TopicMediaDeleted
+		if _, ok := m.(*mediav1.MediaProcessed); ok {
+			topic = content.TopicMediaProcessed
+		}
+		if err := content.Check(m, opt); err != nil {
+			t.Fatal(err)
+		}
+		rec, err := content.Record(s.Producer, topic, m.ProtoReflect().Get(m.ProtoReflect().Descriptor().Fields().ByName("media_id")).String(), m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		recs = append(recs, rec)
+	}
+	if err := s.Producer.ProduceSync(ctx, recs...); err != nil {
+		t.Fatal(err)
+	}
+	waitCount(t, s, 1, `SELECT count(*) FROM media WHERE media_id = $1 AND status = 'deleted'`, cover)
+	waitCount(t, s, 1, `SELECT count(*) FROM media_acks WHERE media_id = $1 AND consumer = 'sb-analysis' AND status = 'failed_retryable'`,
+		retried)
+	again := 0
+	for _, m := range contractRecords(t, s, content.TopicMediaReady, int(all)+1) {
+		if ev := m.(*mediav1.MediaReady); ev.MediaId == content.ID("media", retried) && ev.Attempt == 2 {
+			again++
+			if err := content.Check(ev, opt); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	if again != 1 {
+		t.Errorf("%d announcements of the failed file at attempt 2 on content.media.ready.v1, want 1", again)
+	}
 	var objects int
 	for o := range s3.ListObjects(ctx, bucket, minio.ListObjectsOptions{Prefix: "media/", Recursive: true}) {
 		if o.Err != nil {

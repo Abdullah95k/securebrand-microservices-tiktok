@@ -49,6 +49,8 @@ func ScopeKey(t *tkstaskv1.Task) string {
 		// Apart from the account's own stream: a list read never waits for
 		// the account's check, nor the check for it.
 		return "follows:" + strconv.FormatInt(s.Follows.UserId, 10) + ":" + s.Follows.Direction.String()
+	case *tkstaskv1.Task_Discover:
+		return "discover:" + s.Discover.Source + ":" + s.Discover.Key
 	}
 	return "unknown"
 }
@@ -102,6 +104,8 @@ func cloneShallow(t *tkstaskv1.Task) *tkstaskv1.Task {
 		c.Scope = s
 	case *tkstaskv1.Task_Follows:
 		c.Scope = &tkstaskv1.Task_Follows{Follows: proto.Clone(s.Follows).(*tkstaskv1.FollowScope)}
+	case *tkstaskv1.Task_Discover:
+		c.Scope = &tkstaskv1.Task_Discover{Discover: proto.Clone(s.Discover).(*tkstaskv1.DiscoverScope)}
 	}
 	return c
 }
@@ -135,6 +139,20 @@ func NewFollows(jobID string, s *tkstaskv1.FollowScope) *tkstaskv1.Task {
 	return Finalize(&tkstaskv1.Task{
 		JobId: jobID, Lane: tkstaskv1.Lane_LANE_P2, Kind: tkstaskv1.Kind_KIND_FOLLOWS,
 		Mode: commonv1.CrawlMode_CRAWL_MODE_INCREMENTAL, Scope: &tkstaskv1.Task_Follows{Follows: s},
+		Limits: &tkstaskv1.Limits{VideoPolicy: tkstaskv1.VideoPolicy_VIDEO_POLICY_NONE},
+	})
+}
+
+// NewDiscover creates the root task of a discovery page read (discovery
+// part C, docs/tiktok/discovery-plan.md §8): a keyword search, a hashtag's
+// or a sound's posts, a post's related posts or the feed, in the backfill
+// lane, which the budget pauses. Its mode is FULL, as an entry check's: the
+// posts it finds are not new posts of monitored accounts, so they never
+// count in build brief §8 A2's delay.
+func NewDiscover(jobID string, s *tkstaskv1.DiscoverScope) *tkstaskv1.Task {
+	return Finalize(&tkstaskv1.Task{
+		JobId: jobID, Lane: tkstaskv1.Lane_LANE_P2, Kind: tkstaskv1.Kind_KIND_DISCOVER,
+		Mode: commonv1.CrawlMode_CRAWL_MODE_FULL, Scope: &tkstaskv1.Task_Discover{Discover: s},
 		Limits: &tkstaskv1.Limits{VideoPolicy: tkstaskv1.VideoPolicy_VIDEO_POLICY_NONE},
 	})
 }

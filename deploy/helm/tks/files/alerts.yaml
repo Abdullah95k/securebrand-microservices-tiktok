@@ -241,6 +241,18 @@ groups:
             Read the log lines for their SQLSTATE, fix the cause, then
             tksctl dlq replay --topic tks.persist.dlq.
           runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#persister-quarantine
+      - alert: TksContentInvalid
+        expr: sum by (topic) (increase(tks_content_events_total{result="invalid"}[1h])) > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} {{ $labels.topic }} events broke the shared contract in an hour and were not sent"
+          description: >-
+            The persister checks every content.* event with the contract's
+            conformance checks and drops one that fails (tt.* and the
+            store are unaffected). Its log line names the rule; fix the
+            mapping in internal/tt/content.
+          runbook_url: https://github.com/abdullah95k/securebrand-microservices-tiktok/blob/main/docs/runbooks/tks-deploy.md#persister-quarantine
       - alert: TksHandlerPanics
         expr: sum by (group) (increase(tks_kafka_handler_panics_total[10m])) > 0
         for: 5m

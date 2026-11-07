@@ -4,15 +4,22 @@ import (
 	"context"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/abdullah95k/securebrand-contracts/conformance"
+	contentv1 "github.com/abdullah95k/securebrand-contracts/gen/go/securebrand/content/v1"
+	discoveryv1 "github.com/abdullah95k/securebrand-contracts/gen/go/securebrand/discovery/v1"
 	"github.com/google/uuid"
+	"github.com/twmb/franz-go/pkg/kadm"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakett"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/accounts"
 	ttapi "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/api"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/content"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/discovery"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/scheduler"
@@ -327,6 +334,102 @@ func TestEntryCheckAndDormantList(t *testing.T) {
 		t.Errorf("dormant list, second page: %d accounts, next %q", len(page.Accounts), page.Next)
 	}
 	api.want(400, "GET", "/discovery/accounts?state=asleep", nil, nil)
+
+	// The shared contract's discovery.candidate.v1 (M15b): every candidate
+	// once with its outcome, nothing again while nothing changes, and a
+	// removal by the owner as EXCLUDED.
+	pub := &content.Candidates{E: &content.Emitter{DB: s.DB, Producer: s.Producer, Options: conformance.Options{Production: true}}}
+	cands := count(t, s, `SELECT count(*) FROM discovery_candidates`)
+	if n, err := pub.Tick(ctx); err != nil || int64(n) != cands {
+		t.Fatalf("candidates read %d (err %v), want %d", n, err, cands)
+	}
+	if _, err := pub.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := topicRecords(t, s, content.TopicCandidate); n != cands {
+		t.Errorf("%d candidate events after two rounds, want %d: one each", n, cands)
+	}
+	outcomes := map[string]discoveryv1.Outcome{"added": discoveryv1.Outcome_OUTCOME_ADDED,
+		"dormant": discoveryv1.Outcome_OUTCOME_DORMANT, "not_iraqi": discoveryv1.Outcome_OUTCOME_NOT_RELEVANT,
+		"pending": discoveryv1.Outcome_OUTCOME_PENDING, "qualified": discoveryv1.Outcome_OUTCOME_PENDING, "blocked": discoveryv1.Outcome_OUTCOME_EXCLUDED}
+	last := func(n int) map[string]*discoveryv1.Candidate {
+		out := map[string]*discoveryv1.Candidate{}
+		for _, m := range contractRecords(t, s, content.TopicCandidate, n) {
+			c := m.(*discoveryv1.Candidate)
+			if err := content.Check(c, conformance.Options{Production: true}); err != nil {
+				t.Errorf("discovery.candidate.v1: %v", err)
+			}
+			out[c.Account.GetAltIds()["sec_uid"]+"|"+c.Account.GetHandle()] = c
+		}
+		return out
+	}
+	got := last(int(cands))
+	if int64(len(got)) != cands {
+		t.Errorf("%d candidates published, %d stored", len(got), cands)
+	}
+	rows, err := s.DB.Query(ctx, `SELECT account_ref, state, coalesce(reason, ''), coalesce(username, '') FROM discovery_candidates`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var blockRef string
+	for rows.Next() {
+		var ref, state, reason, username string
+		if err := rows.Scan(&ref, &state, &reason, &username); err != nil {
+			t.Fatal(err)
+		}
+		sec, _ := strings.CutPrefix(ref, "sec:")
+		if !strings.HasPrefix(ref, "sec:") {
+			sec = ""
+		}
+		if username == "" {
+			username, _ = strings.CutPrefix(ref, "u:")
+		}
+		c := got[sec+"|"+username]
+		if c == nil {
+			t.Errorf("candidate %s (%s) not published", ref, state)
+			continue
+		}
+		if c.Outcome != outcomes[state] || (state == "dormant" && c.OutcomeReason != reason) || c.Source == discoveryv1.Source_SOURCE_UNSPECIFIED {
+			t.Errorf("candidate %s (%s, %s): outcome %s (%s), source %s", ref, state, reason, c.Outcome, c.OutcomeReason, c.Source)
+		}
+		if state == "added" && c.Scope != contentv1.CollectionScope_COLLECTION_SCOPE_FULL {
+			t.Errorf("added candidate %s: scope %s", ref, c.Scope)
+		}
+		if state == "dormant" && blockRef == "" {
+			blockRef = ref
+		}
+	}
+	rows.Close()
+	if _, err := s.DB.Exec(ctx, `UPDATE discovery_candidates SET state = 'blocked', updated_at = now() WHERE account_ref = $1`, blockRef); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pub.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := topicRecords(t, s, content.TopicCandidate); n != cands+1 {
+		t.Errorf("%d candidate events after a removal, want %d", n, cands+1)
+	}
+	excluded := 0
+	for _, c := range last(int(cands) + 1) {
+		if c.Outcome == discoveryv1.Outcome_OUTCOME_EXCLUDED {
+			excluded++
+		}
+	}
+	if want := count(t, s, `SELECT count(*) FROM discovery_candidates WHERE state = 'blocked'`); int64(excluded) != want {
+		t.Errorf("%d candidates EXCLUDED after the owner removed one, want %d", excluded, want)
+	}
+}
+
+// topicRecords counts the records on a topic (its end offsets).
+func topicRecords(t *testing.T, s *Stack, topic string) int64 {
+	t.Helper()
+	ends, err := kafka.EndOffsets(context.Background(), s.Producer.Client(), s.Cfg.Kafka.TopicPrefix+topic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	ends.Each(func(o kadm.ListedOffset) { n += o.Offset })
+	return n
 }
 
 func contains(s, sub string) bool {

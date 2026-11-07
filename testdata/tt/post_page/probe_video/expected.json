@@ -213,8 +213,34 @@
         "reposts": "0"
       },
       "status": "POST_STATUS_VISIBLE",
-      "discovered_via": "DISCOVERED_VIA_POST_PAGE"
-    }
+      "discovered_via": "DISCOVERED_VIA_POST_PAGE",
+      "subtitles": [
+        {
+          "language": "ara-SA",
+          "language_id": "34",
+          "source": "SUBTITLE_SOURCE_ASR",
+          "source_name": "ASR",
+          "version": "1:whisper_lid",
+          "format": "webvtt",
+          "size_bytes": "5861"
+        }
+      ]
+    },
+    "subtitles": [
+      {
+        "expires": "2026-11-03T07:27:28Z",
+        "info": {
+          "language": "ara-SA",
+          "language_id": "34",
+          "source": "SUBTITLE_SOURCE_ASR",
+          "source_name": "ASR",
+          "version": "1:whisper_lid",
+          "format": "webvtt",
+          "size_bytes": "5861"
+        },
+        "url": "https://v16m-webapp.tiktokcdn-us.com/scrubbed/a7a5235b1647"
+      }
+    ]
   },
   "status_code": 0
 }

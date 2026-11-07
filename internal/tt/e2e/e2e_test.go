@@ -123,4 +123,6 @@ func TestStoreEqualsGroundTruth(t *testing.T) {
 	if n := count(t, s, `SELECT count(*) FROM comments WHERE author_key = $1 AND text IS NOT NULL`, key); n < 2 {
 		t.Errorf("%d comments of the returning commenter stored, want both", n)
 	}
+	// 5. The shared contract's events (M15): all conform, and match the store.
+	checkContent(t, s)
 }
