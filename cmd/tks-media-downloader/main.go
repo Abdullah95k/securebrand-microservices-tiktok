@@ -31,6 +31,10 @@ func main() {
 }
 
 func runMedia(ctx context.Context, cfg *config.Config) error {
+	// /healthz answers while the database is still being retried; /readyz
+	// waits for ops.Run.
+	ops := httpserver.NewOps(cfg.HTTP.OpsAddr)
+	ops.Early()
 	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, cfg.Postgres.MaxConns)
 	if err != nil {
 		return err
@@ -48,7 +52,6 @@ func runMedia(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 	defer m.Producer.Close()
-	ops := httpserver.NewOps(cfg.HTTP.OpsAddr)
 	ops.AddCheck("postgres", db.Ping)
 	return run.Group(ctx, append([]run.Func{ops.Run}, m.Components...)...)
 }

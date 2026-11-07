@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"testing"
 	"time"
@@ -67,5 +68,40 @@ func TestOpenWaitsForASlot(t *testing.T) {
 	pool.Close()
 	if time.Since(start) < 2*time.Second {
 		t.Errorf("connected after %s, before a slot was free", time.Since(start))
+	}
+}
+
+// A server that accepts the connection and never answers (a connection
+// proxy queueing clients while the database is full) costs one attempt,
+// not the whole start-up: the attempt times out and is retried.
+func TestOpenRetriesASilentServer(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	accepted := make(chan net.Conn, 16)
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			accepted <- c // held open, never answered
+		}
+	}()
+	defer func() {
+		for len(accepted) > 0 {
+			(<-accepted).Close()
+		}
+	}()
+	defer func(a, r time.Duration) { ttstore.AttemptTimeout, ttstore.StartRetryFor = a, r }(ttstore.AttemptTimeout, ttstore.StartRetryFor)
+	ttstore.AttemptTimeout, ttstore.StartRetryFor = 300*time.Millisecond, 2*time.Second
+	_, err = ttstore.Open(context.Background(), "postgres://u:p@"+ln.Addr().String()+"/db?sslmode=disable", 1)
+	if err == nil {
+		t.Fatal("opened a server that never answers")
+	}
+	if n := len(accepted); n < 2 {
+		t.Errorf("%d attempts, want the silent one retried", n)
 	}
 }

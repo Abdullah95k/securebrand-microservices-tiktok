@@ -44,6 +44,10 @@ func main() {
 }
 
 func runCanary(ctx context.Context, cfg *config.Config, once bool) (int, error) {
+	// /healthz answers while the database is still being retried; /readyz
+	// waits for ops.Run.
+	ops := httpserver.NewOps(cfg.HTTP.OpsAddr)
+	ops.Early()
 	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, cfg.Postgres.MaxConns)
 	if err != nil {
 		return 0, err
@@ -92,7 +96,6 @@ func runCanary(ctx context.Context, cfg *config.Config, once bool) (int, error) 
 		}
 		return 0, nil
 	}
-	ops := httpserver.NewOps(cfg.HTTP.OpsAddr)
 	ops.AddCheck("postgres", db.Ping)
 	loops := []run.Func{ops.Run}
 	if c.Signer != nil {
