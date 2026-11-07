@@ -75,11 +75,13 @@ config:
     subtitles:
       include: false
     canary:
-      # The owner's canary accounts (2026-11-06): public influencer
-      # accounts that post often and get comments with replies, kept here by
-      # the owner's choice (the monitored list stays out of git). Read every
-      # hour with each variant of the crawler's calls (runbook tks-canary.md).
-      accounts: [hsooalamir1, sl_om1, ali.klose11]
+      # The owner's canary accounts (public accounts that post often and get
+      # comments with replies; tks-canary.md) are set by the platform as
+      # parameters of tks's Argo CD application, config.tt.canary.accounts[0],
+      # [1] and [2] (the master, 2026-11-07, as igs's D-033): real usernames
+      # stay out of this public repository. Empty here; tks-canary refuses to
+      # start without them.
+      accounts: []
     # New accounts' first reads (365 days of posts and comments, about
     # 1,500 requests each, 95 % signed) start at this pace, so the canary
     # list's do not all start at once (tks-production.md §3). 6 an hour is

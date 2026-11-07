@@ -19,7 +19,7 @@ Each run is stored in `canary_runs` (`GET /v1/admin/canary/runs`, scope `admin`)
 
 | Key | Default | What it is |
 |---|---|---|
-| `tt.canary.accounts` | none | Public usernames that post, get comments and comments with replies, without `@`. Set by the deployment: production's are the owner's, in `values-production.yaml` (public influencer accounts, kept in git by the owner's choice, 2026-11-06); elsewhere `TKS_TT__CANARY__ACCOUNTS=a,b,c`, which wins over the values. Three or more, so `confirm` can be met when one fails to load |
+| `tt.canary.accounts` | none | Public usernames that post, get comments and comments with replies, without `@`. Set by the deployment: production's are the owner's, set by the platform as parameters of tks's Argo CD application (`config.tt.canary.accounts[0..2]`; real usernames stay out of this public repository, 2026-11-07); elsewhere `TKS_TT__CANARY__ACCOUNTS=a,b,c`, which wins over the values. Three or more, so `confirm` can be met when one fails to load |
 | `tt.canary.operations` | `creator_list, comments, replies` | The crawler's operations |
 | `tt.canary.interval`, `timeout` | 1 h, 10 min | How often, and how long a run may take |
 | `tt.canary.tier` | the crawler's first tier | The proxy tier |
@@ -55,7 +55,7 @@ A run costs, per canary account it needs: one profile page, one list call per li
 ## The canary is not running
 
 `TksCanaryNotRunning`: no run in 3 hours gave every operation a verdict (`unchecked` in the run report). Usually:
-- **No canary account loads** (`accounts[].reason` in the report): an account was renamed, went private or was deleted, or the tier is blocked. Replace the account (in production: `config.tt.canary.accounts` in `values-production.yaml`, then the master moves the pin).
+- **No canary account loads** (`accounts[].reason` in the report): an account was renamed, went private or was deleted, or the tier is blocked. Replace the account (in production: the platform's parameter `config.tt.canary.accounts[N]`, through the master).
 - **The accounts lack data**: no recent post with comments, or no comment with replies (`no post with comments to read`, `no comment with replies to read`). Use busier accounts.
 - **The signer cannot sign** (`sign_error` on the signed checks, `tks_canary_signer_healthy` 0): see [The signer fails](#the-signer-fails).
 - `tt.canary.accounts` is empty (the run is an `error`).
