@@ -80,6 +80,14 @@ config:
       # the owner's choice (the monitored list stays out of git). Read every
       # hour with each variant of the crawler's calls (runbook tks-canary.md).
       accounts: [hsooalamir1, sl_om1, ali.klose11]
+    # New accounts' first reads (365 days of posts and comments, about
+    # 1,500 requests each, 95 % signed) start at this pace, so the canary
+    # list's do not all start at once (tks-production.md §3). 6 an hour is
+    # about 9,000 requests an hour: well inside one tks-signer replica's
+    # 2 pages (C4: about 322,000 signatures a day) beside the monitoring.
+    # 0 would admit every new account at once (no request budget is set).
+    admission:
+      per_hour: 6
     cost:
       # The owner's prices and budget (2026-11-05), for tks_cost_* and
       # tksctl report.
