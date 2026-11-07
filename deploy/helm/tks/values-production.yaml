@@ -86,8 +86,34 @@ config:
     # about 9,000 requests an hour: well inside one tks-signer replica's
     # 2 pages (C4: about 322,000 signatures a day) beside the monitoring.
     # 0 would admit every new account at once (no request budget is set).
+    # 12 an hour (about 18,000 requests an hour) with two tks-signer
+    # replicas (4 pages; C4: 2 pages sign about 322,000 a day), the owner's
+    # list first, then discovered accounts by score (2026-11-07).
     admission:
-      per_hour: 6
+      per_hour: 12
+    # Discovery (owner, 2026-11-07; runbook tks-discovery.md): part B (who
+    # monitored accounts mention, answer, or who comments on them) and part
+    # C (hashtags, sounds and related posts on isp; keyword search and the
+    # For You feed on res_iq, TikTok's view from Iraq, T37). res_iq is
+    # residential, billed by the GB (3 GB to start): search once a day at
+    # 2 pages a keyword and the feed 4 times a day at 3 reads keep it near
+    # 1.5 GB a month (tks_proxy_bytes_total{tier="res_iq"} gives the real
+    # figure). Found accounts are checked once and those that pass join the
+    # admission queue behind the owner's; at most 100 a day while the first
+    # list settles. Load the keyword list once: tksctl discovery keywords
+    # seed.
+    discovery:
+      enabled: true
+      max_new_per_day: 100
+      sources: {mention: true, reply: true, commenter: true, hashtag: true, sound: true, related: true, search: true, feed: true}
+      search:
+        tier: res_iq
+        every: 24h
+        max_pages: 2
+      feed:
+        tier: res_iq
+        every: 6h
+        reads: 3
     cost:
       # The owner's prices and budget (2026-11-05), for tks_cost_* and
       # tksctl report.
@@ -151,3 +177,5 @@ components:
   signer:
     enabled: true
     postgresRole: none
+    # Two replicas, 2 pages each in its own 2 GiB (the admission pace above).
+    replicas: 2
