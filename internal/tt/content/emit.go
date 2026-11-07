@@ -41,6 +41,8 @@ type Emitter struct {
 	// checked with before it leaves; one that fails is counted and logged,
 	// never sent.
 	Options conformance.Options
+	// Counts, when set, also tallies the outcomes for the caller.
+	Counts *SendCounts
 }
 
 // Map maps a batch of tt.*.v1 records to contract events. owners gives the
@@ -126,6 +128,9 @@ func (e *Emitter) Send(ctx context.Context, all []*Event) error {
 			edited, ok := passed[ev.Gate]
 			if !ok {
 				metrics.ContentEvents.WithLabelValues(ev.Topic, "unchanged").Inc()
+				if e.Counts != nil {
+					e.Counts.Unchanged++
+				}
 				continue
 			}
 			if edited != nil {
@@ -134,6 +139,9 @@ func (e *Emitter) Send(ctx context.Context, all []*Event) error {
 			ev.Seal()
 			if err := Check(ev.Msg, e.Options); err != nil {
 				metrics.ContentEvents.WithLabelValues(ev.Topic, "invalid").Inc()
+				if e.Counts != nil {
+					e.Counts.Invalid++
+				}
 				slog.Warn("content: event breaks the contract, not sent", "topic", ev.Topic, "id", ev.Key, "err", err)
 				continue
 			}
@@ -149,6 +157,9 @@ func (e *Emitter) Send(ctx context.Context, all []*Event) error {
 		}
 		for t, n := range sent {
 			metrics.ContentEvents.WithLabelValues(t, "sent").Add(float64(n))
+			if e.Counts != nil {
+				e.Counts.Sent += int64(n)
+			}
 		}
 		return nil
 	})
