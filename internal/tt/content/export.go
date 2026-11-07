@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -33,9 +34,24 @@ type ExportOptions struct {
 	Since time.Time
 	// Batch is how many records go through the emitter at a time.
 	Batch int
-	// Idle stops the export with an error after this long without a
-	// record while partitions are still short of their end (30s).
+	// Idle ends the export after this long without a record while
+	// partitions are still short of their end (30s); those partitions are
+	// listed in the result as stalled. An offset can hold no readable
+	// record (a transaction marker, an aborted or compacted batch), so a
+	// partition can end short of the persister's offset with nothing left
+	// to read.
 	Idle time.Duration
+}
+
+// Stalled is a partition the export stopped reading short of the
+// persister's offset: nothing more came within ExportOptions.Idle.
+type Stalled struct {
+	Topic     string `json:"topic"`
+	Partition int32  `json:"partition"`
+	// LastRead is the last offset read (-1: none); End the persister's
+	// committed offset the export read towards.
+	LastRead int64 `json:"last_read"`
+	End      int64 `json:"end"`
 }
 
 // ExportResult is what an export read and sent.
@@ -52,6 +68,8 @@ type ExportResult struct {
 	Sent      int64 `json:"sent"`
 	Unchanged int64 `json:"unchanged"`
 	Invalid   int64 `json:"invalid"`
+	// Stalled are the partitions that ended short of their offset.
+	Stalled []Stalled `json:"stalled,omitempty"`
 }
 
 // Export sends the content.* events of the tt.*.v1 records Kafka still
@@ -61,8 +79,8 @@ type ExportResult struct {
 // hash) make it safe to run beside the live persister and to run again: an
 // event already sent is held back, and one sent twice has the same id. It
 // commits no offsets.
-func Export(ctx context.Context, opts []kgo.Opt, prefix string, e *Emitter, o ExportOptions) (ExportResult, error) {
-	res := ExportResult{Read: map[string]int64{}}
+func Export(ctx context.Context, opts []kgo.Opt, prefix string, e *Emitter, o ExportOptions) (res ExportResult, err error) {
+	res = ExportResult{Read: map[string]int64{}}
 	if o.Batch <= 0 {
 		o.Batch = 500
 	}
@@ -140,9 +158,15 @@ func Export(ctx context.Context, opts []kgo.Opt, prefix string, e *Emitter, o Ex
 	}
 	defer cl.Close()
 
+	// The emitter's outcomes go into the result however the export ends:
+	// batches are sent as they fill, so a failed export has sent some.
 	counts := &SendCounts{}
 	e.Counts = counts
-	defer func() { e.Counts = nil }()
+	defer func() {
+		e.Counts = nil
+		res.Sent, res.Unchanged, res.Invalid = counts.Sent, counts.Unchanged, counts.Invalid
+	}()
+	last := map[string]map[int32]int64{}
 	idle := o.Idle
 	if idle <= 0 {
 		idle = 30 * time.Second
@@ -165,7 +189,25 @@ func Export(ctx context.Context, opts []kgo.Opt, prefix string, e *Emitter, o Ex
 			return res, err
 		}
 		if fs.Empty() && pctx.Err() != nil {
-			return res, fmt.Errorf("content export: %d partitions not read to the persister's offset after %s without records", open, idle)
+			// Nothing more came: the partitions still open end here. Send
+			// what was read and name them.
+			for t, ps := range ends {
+				for p, end := range ps {
+					lr, ok := last[t][p]
+					if !ok {
+						lr = -1
+					}
+					res.Stalled = append(res.Stalled, Stalled{Topic: strings.TrimPrefix(t, prefix), Partition: p, LastRead: lr, End: end})
+				}
+			}
+			slices.SortFunc(res.Stalled, func(a, b Stalled) int {
+				if c := strings.Compare(a.Topic, b.Topic); c != 0 {
+					return c
+				}
+				return int(a.Partition - b.Partition)
+			})
+			slog.Warn("content export: partitions ended short of the persister's offset", "idle", idle, "stalled", res.Stalled)
+			break
 		}
 		var ferr error
 		fs.EachError(func(t string, p int32, err error) {
@@ -181,6 +223,10 @@ func Export(ctx context.Context, opts []kgo.Opt, prefix string, e *Emitter, o Ex
 			if !ok || r.Offset >= end {
 				return // a partition already read to its end
 			}
+			if last[r.Topic] == nil {
+				last[r.Topic] = map[int32]int64{}
+			}
+			last[r.Topic][r.Partition] = r.Offset
 			if r.Offset >= end-1 {
 				delete(ends[r.Topic], r.Partition)
 				open--
@@ -210,7 +256,6 @@ func Export(ctx context.Context, opts []kgo.Opt, prefix string, e *Emitter, o Ex
 	if err := flush(); err != nil {
 		return res, err
 	}
-	res.Sent, res.Unchanged, res.Invalid = counts.Sent, counts.Unchanged, counts.Invalid
 	return res, nil
 }
 
