@@ -109,10 +109,18 @@ platformSecret:
 secretEnv:
   existingSecret: tks-env
 # Existing Secret with a "proxies.yaml" key holding tt.proxy.tiers (proxy
-# endpoints and credentials). Mounted and layered over config.yaml.
+# endpoints and credentials). Mounted and layered over config.yaml, only in
+# the pods that reach TikTok through the exits (components): the crawlers,
+# the canary and the signer build the proxy pool at start, and wait for the
+# Secret. The hooks, the backup, the API, the scheduler, the persister and
+# the media downloader start without it and never see the credentials. An
+# empty list mounts it everywhere (the old behaviour). The scheduler prices
+# IPs from the static lists' endpoints only when tt.cost.ips is 0: without
+# the Secret, set tt.cost.ips (TKS_TT__COST__IPS) to the IPs paid for.
 secretFiles:
   existingSecret: tks-proxies
   key: proxies.yaml
+  components: [crawler-account, crawler-post, crawler-thread, crawler-retry, canary, signer]
 # Existing Secret with certificate files (CA, client certificate and key)
 # for config.kafka.tls / config.redis.tls, mounted at mountPath: point
 # ca_file, cert_file and key_file at e.g. /etc/tks-tls/ca.pem.
