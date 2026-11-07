@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -345,4 +346,13 @@ func (d *Deps) saveListWatermark(ctx context.Context, userID int64, newest, olde
 			last_incremental_at = COALESCE(EXCLUDED.last_incremental_at, crawl_cursors.last_incremental_at),
 			updated_at = now()`, listScope, userID, nw, ol, state, reason, full)
 	return err
+}
+
+// regionOf is where TikTok placed the reader: the region its page reported
+// to the identity (emit.Source.Region), upper case; empty when unknown.
+func regionOf(id *session.Identity) string {
+	if id == nil {
+		return ""
+	}
+	return strings.ToUpper(id.Tokens()["region"])
 }

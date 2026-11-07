@@ -18,14 +18,26 @@ import (
 const Group = "tks-tt-persister"
 
 // Sink is schema tt's side of internal/persist's consumer.
-type Sink struct{ W *Writer }
+type Sink struct {
+	W *Writer
+	// Content publishes the shared contract's events for what the batch
+	// changed, after the batch is written (M15); nil publishes none.
+	Content ContentEmitter
+}
+
+// ContentEmitter publishes content.* events for a written batch
+// (internal/tt/content.Emitter). An error retries the whole batch, whose
+// writes are idempotent.
+type ContentEmitter interface {
+	Emit(ctx context.Context, msgs []proto.Message) error
+}
 
 var _ sharedpersist.Sink = Sink{}
 
 // NewConsumer reads tt.*.v1 into schema tt, setting aside what cannot be
 // written to tks.persist.dlq.
-func NewConsumer(cfg kafka.ClientConfig, w *Writer, maxBatch int, linger time.Duration) (*sharedpersist.Consumer, error) {
-	return sharedpersist.NewSinkConsumer(cfg, Sink{W: w},
+func NewConsumer(cfg kafka.ClientConfig, w *Writer, c ContentEmitter, maxBatch int, linger time.Duration) (*sharedpersist.Consumer, error) {
+	return sharedpersist.NewSinkConsumer(cfg, Sink{W: w, Content: c},
 		sharedpersist.SinkConfig{Group: Group, Quarantine: topics.PersistQuarantine}, maxBatch, linger)
 }
 
@@ -47,6 +59,8 @@ func (Sink) New(topic string) proto.Message {
 		return &ttv1.Media{}
 	case topics.Follow:
 		return &ttv1.Follow{}
+	case topics.Subtitle:
+		return &ttv1.PostSubtitles{}
 	}
 	return nil
 }
@@ -67,12 +81,16 @@ func (Sink) Entity(topic string) string {
 		return "media"
 	case topics.Follow:
 		return "follow"
+	case topics.Subtitle:
+		return "subtitle"
 	}
 	return "unknown"
 }
 
 // Write writes a batch: accounts first, then music and posts (the rows
-// comments and metrics refer to), then the rest, follow links last.
+// comments and metrics refer to), then the rest, follow links and
+// subtitles last; then
+// the contract's events for what changed (Content).
 func (s Sink) Write(ctx context.Context, msgs []proto.Message) error {
 	var (
 		accounts []*ttv1.Account
@@ -82,6 +100,7 @@ func (s Sink) Write(ctx context.Context, msgs []proto.Message) error {
 		music    []*ttv1.Music
 		media    []*ttv1.Media
 		follows  []*ttv1.Follow
+		subs     []*ttv1.PostSubtitles
 	)
 	for _, m := range msgs {
 		switch m := m.(type) {
@@ -99,6 +118,8 @@ func (s Sink) Write(ctx context.Context, msgs []proto.Message) error {
 			media = append(media, m)
 		case *ttv1.Follow:
 			follows = append(follows, m)
+		case *ttv1.PostSubtitles:
+			subs = append(subs, m)
 		}
 	}
 	if err := s.W.Accounts(ctx, accounts); err != nil {
@@ -119,5 +140,14 @@ func (s Sink) Write(ctx context.Context, msgs []proto.Message) error {
 	if err := s.W.Media(ctx, media); err != nil {
 		return err
 	}
-	return s.W.Follows(ctx, follows)
+	if err := s.W.Follows(ctx, follows); err != nil {
+		return err
+	}
+	if err := s.W.Subtitles(ctx, subs); err != nil {
+		return err
+	}
+	if s.Content == nil {
+		return nil
+	}
+	return s.Content.Emit(ctx, msgs)
 }

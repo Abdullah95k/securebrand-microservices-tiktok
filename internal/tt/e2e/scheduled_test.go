@@ -4,9 +4,13 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/abdullah95k/securebrand-contracts/conformance"
+	contentv1 "github.com/abdullah95k/securebrand-contracts/gen/go/securebrand/content/v1"
+	coveragev1 "github.com/abdullah95k/securebrand-contracts/gen/go/securebrand/coverage/v1"
 	"github.com/google/uuid"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/protobuf/proto"
@@ -14,6 +18,7 @@ import (
 	commonv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/common/v1"
 	tkstaskv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tks/task/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakett"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/content"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/scheduler"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/topics"
@@ -39,9 +44,96 @@ type sched struct {
 
 func newSched(s *Stack) *sched {
 	disp := &dispatch.Dispatcher{DB: s.DB, Jobs: s.Tracker, Producer: s.Producer, Now: s.World.Clock}
-	return &sched{s: s,
-		pl:  &scheduler.Planner{DB: s.DB, Dispatch: disp, Cfg: s.Cfg, Now: s.World.Clock},
-		fin: &scheduler.Finalizer{DB: s.DB, Jobs: s.Tracker, Producer: s.Producer, Cfg: s.Cfg, Timeout: time.Minute, Now: s.World.Clock}}
+	fin := &scheduler.Finalizer{DB: s.DB, Jobs: s.Tracker, Producer: s.Producer, Cfg: s.Cfg, Timeout: time.Minute, Now: s.World.Clock}
+	if s.Cfg.TT.Content.Enabled {
+		// The shared contract's coverage, as tks-scheduler wires it.
+		fin.Content = &content.Emitter{DB: s.DB, Producer: s.Producer, Options: conformance.Options{Production: s.Cfg.TT.Content.Production}}
+	}
+	return &sched{s: s, pl: &scheduler.Planner{DB: s.DB, Dispatch: disp, Cfg: s.Cfg, Now: s.World.Clock}, fin: fin}
+}
+
+// checkCoverage checks the shared contract's coverage against the store
+// (M15b): one JobCoverage per finished job, with its status and counts,
+// and for every post whose comments a job read, a partial post event whose
+// Post.coverage matches the post's last coverage as stored.
+func checkCoverage(t *testing.T, s *Stack) {
+	t.Helper()
+	ctx := context.Background()
+	opt := conformance.Options{Production: true}
+	jobsDone := count(t, s, `SELECT count(*) FROM jobs WHERE finished_at IS NOT NULL`)
+	byJob := map[string]*coveragev1.JobCoverage{}
+	for _, m := range contractRecords(t, s, content.TopicCoverage, int(jobsDone)) {
+		c := m.(*coveragev1.JobCoverage)
+		if err := content.Check(c, opt); err != nil {
+			t.Errorf("collection.coverage.v1: %v", err)
+		}
+		byJob[c.JobId] = c
+	}
+	rows, err := s.DB.Query(ctx, `SELECT job_id::text, status, coalesce((counters->>'posts')::bigint, 0) FROM jobs WHERE finished_at IS NOT NULL`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id, status string
+		var posts int64
+		if err := rows.Scan(&id, &status, &posts); err != nil {
+			t.Fatal(err)
+		}
+		c := byJob[id]
+		switch {
+		case c == nil:
+			t.Errorf("job %s has no JobCoverage", id)
+		case strings.ToLower(strings.TrimPrefix(c.Status.String(), "JOB_STATUS_")) != status || c.Counters["posts"] != posts ||
+			c.SubjectId == "" || c.JobCount != 1:
+			t.Errorf("job %s (%s, %d posts): coverage %v", id, status, posts, c)
+		}
+	}
+	rows.Close()
+	// The partial post events carrying Post.coverage: the last one of
+	// each post (by version) is the post's coverage as stored.
+	read := count(t, s, `SELECT count(*) FROM posts WHERE comments_state <> 'none'`)
+	if read == 0 {
+		t.Fatal("no post's comments were read")
+	}
+	all := readContent(t, s)["content.post.v1"]
+	last := map[string]*contentv1.Post{}
+	for _, m := range all {
+		p := m.(*contentv1.Post)
+		if p.Coverage == nil {
+			continue
+		}
+		if !p.Envelope.Partial || p.Text != nil {
+			t.Errorf("post %s: coverage on a full event, or content on a coverage event", p.Envelope.Id)
+		}
+		if prev := last[p.Envelope.Id]; prev == nil || p.Envelope.Version > prev.Envelope.Version {
+			last[p.Envelope.Id] = p
+		}
+	}
+	rows, err = s.DB.Query(ctx, `SELECT 'tt:post:' || post_id, comments_state, comments_collected, replies_collected
+		FROM posts WHERE comments_state <> 'none'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	states := map[string]contentv1.CommentsState{"complete": contentv1.CommentsState_COMMENTS_STATE_COMPLETE,
+		"partial": contentv1.CommentsState_COMMENTS_STATE_PARTIAL, "truncated": contentv1.CommentsState_COMMENTS_STATE_TRUNCATED}
+	for rows.Next() {
+		var id, state string
+		var top, replies int64
+		if err := rows.Scan(&id, &state, &top, &replies); err != nil {
+			t.Fatal(err)
+		}
+		p := last[id]
+		if p == nil {
+			t.Errorf("post %s: comments read, no Post.coverage", id)
+			continue
+		}
+		c := p.Coverage
+		if c.CommentsState != states[state] || c.GetCommentsCollected() != top || c.GetRepliesCollected() != replies {
+			t.Errorf("post %s: stored %s with %d comments and %d replies, coverage %v", id, state, top, replies, c)
+		}
+	}
+	t.Logf("coverage: %d jobs, %d posts read, %d coverage events", jobsDone, read, len(last))
 }
 
 // register puts accounts on the schedule, due now.
@@ -308,4 +400,7 @@ func TestScheduledChecks(t *testing.T) {
 	if status != "private" || next.Before(w.Clock().Add(s.Cfg.TT.Freshness.AccountRefresh-time.Minute)) {
 		t.Errorf("private account: status %s, next check %v (now %v)", status, next, w.Clock())
 	}
+
+	// 6. The shared contract's coverage (M15b).
+	checkCoverage(t, s)
 }

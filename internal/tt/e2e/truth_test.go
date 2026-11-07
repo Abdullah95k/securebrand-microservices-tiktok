@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakett"
@@ -93,6 +94,8 @@ func sameStore(t *testing.T, s *Stack, acc *fakett.Account, tr truth) {
 		}
 	}
 
+	sameExtras(t, s, acc)
+
 	type commentRow struct {
 		parent        *int64
 		depth         int16
@@ -163,6 +166,43 @@ func sameStore(t *testing.T, s *Stack, acc *fakett.Account, tr truth) {
 	}
 	if len(comments) != want {
 		t.Errorf("account %s: %d comments and replies stored, want %d", acc.Username, len(comments), want)
+	}
+}
+
+// sameExtras compares what M17 reads with the world: each post's title
+// and AI text, and each video's subtitle tracks with their files.
+func sameExtras(t *testing.T, s *Stack, acc *fakett.Account) {
+	t.Helper()
+	ctx := context.Background()
+	rows, err := s.DB.Query(ctx, `SELECT p.post_id, coalesce(p.title, ''), coalesce(p.labels->>'ai_description', ''),
+			coalesce((SELECT string_agg(language || '/' || source_name || '/' || coalesce(body, ''), '|' ORDER BY language)
+				FROM post_subtitles st WHERE st.post_id = p.post_id), '')
+		FROM posts p WHERE p.user_id = $1`, acc.UID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type row struct{ title, ai, subs string }
+	got := map[int64]row{}
+	for rows.Next() {
+		var id int64
+		var r row
+		if err := rows.Scan(&id, &r.title, &r.ai, &r.subs); err != nil {
+			t.Fatal(err)
+		}
+		got[id] = r
+	}
+	rows.Close()
+	for _, p := range append(slices.Clone(acc.Posts), acc.Hidden...) {
+		subs := slices.Clone(p.Subtitles)
+		slices.SortFunc(subs, func(a, b fakett.Subtitle) int { return strings.Compare(a.Language, b.Language) })
+		var parts []string
+		for _, st := range subs {
+			parts = append(parts, st.Language+"/"+st.Source+"/"+st.VTT)
+		}
+		if r := got[p.ID]; r.title != p.Title || r.ai != p.AIDescription || r.subs != strings.Join(parts, "|") {
+			t.Errorf("post %d: title %q, AI text %q, subtitles %q; want %q, %q, %q", p.ID, r.title, r.ai, r.subs,
+				p.Title, p.AIDescription, strings.Join(parts, "|"))
+		}
 	}
 }
 

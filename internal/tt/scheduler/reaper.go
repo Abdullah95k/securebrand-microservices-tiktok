@@ -20,6 +20,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/jobs"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/content"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/topics"
 )
@@ -40,6 +41,9 @@ type Reaper struct {
 	Backlog func(context.Context) (map[int16]int64, error)
 	// PageSize bounds the jobs one tick looks at (default 500).
 	PageSize int
+	// Content, when set, publishes a closed job's JobCoverage on
+	// collection.coverage.v1 beside tt.job.v1 (M15b).
+	Content *content.Emitter
 
 	// The tick after a full page goes on from its last job (by creation),
 	// so more than a page of long-running jobs can't keep a stuck one from
@@ -129,9 +133,13 @@ func (r *Reaper) Tick(ctx context.Context) error {
 			continue // finalized meanwhile, or the database failed: next tick
 		}
 		b := r.Producer.NewBatch()
-		err = b.AddProto(ctx, topics.Job, j.id.String(), &commonv1.JobEvent{EventId: j.id.String() + ":" + final, JobId: j.id.String(),
+		ev := &commonv1.JobEvent{EventId: j.id.String() + ":" + final, JobId: j.id.String(),
 			Status: jobStatus(final), Kind: j.kind, SubjectRef: j.ref, SubjectId: j.userID, CreatedAt: timestamppb.New(j.created),
-			FinishedAt: timestamppb.Now(), Counters: st.Counters, Errors: []string{reason}, Platform: commonv1.Platform_PLATFORM_TIKTOK})
+			FinishedAt: timestamppb.Now(), Counters: st.Counters, Errors: []string{reason}, Platform: commonv1.Platform_PLATFORM_TIKTOK}
+		err = b.AddProto(ctx, topics.Job, j.id.String(), ev)
+		if err == nil && r.Content != nil {
+			err = addCoverage(ctx, b, r.Content, ev, j.mode)
+		}
 		if err == nil {
 			err = b.Wait(ctx)
 		}

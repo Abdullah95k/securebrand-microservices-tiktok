@@ -14,14 +14,15 @@ import (
 )
 
 // Discovery is the leader's discovery loop (docs/tiktok/discovery-plan.md
-// §4, §7, §9): it moves the discovered accounts that went quiet to the
+// §4, §7, §8, §9): it moves the discovered accounts that went quiet to the
 // dormant list, registers the found accounts their entry check qualified,
 // counts the people the persister saw in monitored accounts' posts, bios
 // and comments (part B) and on their following and followers lists (part
 // D), sends found accounts to their entry checks, puts back the checks
-// whose job ended without a decision, and sends monitored accounts' due
-// lists to be read (part D). It does nothing while tt.discovery.enabled is
-// off.
+// whose job ended without a decision, sends monitored accounts' due lists
+// to be read (part D), and sends due discovery pages (searches, hashtags,
+// sounds, related posts, the feed) to be read (part C). It does nothing
+// while tt.discovery.enabled is off.
 type Discovery struct {
 	D        *discovery.Discoverer
 	Dispatch *dispatch.Dispatcher
@@ -33,6 +34,10 @@ type Discovery struct {
 	CountFor time.Duration
 
 	client uuid.UUID
+	// refreshed is when part C last picked the hashtags and sounds
+	// monitored accounts use; boots turns the accounts reads bootstrap on.
+	refreshed time.Time
+	boots     int
 }
 
 // Tick runs one round.
@@ -73,6 +78,9 @@ func (s *Discovery) Tick(ctx context.Context) error {
 		return err
 	}
 	if err := s.follows(ctx); err != nil {
+		return err
+	}
+	if err := s.pages(ctx); err != nil {
 		return err
 	}
 	counts, err := discovery.Counts(ctx, s.D.DB)

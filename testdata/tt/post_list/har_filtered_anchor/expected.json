@@ -785,8 +785,34 @@
           "reposts": "0"
         },
         "status": "POST_STATUS_VISIBLE",
-        "discovered_via": "DISCOVERED_VIA_LIST"
-      }
+        "discovered_via": "DISCOVERED_VIA_LIST",
+        "subtitles": [
+          {
+            "language": "ara-SA",
+            "language_id": "34",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:whisper_lid",
+            "format": "webvtt",
+            "size_bytes": "1084"
+          }
+        ]
+      },
+      "subtitles": [
+        {
+          "expires": "2026-11-02T22:00:18Z",
+          "info": {
+            "language": "ara-SA",
+            "language_id": "34",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:whisper_lid",
+            "format": "webvtt",
+            "size_bytes": "1084"
+          },
+          "url": "https://v16-webapp.tiktok.com/scrubbed/07fac1eff17c"
+        }
+      ]
     },
     {
       "media": [
@@ -969,8 +995,34 @@
           "reposts": "0"
         },
         "status": "POST_STATUS_VISIBLE",
-        "discovered_via": "DISCOVERED_VIA_LIST"
-      }
+        "discovered_via": "DISCOVERED_VIA_LIST",
+        "subtitles": [
+          {
+            "language": "ara-SA",
+            "language_id": "34",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:whisper_lid",
+            "format": "webvtt",
+            "size_bytes": "269"
+          }
+        ]
+      },
+      "subtitles": [
+        {
+          "expires": "2026-11-02T22:00:00Z",
+          "info": {
+            "language": "ara-SA",
+            "language_id": "34",
+            "source": "SUBTITLE_SOURCE_ASR",
+            "source_name": "ASR",
+            "version": "1:whisper_lid",
+            "format": "webvtt",
+            "size_bytes": "269"
+          },
+          "url": "https://v16-webapp.tiktok.com/scrubbed/ae82a97c63b5"
+        }
+      ]
     },
     {
       "media": [

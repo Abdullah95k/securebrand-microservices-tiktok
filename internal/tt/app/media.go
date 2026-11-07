@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/abdullah95k/securebrand-contracts/conformance"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/connect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/run"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/content"
 	ttmedia "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/media"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/topics"
 )
@@ -72,6 +74,13 @@ func NewMedia(ctx context.Context, cfg *config.Config, o MediaOptions) (*Media, 
 			PresignTTL: cfg.Media.PresignTTL, Now: o.Now},
 		Ledger: &ttmedia.Ledger{DB: o.DB, Producer: producer, MaxRetryableFailures: cfg.Media.MaxRetryableFailures, Now: o.Now},
 	}
+	if c := cfg.TT.Content; c.Enabled {
+		// The shared contract's hand-off beside tks's own (M15b).
+		contract := &ttmedia.Contract{Producer: producer,
+			Handoff: content.Handoff{DeleteAfter: c.Media.DeleteAfter, RequiredConsumers: c.Media.RequiredConsumers},
+			Options: conformance.Options{Production: c.Production}}
+		m.Downloader.Contract, m.Ledger.Contract = contract, contract
+	}
 	down, err := kafka.NewConsumer(kafka.ConsumerConfig{ClientConfig: kcfg, Group: MediaDownloaderGroup,
 		Topics: []string{topics.TaskMedia}, MaxInflight: cfg.Media.Concurrency, DrainTimeout: drain}, m.Downloader.Handle)
 	if err != nil {
@@ -79,7 +88,7 @@ func NewMedia(ctx context.Context, cfg *config.Config, o MediaOptions) (*Media, 
 		return nil, err
 	}
 	ledger, err := kafka.NewConsumer(kafka.ConsumerConfig{ClientConfig: kcfg, Group: MediaLedgerGroup,
-		Topics: ttmedia.LedgerTopics, MaxInflight: 32, DrainTimeout: 20 * time.Second}, m.Ledger.Handle)
+		Topics: ttmedia.LedgerTopics(cfg.TT.Content.Enabled), MaxInflight: 32, DrainTimeout: 20 * time.Second}, m.Ledger.Handle)
 	if err != nil {
 		producer.Close()
 		return nil, err

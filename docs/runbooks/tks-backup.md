@@ -10,7 +10,7 @@ The CronJob `tks-backup` runs **every day at 02:17 Iraq time** (`backup.schedule
 - The dump is **streamed straight into the backup bucket** (`S3_BUCKET_BACKUPS` in `platform-credentials`), never written to the pod's disk: the database only grows, since nothing is deleted (D8).
 - Keys: `tks/postgres/YYYY/MM/DD/tks-<UTC time>.dump`, and next to each a `.sha256` file with its checksum, which a restore checks.
 - **A dump that fails leaves no object**: the upload is cancelled when `pg_dump` fails.
-- **tks never deletes a dump.** How long they are kept is the bucket's rule (the platform's). A month of dailies is a sensible start.
+- **tks never deletes a dump.** How long they are kept is the bucket's rule (the platform's): **30 days** (the owner, 2026-11-06), so a restore can go back to any of the last 30 days. The database itself keeps everything (D8).
 - One job at a time (`concurrencyPolicy: Forbid`); a job is stopped after 6 hours (`backup.activeDeadlineSeconds`). It holds one upload part in memory (`backup.partMB`, 64 MB); a dump can be at most 10,000 parts (640 GB at 64 MB): raise `partMB` (and the job's memory limit) before the database nears that.
 
 The restore is tested in CI on every change (`internal/tt/backup`): a dump taken by a read-only role is restored into a new database, every table's rows compared, and a damaged dump and a failed `pg_dump` are caught.

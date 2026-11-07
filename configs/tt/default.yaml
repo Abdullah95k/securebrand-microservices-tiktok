@@ -38,6 +38,19 @@ tt:
   # (s3.raw_rest_prefix).
   capture_raw: failures
   capture_raw_sample: 0.01
+  # The shared contract's content.* events (M15), published by the
+  # persister for each changed row. Off until the platform has made the
+  # content.* topics.
+  content:
+    enabled: false
+    production: false
+    # The media hand-off on content.media.ready.v1 (M15b). tks deletes
+    # nothing (D5): the deleting service removes a file once every
+    # required consumer acknowledged it, or at delete_after (from when it
+    # was stored; at least 24h).
+    media:
+      delete_after: 72h
+      required_consumers: [sb-analysis]
   proxy:
     tiers: []
     routing:
@@ -135,8 +148,9 @@ tt:
   # answering (or an unsigned one answers where the active one is signed).
   canary:
     interval: 1h
-    # Public usernames with posts, comments and replies, set in the
-    # deployment (TKS_TT__CANARY__ACCOUNTS), never committed.
+    # Public usernames with posts, comments and replies, set by the
+    # deployment (production: values-production.yaml; or
+    # TKS_TT__CANARY__ACCOUNTS, comma separated).
     accounts: []
     operations: [creator_list, comments, replies]
     tier: ""
@@ -228,6 +242,18 @@ tt:
     # tks-media-downloader stores the files and keeps them: it sets no TTL
     # and deletes nothing (another service deletes them: owner, 2026-11-02).
     cookie_domains: [tiktok.com]
+  # Videos' subtitle tracks (M17): TikTok's speech-to-text (ASR) of about
+  # half the videos, mostly Arabic, and machine translations of it (MT), as
+  # WebVTT files of a few KB behind links that expire in about two days. The
+  # account stage fetches each new track with the reading identity (its
+  # tt_chain_token goes to tt.media.cookie_domains only, as for videos) and
+  # publishes it on tt.subtitle.v1; a stored track is not fetched again.
+  # Off in production until the platform has made tt.subtitle.v1.
+  subtitles:
+    include: true
+    max_bytes: 262144
+    max_tracks: 4
+    timeout: 20s
   # Retention of what tks stores, in days; 0 keeps it for good. The owner
   # chose (2026-11-01) that tks deletes nothing, so every value is 0; a
   # positive one turns that step back on (ADR 0007 §14). privacy.retention
@@ -330,3 +356,54 @@ tt:
       known_pages: 1
       batch: 100              # lists sent to be read per tick
       max_running: 50         # reads running fleet-wide (lane p2)
+    # Part C (discovery-plan §8; sources search, hashtag, sound, related,
+    # feed): TikTok's discovery pages, all signed by TikTok's script through
+    # the signer (C6 run 2). Each target (a keyword, a hashtag, a sound, a
+    # post, the feed) is read up to its max_pages, in the backfill lane;
+    # every post found is stored and its author gets the entry check.
+    pages:
+      batch: 50               # targets sent to be read per tick
+      max_running: 20         # reads running fleet-wide (lane p2)
+      day_pages: 0            # pages a UTC day, every part C read together (0: no cap)
+      retry_after: 6h         # a read that failed
+      refresh: 1h             # how often the hashtags, sounds and posts monitored accounts use are picked
+    # Keyword search over the Iraq list. From US exits TikTok asks a
+    # logged-out search to log in (2483, T37): it runs only through a tier
+    # TikTok places in or near Iraq. Empty tier: off.
+    search:
+      tier: ""
+      every: 6h               # results come in TikTok's ranking, not by time
+      max_pages: 5            # 12 posts a page
+    # Hashtags: the Iraq list's one-word terms, and the hashtags at least
+    # min_accounts monitored accounts used in the last window (the top most
+    # used). The first source to run (C6 run 2: Arabic and Kurdish posts,
+    # 422 new authors from 8 hashtags, from US exits).
+    hashtags:
+      every: 6h
+      max_pages: 5            # about 30 posts a page
+      top: 200
+      min_accounts: 3
+      window: 720h            # 30 days
+      keywords: true
+      skip: [fyp, foryou, foryoupage, fy, fypシ, viral, explore, trending, tiktok, xyzbca, capcut, duet, stitch, trend]
+    # Sounds monitored accounts used (not one account's own original sound:
+    # min_accounts). From US exits the sounds C6 read were not Iraqi.
+    sounds:
+      every: 168h             # a week
+      max_pages: 3            # about 20 posts a page
+      top: 100
+      min_accounts: 3
+      window: 720h
+      keywords: false
+      skip: []
+    # Related posts of monitored posts made in the last window, each read
+    # once, the most played first.
+    related:
+      window: 72h
+      per_tick: 50
+    # The For You feed: American from US exits (C6 run 2), so it is worth
+    # switching on only with a tier TikTok places in or near Iraq.
+    feed:
+      tier: ""
+      every: 3h
+      reads: 6                # each read brings 4 to 8 new posts

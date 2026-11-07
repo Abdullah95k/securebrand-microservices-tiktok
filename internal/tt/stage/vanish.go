@@ -174,7 +174,7 @@ func (s *AccountStage) confirm(ctx context.Context, b *kafka.Batch, t *tkstaskv1
 		return VanishError
 	}
 	res, _ := parse.PostPage(pl.HTML, parse.Options{AuthorKey: d.Emit.Key, Query: "post_page"})
-	src := emit.Source{JobID: t.JobId, Query: "post_page", ParserVersion: parse.Version, Mode: t.Mode}
+	src := emit.Source{JobID: t.JobId, Query: "post_page", ParserVersion: parse.Version, Mode: t.Mode, Region: regionOf(id)}
 	switch code := res.StatusCode; {
 	case res.Post != nil && res.Post.Post.PostId == k.postID && res.Post.Post.UserId == sc.UserId:
 		// Still served: the list missed it. Its page refreshes it (a post

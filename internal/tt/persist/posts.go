@@ -19,7 +19,7 @@ var postCols = []string{"created_at", "post_id", "user_id", "kind", "caption", "
 	"duration_ms", "width", "height", "cover_media_id", "photo_count", "music_id", "is_pinned", "is_ad", "labels",
 	"category", "playlist_id", "comments_disabled", "region", "text_language", "discovered_via",
 	"play_count", "like_count", "comment_count", "share_count", "save_count", "repost_count",
-	"content_hash", "status", "first_seen_at", "last_seen_at", "stored_at", "first_mode"}
+	"content_hash", "status", "first_seen_at", "last_seen_at", "stored_at", "first_mode", "title"}
 
 // mention is one person a post or comment mentions.
 type mention struct {
@@ -97,7 +97,8 @@ func postRow(p *ttv1.Post, storedAt time.Time) []any {
 		rangesJSON(p.TextRanges), tags, tagIDs, nilIfZero(p.DurationMs), nilIfZero32(p.Width), nilIfZero32(p.Height),
 		mediaUUID(p.CoverMediaId), photos, p.MusicId, p.Pinned, p.Ad, labels, p.Category, nilIfEmpty(p.PlaylistId),
 		p.CommentsDisabled, nilIfEmpty(p.Region), nilIfEmpty(p.TextLanguage), via,
-		c.Plays, c.Likes, c.Comments, c.Shares, c.Saves, c.Reposts, hashOf(p.Obs), status, seen, seen, storedAt, modeName(p.Obs)}
+		c.Plays, c.Likes, c.Comments, c.Shares, c.Saves, c.Reposts, hashOf(p.Obs), status, seen, seen, storedAt, modeName(p.Obs),
+		nilIfEmpty(p.Title)}
 }
 
 // unavailableKept is true, in an upsert of posts, when the stored post was
@@ -112,6 +113,9 @@ const unavailableKept = "(t.status = 'unavailable' AND t.unavailable_since > EXC
 // marked unavailable makes it visible again; every status change is kept in
 // post_status_changes (docs/tiktok/discovery-plan.md §17).
 func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
+	// Part C's finds, before the batch keeps one record per post: the same
+	// post found by two sources or targets is two finds.
+	finds := w.postFinds(ps)
 	ps = latest(ps, func(p *ttv1.Post) string { return strconv.FormatInt(p.PostId, 10) })
 	kept := ps[:0]
 	var marks []*ttv1.Post
@@ -201,6 +205,9 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 				return err
 			}
 			if err := recordSightings(ctx, tx, w.postSightings(ps, fresh), got); err != nil {
+				return err
+			}
+			if err := recordFinds(ctx, tx, finds, got); err != nil {
 				return err
 			}
 			if len(mrows) == 0 {

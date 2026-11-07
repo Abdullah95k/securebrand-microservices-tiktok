@@ -121,6 +121,37 @@ type Post struct {
 	// Mentions are the people the caption names (textExtra with their ids,
 	// after the hashtags).
 	Mentions []Person
+	// Title is a photo post's imagePost.title; AIDescription its
+	// AIGCDescription (M17).
+	Title, AIDescription string
+	// Subtitles are a video's subtitle tracks (video.subtitleInfos), each
+	// served as a WebVTT file from the fake CDN.
+	Subtitles []Subtitle
+}
+
+// Subtitle is one of a video's subtitle tracks.
+type Subtitle struct {
+	// Language is LanguageCodeName (ara-SA); Source ASR or MT.
+	Language, Source string
+	// VTT is the file.
+	VTT string
+}
+
+// subtitles gives the i-th generated video its tracks: Arabic
+// speech-to-text on every third, an English translation on every sixth
+// (about half of TikTok's videos carry tracks: C6 run 2).
+func subtitles(p *Post, i int) []Subtitle {
+	if p.Kind != "video" || i%3 != 0 {
+		return nil
+	}
+	vtt := func(lang string) string {
+		return fmt.Sprintf("WEBVTT\n\n1\n00:00:00.000 --> 00:00:02.500\n<c.cue>%s line one</c> of post %d\n\n2\n00:00:02.500 --> 00:00:05.000\nline two &amp; more\n", lang, p.ID)
+	}
+	out := []Subtitle{{Language: "ara-SA", Source: "ASR", VTT: vtt("ar")}}
+	if i%6 == 0 {
+		out = append(out, Subtitle{Language: "eng-US", Source: "MT", VTT: vtt("en")})
+	}
+	return out
 }
 
 // CommentCount is what TikTok shows: top-level comments plus replies.
@@ -190,9 +221,13 @@ func NewWorld(s Spec) *World {
 			switch i {
 			case 3:
 				p.Kind = "photo"
+				p.Title = fmt.Sprintf("Photo title %d of %s", i, acc.Username)
 			case 5:
 				p.Ad = true
+			case 7:
+				p.AIDescription = "synthetic AI-generated content note"
 			}
+			p.Subtitles = subtitles(p, i)
 			nc := 0
 			if s.MaxComments > 0 {
 				nc = r.IntN(s.MaxComments + 1)
@@ -319,6 +354,7 @@ func (w *World) AddPost(acc *Account, comments int) *Post {
 			Desc: "New post of " + acc.Username + " #news", Hashtags: []string{"news"},
 			Music: Music{ID: int64(7_100_000_000_000_000_000 + w.rng.IntN(1_000_000)), Title: "original sound", Author: acc.Nickname, Original: true, Duration: 15},
 			Plays: int64(w.rng.IntN(1000)), Likes: int64(w.rng.IntN(100))}
+		p.Subtitles = subtitles(p, 0) // speech-to-text and a translation
 		for c := 0; c < comments; c++ {
 			w.addComment(p, t)
 		}
