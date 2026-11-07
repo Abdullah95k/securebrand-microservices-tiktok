@@ -85,7 +85,7 @@ func newHarness(t *testing.T, o tttest.Options) *harness {
 	// and then while other suites create topics on the same broker.
 	var specs []kafka.TopicSpec
 	for _, name := range append([]string{topics.Account, topics.Post, topics.PostMetrics, topics.Comment, topics.Music, topics.Media,
-		topics.Follow, topics.TaskMedia, topics.DLQ}, topics.RetryTopics...) {
+		topics.Follow, topics.Subtitle, topics.TaskMedia, topics.DLQ}, topics.RetryTopics...) {
 		specs = append(specs, kafka.TopicSpec{Name: name, Partitions: 1})
 	}
 	for _, k := range []tkstaskv1.Kind{tkstaskv1.Kind_KIND_ACCOUNT, tkstaskv1.Kind_KIND_POST, tkstaskv1.Kind_KIND_THREAD} {
@@ -123,7 +123,8 @@ func newHarness(t *testing.T, o tttest.Options) *harness {
 	h.w = &Worker{D: d, LeaseTTL: time.Minute, MaxAttempts: 6,
 		Stages: map[tkstaskv1.Kind]Stage{tkstaskv1.Kind_KIND_ACCOUNT: &AccountStage{D: d, SoftPause: 10 * time.Millisecond},
 			tkstaskv1.Kind_KIND_POST: &PostStage{D: d}, tkstaskv1.Kind_KIND_THREAD: &ThreadStage{D: d},
-			tkstaskv1.Kind_KIND_FOLLOWS: &FollowsStage{D: d, SoftPause: 10 * time.Millisecond}}}
+			tkstaskv1.Kind_KIND_FOLLOWS:  &FollowsStage{D: d, SoftPause: 10 * time.Millisecond},
+			tkstaskv1.Kind_KIND_DISCOVER: &DiscoverStage{D: d, SoftPause: 10 * time.Millisecond}}}
 	return h
 }
 
@@ -240,6 +241,8 @@ func hasJob(m proto.Message, job string) bool {
 	case *ttv1.Comment:
 		obs = v.Obs
 	case *ttv1.Follow:
+		obs = v.Obs
+	case *ttv1.PostSubtitles:
 		obs = v.Obs
 	case *tkstaskv1.Task:
 		return v.JobId == job

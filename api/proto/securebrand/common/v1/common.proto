@@ -49,6 +49,11 @@ message Observation {
   bytes content_hash = 7;
   CrawlMode mode = 8;
   Platform platform = 9;
+  // Where TikTok placed the reader: the region TikTok's page reported to the
+  // identity that read it (ISO 3166-1 alpha-2, "IQ"), which can differ from
+  // the proxy provider's stated country. Empty when the identity has none.
+  // The shared contract's provenance.exit_country (M15).
+  string exit_country = 10;
 }
 
 message ImageRef {

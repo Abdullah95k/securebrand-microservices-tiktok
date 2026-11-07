@@ -45,6 +45,11 @@ enum Kind {
   // already stored, then deeper from where the last read stopped, up to
   // the read's page cap (docs/tiktok/discovery-plan.md §9, ADR 0007 §23).
   KIND_FOLLOWS = 205;
+  // Discovery part C: one read of a discovery page's posts, on the
+  // discover scope: a keyword search, a hashtag's or a sound's posts, a
+  // post's related posts or the For You feed, up to the read's page cap
+  // (docs/tiktok/discovery-plan.md §8, ADR 0007 §27).
+  KIND_DISCOVER = 206;
 }
 
 enum VideoPolicy {
@@ -143,6 +148,34 @@ message FollowScope {
   int32 pages_seen = 9;
 }
 
+// DiscoverScope is one read of a discovery part C source (KIND_DISCOVER).
+// The task's cursor holds TikTok's cursor (an offset) for the next page.
+message DiscoverScope {
+  // search, hashtag, sound, feed or related.
+  string source = 1;
+  // What is read (tt.discovery_targets.key): the keyword's id (search),
+  // the hashtag's name, the sound's id, the post's id (related), "feed".
+  string key = 2;
+  // The keyword (search) or the hashtag's name.
+  string name = 3;
+  // The pages this read may fetch, and those its earlier segments fetched.
+  int32 max_pages = 4;
+  int32 pages_seen = 5;
+  // The proxy tier the read runs on (search: tt.discovery.search.tier; the
+  // feed: tt.discovery.feed.tier); empty takes the list class's routing.
+  string tier = 6;
+  // A monitored account whose profile page bootstraps the identity (the
+  // page TikTok's script signs on, as C6 signed these calls).
+  string boot_username = 7;
+  // TikTok's search id, sent with a search's later pages.
+  string search_id = 8;
+  // The post whose related posts are read: its author.
+  int64 post_user_id = 9;
+  // The hashtag's or sound's id (the hashtag's resolved by its detail call
+  // when the leader does not know it yet), or the related posts' post.
+  int64 item_id = 10;
+}
+
 message MediaScope {
   securebrand.tt.v1.Media media = 1;
   // The tt_chain_token cookie of the identity that read the link, for a
@@ -183,6 +216,7 @@ message Task {
     ThreadScope thread = 42;
     MediaScope media = 43;
     FollowScope follows = 44;
+    DiscoverScope discover = 45;
   }
   SessionSnapshot affinity = 14;
   uint32 attempt = 15;

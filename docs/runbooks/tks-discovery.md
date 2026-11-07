@@ -1,6 +1,6 @@
 # tks discovery: the entry check, the dormant list and the Iraq score
 
-How tks decides whether an account a discovery source found is added to monitoring ([`discovery-plan.md`](../tiktok/discovery-plan.md) §3 and §4; [ADR 0007 §19](../tiktok/adr/0007-tks-data-model-and-contracts.md#19-settled-in-m10c-the-entry-check-the-dormant-list-and-the-iraq-score)). The sources: **part B** (M11, built: mentions, replies, commenters; [below](#part-b-from-what-tks-already-collects)), **part D** (M13, built: following and followers lists; [below](#part-d-following-and-followers-lists)) and M12 (search, hashtags, sounds, the For You feed, related posts).
+How tks decides whether an account a discovery source found is added to monitoring ([`discovery-plan.md`](../tiktok/discovery-plan.md) §3 and §4; [ADR 0007 §19](../tiktok/adr/0007-tks-data-model-and-contracts.md#19-settled-in-m10c-the-entry-check-the-dormant-list-and-the-iraq-score)). The sources: **part B** (M11, built: mentions, replies, commenters; [below](#part-b-from-what-tks-already-collects)), **part C** (M12, built: keyword search, hashtags, sounds, related posts and the For You feed; [below](#part-c-tiktoks-discovery-pages)) and **part D** (M13, built: following and followers lists; [below](#part-d-following-and-followers-lists)).
 
 ## What happens to a found account
 
@@ -43,6 +43,39 @@ How tks decides whether an account a discovery source found is added to monitori
 **Scoring.** Mentions and replies count as "mentioned or replied to by monitored accounts" (medium; strong from 10 different monitored accounts); commenting counts as weak. A mention inside someone else's comment on a monitored post counts as a mention by that post's account: it is evidence of the Iraqi audience around it.
 
 **Known gaps.** A mention in a comment carries only ids; tks fills the username from what it stored for the person, if anything, and otherwise the entry check needs an identity that has loaded a page already (a fresh one fails once and the check is tried again). A discovered account's first 15 posts are stored by its entry check, before it is monitored, so their captions bring no one in; its later posts and all its comments do.
+
+## Part C: TikTok's discovery pages
+
+[`discovery-plan.md`](../tiktok/discovery-plan.md) §8; [ADR 0007 §27](../tiktok/adr/0007-tks-data-model-and-contracts.md#27-settled-in-m12-discovery-part-c). tks reads the posts on TikTok's discovery pages and checks their authors. C6 run 2 ([findings](../tiktok/c6-findings-2026-11-06.md)) showed every one of these calls served to a logged-out visitor **only signed** (by TikTok's own script, through the signer, on a profile page: every signed call answered). Six new calls on the account crawlers, all signed: `search_general`, `challenge_detail`, `challenge_list`, `music_list`, `related_list`, `recommend_list`.
+
+| Source | What is read | Targets | How often | Notes |
+|---|---|---|---|---|
+| `hashtag` | a hashtag's posts (about 30 a page) | the hashtags at least `min_accounts` (3) monitored accounts used in the last `window` (30 days), the `top` (200) most used, minus `skip` (fyp and its kind); with `keywords`, also every one-word term of the Iraq list | `every` (6 h), up to `max_pages` (5) | **Build first** (C6 run 2: Arabic and Sorani posts, 422 new authors from 8 hashtags, from US exits). The hashtag's id comes from the monitored posts that use it, else from its detail call |
+| `sound` | a sound's posts (about 20 a page) | the sounds at least 3 monitored accounts used in the last 30 days, the 100 most used | weekly, up to 3 pages | From US exits the sounds C6 read were not Iraqi |
+| `related` | a post's related posts (one page) | each post monitored accounts made in the last `window` (72 h), the most played first, up to `per_tick` (50) new ones a tick | once | Drifts away from Iraq from US exits |
+| `search` | a keyword's search results (12 a page) | every enabled keyword of the list (`tksctl discovery keywords`) | `every` (6 h), up to 5 pages | **Off until `tt.discovery.search.tier` names a tier TikTok places in or near Iraq**: from US exits TikTok answers 2483, "Please login" (T37). Turning a keyword off stops its search |
+| `feed` | the For You feed (4 to 8 new posts a read) | one | `every` (3 h), `reads` (6) reads | American from US exits (C6 run 2): switch it on only with `tt.discovery.feed.tier` set to an Iraq-placed tier |
+
+**How a read goes.** The leader keeps one row per target in `tt.discovery_targets` (source, key, state, next read, what each read did) and sends due ones to be read, never-read first, at most `pages.batch` (50) a tick and `pages.max_running` (20) at once, in the backfill lane (the budget pauses them with the backfills; monitoring never waits). `pages.day_pages` caps all part C pages in a UTC day (0: none). Each read bootstraps its identity on a monitored account's profile page (the page C6 signed these calls on; a related read on the post's own author), so nothing runs before tks monitors an account. A read stops at the end of the list (`end`), its page cap (`cap`), a page with no post (`empty`), a cursor that does not move (`stuck`), a hashtag or sound TikTok does not know (`gone`), or a status code twice (`refused`, with the code: search's 2483). A read that fails is tried again after `pages.retry_after` (6 h).
+
+**What is kept.** Every post found is stored like a monitored account's (with its counts, music and media metadata; no comments, no subtitle files, no media downloads), with `discovered_via` `search`, `hashtag`, `sound`, `feed` or `related` (a post keeps the way it was first found), and its author as an account. The persister records each author in `tt.discovery_sightings`, **once per source, target and post**, with the region TikTok served the page in; the leader counts them as for part B. The `via` of a find is the keyword's id (so the review page's keyword hits count it), the hashtag's name, the sound's id, the post's id, or the feed's day.
+
+**Scoring.** A find served with region `IQ` (an exit TikTok places in Iraq) counts as "shown to viewers in Iraq" (medium; strong from 10 different keywords, hashtags, sounds, posts or feed days). From US exits finds carry `US` and add no signal: their authors qualify on what their entry check reads (bio, phone, link, captions) and the audience signals.
+
+**Turning it on.** In `tt.discovery.sources`: `hashtag: true` first; then `sound` and `related`. `search` and `feed` only with an Iraq-placed tier (the owner's proxy decision, [`discovery-plan.md` §8.3](../tiktok/discovery-plan.md#83-exit-country)):
+
+```yaml
+tt:
+  discovery:
+    search:
+      tier: iraq        # a tier of tt.proxy.tiers whose exits TikTok places in or near Iraq
+    feed:
+      tier: iraq
+```
+
+**Watching it.** `tks_discover_pages_total{source,result}`, `tks_discover_reads_total{source,stop}`, `tks_discover_posts_total{source}`, `tks_discover_targets{source,state}`, `tks_discover_targets_due{source}`, `tks_discovery_sightings_total{source}`. Targets: `SELECT source, state, last_stop, count(*) FROM tt.discovery_targets WHERE enabled GROUP BY 1, 2, 3;`. Many `refused` searches mean the tier is placed outside Iraq (T37); many `error` pages, a call that changed (T25): switch that source off while it is fixed, the others carry on.
+
+**Known gaps.** The account cards a search shows (type 4) and account search are not read (empty from US exits, T37). The canary does not check part C's calls; a drift shows as `tks_discover_pages_total{result="error"}`. Whether a hashtag's or sound's list is served newest first or ranked is T43: re-reads may mostly see the same posts.
 
 ## Part D: following and followers lists
 
@@ -115,7 +148,8 @@ All in `tt.discovery` (off by default):
 tt:
   discovery:
     enabled: true
-    sources: {mention: true, reply: true, commenter: true, following: true, follower: true}   # parts B (M11) and D (M13); M12 adds its own
+    sources: {mention: true, reply: true, commenter: true, hashtag: true, sound: true, related: true, following: true, follower: true}   # parts B (M11), C (M12) and D (M13); search and feed need a tier
+    search: {tier: ""}         # part C's search: a tier TikTok places in or near Iraq (T37); empty = off
     max_new_per_day: 0         # a cap for testing; 0 = no cap
     count_batch: 5000          # part B's sightings the leader counts at a time
 ```

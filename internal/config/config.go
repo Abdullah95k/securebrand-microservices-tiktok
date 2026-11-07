@@ -233,6 +233,37 @@ type FB struct {
 // data is kept (docs/tiktok ADR 0006 §6, ADR 0007 §4). Defaults are in
 // configs/tt/default.yaml; values marked there as after Phase 0 are
 // provisional.
+// Content is tt.content: the shared contract's events (securebrand.content.v1,
+// Abdullah95k/securebrand-contracts), published by the persister for each
+// changed row alongside tt.*. Off until the platform has made the content.*
+// topics: a missing topic would hold the persister back.
+type Content struct {
+	Enabled bool `koanf:"enabled"`
+	// Production applies the contract's production checks to every event
+	// before it leaves (reserved platforms, test-only values).
+	Production bool `koanf:"production"`
+	// Media is the contract's media hand-off (M15b): content.media.ready.v1
+	// beside tt.media.ready.v1.
+	Media ContentMedia `koanf:"media"`
+}
+
+// ContentMedia is tt.content.media: what every content.media.ready.v1
+// event says about its file's life. tks deletes nothing (D5): another
+// service deletes the file when every required consumer has acknowledged
+// it, or at delete_after, whichever is first.
+type ContentMedia struct {
+	// DeleteAfter is the file's deadline after it is stored: 72 hours by
+	// default, at least 24 (the contract's minimum).
+	DeleteAfter time.Duration `koanf:"delete_after"`
+	// RequiredConsumers must acknowledge a file before it may be deleted:
+	// names from the contract's registry (registry/platforms.yaml).
+	RequiredConsumers []string `koanf:"required_consumers"`
+}
+
+// MinMediaLifetime is the contract's shortest delete_after after a file
+// is stored.
+const MinMediaLifetime = 24 * time.Hour
+
 type TT struct {
 	BaseURL string `koanf:"base_url"`
 	// OperationSeed is the registry seed's path in configs (configs.FS).
@@ -259,10 +290,13 @@ type TT struct {
 	CaptureRaw       string `koanf:"capture_raw"`
 	// CaptureRawSample is the share of good answers kept for good with
 	// capture_raw all or sample (0.01: the 1 % sample).
-	CaptureRawSample float64        `koanf:"capture_raw_sample"`
-	Proxy            Proxy          `koanf:"proxy"`
-	QueryBreaker     breaker.Config `koanf:"query_breaker"`
-	AIMD             AIMD           `koanf:"aimd"`
+	CaptureRawSample float64 `koanf:"capture_raw_sample"`
+	// Content publishes the shared contract's content.* events from the
+	// persister (M15; docs/tiktok/contract-mapping.md).
+	Content      Content        `koanf:"content"`
+	Proxy        Proxy          `koanf:"proxy"`
+	QueryBreaker breaker.Config `koanf:"query_breaker"`
+	AIMD         AIMD           `koanf:"aimd"`
 	// Browser is the bootstrap fallback for shell pages; the signer has
 	// its own pages.
 	Browser   Browser    `koanf:"browser"`
@@ -273,6 +307,8 @@ type TT struct {
 	Comments  TTComments `koanf:"comments"`
 	Posts     TTPosts    `koanf:"posts"`
 	Media     TTMedia    `koanf:"media"`
+	// Subtitles fetches videos' subtitle texts (M17).
+	Subtitles TTSubtitles `koanf:"subtitles"`
 	// Retention is tks's own (privacy.retention was the removed Facebook
 	// pipeline's): every value 0 by default, so tks keeps everything it
 	// collects (owner, 2026-11-01; docs/tiktok ADR 0007 §14). A positive
@@ -363,6 +399,80 @@ type Discovery struct {
 	// accounts (docs/tiktok/discovery-plan.md §9; sources following and
 	// follower).
 	Follows FollowLists `koanf:"follows"`
+	// Part C, TikTok's discovery pages (docs/tiktok/discovery-plan.md §8;
+	// sources search, hashtag, sound, related and feed): Pages paces every
+	// page read, the others say what each source reads and how often.
+	Pages    DiscoveryPages `koanf:"pages"`
+	Search   SearchPages    `koanf:"search"`
+	Hashtags UsedPages      `koanf:"hashtags"`
+	Sounds   UsedPages      `koanf:"sounds"`
+	Related  RelatedPages   `koanf:"related"`
+	Feed     FeedPages      `koanf:"feed"`
+}
+
+// DiscoveryPages paces discovery part C's reads (docs/tiktok/
+// discovery-plan.md §8): every read is one target (a keyword, a hashtag, a
+// sound, a post's related posts, the feed) read up to its source's
+// max_pages, in the backfill lane, which the budget pauses.
+type DiscoveryPages struct {
+	// Batch is how many targets the leader sends to be read per tick;
+	// MaxRunning caps the reads running fleet-wide.
+	Batch      int `koanf:"batch"`
+	MaxRunning int `koanf:"max_running"`
+	// DayPages caps the pages every part C read together fetches in a UTC
+	// day (0: no cap; the budget still pauses the lane).
+	DayPages int `koanf:"day_pages"`
+	// RetryAfter: a claimed target whose read did not record is due again
+	// after this.
+	RetryAfter time.Duration `koanf:"retry_after"`
+	// Refresh is how often the leader picks the hashtags, sounds and posts
+	// monitored accounts use as targets (a query over their recent posts).
+	Refresh time.Duration `koanf:"refresh"`
+}
+
+// SearchPages is keyword search over the Iraq list (discovery-plan §8.2).
+// From US exits TikTok answers a logged-out search with 2483 ("Please
+// login"); from Iraq it served 9 pages (T37). So search runs only through a
+// tier TikTok places in or near Iraq: Tier empty is off, whatever the
+// source switch says.
+type SearchPages struct {
+	Tier     string        `koanf:"tier"`
+	Every    time.Duration `koanf:"every"`
+	MaxPages int           `koanf:"max_pages"`
+}
+
+// UsedPages are hashtags' or sounds' posts (discovery-plan §8.2): those
+// that at least MinAccounts monitored accounts used in posts of the last
+// Window, the Top most used, plus, for hashtags with Keywords, the Iraq
+// list's one-word terms as hashtags. Each is read every Every, up to
+// MaxPages pages, newest first as TikTok serves them. Skip lists hashtags
+// never read (fyp and its kind: worldwide, not Iraqi).
+type UsedPages struct {
+	Every       time.Duration `koanf:"every"`
+	MaxPages    int           `koanf:"max_pages"`
+	Top         int           `koanf:"top"`
+	MinAccounts int           `koanf:"min_accounts"`
+	Window      time.Duration `koanf:"window"`
+	Keywords    bool          `koanf:"keywords"`
+	Skip        []string      `koanf:"skip"`
+}
+
+// RelatedPages are monitored posts' related posts (discovery-plan §8.2):
+// each post of a monitored account made within Window is read once, the
+// most played first, up to PerTick new posts a tick.
+type RelatedPages struct {
+	Window  time.Duration `koanf:"window"`
+	PerTick int           `koanf:"per_tick"`
+}
+
+// FeedPages is the For You feed: Reads reads every Every. From US exits it
+// is American (C6 run 2), so it is worth running only through a tier
+// TikTok places in or near Iraq (Tier; empty takes the list class's
+// routing).
+type FeedPages struct {
+	Tier  string        `koanf:"tier"`
+	Every time.Duration `koanf:"every"`
+	Reads int           `koanf:"reads"`
 }
 
 // FollowLists paces discovery part D (docs/tiktok/discovery-plan.md §9):
@@ -471,6 +581,22 @@ type TTMedia struct {
 	// .tiktok.com, which reaches the video hosts (T18). Redirects to other
 	// hosts go without it.
 	CookieDomains []string `koanf:"cookie_domains"`
+}
+
+// TTSubtitles is tt.subtitles: videos' subtitle tracks (video.subtitleInfos:
+// TikTok's speech-to-text and its machine translations), whose WebVTT files
+// the account stage fetches before their links expire and publishes on
+// tt.subtitle.v1 (M17). A track already stored is not fetched again.
+type TTSubtitles struct {
+	// Include fetches the files (on by default); the tracks' languages
+	// are published on the post either way.
+	Include bool `koanf:"include"`
+	// MaxBytes caps one file; a larger one is recorded without its text.
+	MaxBytes int64 `koanf:"max_bytes"`
+	// MaxTracks caps the tracks fetched per post, speech-to-text first.
+	MaxTracks int `koanf:"max_tracks"`
+	// Timeout bounds one file's fetch.
+	Timeout time.Duration `koanf:"timeout"`
 }
 
 // Signer modes.
@@ -1142,6 +1268,28 @@ func (t TT) validate() []error {
 		errs = append(errs, errors.New("tt.discovery.follows: following_every, followers_every, retry_after, max_pages, page_size, "+
 			"known_pages, batch and max_running > 0; day_pages >= 0 (0: no cap)"))
 	}
+	if p := t.Discovery.Pages; p.Batch <= 0 || p.MaxRunning <= 0 || p.DayPages < 0 || p.RetryAfter <= 0 || p.Refresh <= 0 {
+		errs = append(errs, errors.New("tt.discovery.pages: batch, max_running, retry_after and refresh > 0; day_pages >= 0 (0: no cap)"))
+	}
+	if s := t.Discovery.Search; s.Every <= 0 || s.MaxPages <= 0 {
+		errs = append(errs, errors.New("tt.discovery.search: every and max_pages > 0"))
+	}
+	for name, tier := range map[string]string{"search": t.Discovery.Search.Tier, "feed": t.Discovery.Feed.Tier} {
+		if tier != "" && tier != "direct" && !slices.ContainsFunc(t.Proxy.Tiers, func(p ProxyTier) bool { return p.Name == tier }) {
+			errs = append(errs, fmt.Errorf("tt.discovery.%s.tier %q is not one of tt.proxy.tiers", name, tier))
+		}
+	}
+	for name, u := range map[string]UsedPages{"hashtags": t.Discovery.Hashtags, "sounds": t.Discovery.Sounds} {
+		if u.Every <= 0 || u.MaxPages <= 0 || u.Top < 0 || u.MinAccounts <= 0 || u.Window <= 0 {
+			errs = append(errs, fmt.Errorf("tt.discovery.%s: every, max_pages, min_accounts and window > 0; top >= 0", name))
+		}
+	}
+	if r := t.Discovery.Related; r.Window <= 0 || r.PerTick < 0 {
+		errs = append(errs, errors.New("tt.discovery.related: window > 0, per_tick >= 0"))
+	}
+	if f := t.Discovery.Feed; f.Every <= 0 || f.Reads <= 0 {
+		errs = append(errs, errors.New("tt.discovery.feed: every and reads > 0"))
+	}
 	for name := range t.Discovery.Sources {
 		if !slices.Contains(DiscoverySources, name) {
 			errs = append(errs, fmt.Errorf("tt.discovery.sources: unknown source %q (%s)", name, strings.Join(DiscoverySources, ", ")))
@@ -1166,8 +1314,17 @@ func (t TT) validate() []error {
 			errs = append(errs, fmt.Errorf("tt.media.cookie_domains: %q must be a lower-case host name without a leading dot", d))
 		}
 	}
+	if t.Subtitles.Include && (t.Subtitles.MaxBytes < 1 || t.Subtitles.MaxTracks < 1 || t.Subtitles.Timeout <= 0) {
+		errs = append(errs, errors.New("tt.subtitles: max_bytes, max_tracks and timeout must be > 0 when include is on"))
+	}
 	if t.Media.Include && len(t.Media.CookieDomains) == 0 {
 		errs = append(errs, errors.New("tt.media.cookie_domains must name the video hosts' domain when tt.media.include is on"))
+	}
+	if t.Content.Media.DeleteAfter < MinMediaLifetime {
+		errs = append(errs, fmt.Errorf("tt.content.media.delete_after %s must be at least 24h (the contract's minimum)", t.Content.Media.DeleteAfter))
+	}
+	if len(t.Content.Media.RequiredConsumers) == 0 || slices.Contains(t.Content.Media.RequiredConsumers, "") {
+		errs = append(errs, errors.New("tt.content.media.required_consumers must name at least one consumer (sb-analysis)"))
 	}
 	r := t.Retention
 	if r.CommentsDays < 0 || r.MetricsDays < 0 || r.AuthorsInactiveDays < 0 || r.JobsDays < 0 || r.MediaRowsDays < 0 || r.RawPayloadDays < 0 {

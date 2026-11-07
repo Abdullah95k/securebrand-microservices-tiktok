@@ -455,6 +455,19 @@ paths:
                 type: object
                 properties:
                   media: {type: array, items: {$ref: '#/components/schemas/Media'}}
+  /posts/{post}/subtitles:
+    parameters: [{$ref: '#/components/parameters/Post'}]
+    get:
+      summary: The video's subtitle tracks (TikTok's speech-to-text and its machine translations) with their WebVTT files
+      responses:
+        "200":
+          description: Subtitles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subtitles: {type: array, items: {$ref: '#/components/schemas/Subtitle'}}
   /music/{music}:
     parameters:
       - {in: path, name: music, required: true, schema: {$ref: '#/components/schemas/ID'}}
@@ -814,6 +827,20 @@ components:
         share_count: {type: integer, format: int64}
         save_count: {type: integer, format: int64}
         repost_count: {type: integer, format: int64}
+    Subtitle:
+      type: object
+      description: One subtitle track; body is the WebVTT file (empty when skipped, e.g. too_large)
+      properties:
+        language: {type: string, description: "TikTok's language code, e.g. ara-SA"}
+        source: {type: string, enum: [asr, mt, unspecified]}
+        source_name: {type: string, description: "TikTok's Source as served (ASR, MT)"}
+        version: {type: string}
+        format: {type: string}
+        size_bytes: {type: integer}
+        body: {type: string}
+        skipped: {type: string}
+        first_seen_at: {type: string, format: date-time}
+        last_seen_at: {type: string, format: date-time}
     Post:
       type: object
       properties:
@@ -823,6 +850,7 @@ components:
         kind: {type: string, enum: [video, photo]}
         url: {type: string, description: "pii:read (it names the username)"}
         caption: {type: string}
+        title: {type: string, description: "A photo post's own title"}
         text_ranges:
           type: array
           description: Hashtags and mentions in UTF-16 units; a mention's name and person need pii:read (author_key stays)

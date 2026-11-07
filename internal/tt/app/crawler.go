@@ -209,6 +209,8 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 			tkstaskv1.Kind_KIND_ENTRY: &stage.EntryStage{A: &stage.AccountStage{D: deps}},
 			// So do discovery part D's list reads (unsigned).
 			tkstaskv1.Kind_KIND_FOLLOWS: &stage.FollowsStage{D: deps},
+			// And part C's discovery page reads (signed).
+			tkstaskv1.Kind_KIND_DISCOVER: &stage.DiscoverStage{D: deps},
 		}}
 	c.Deps, c.Worker = deps, worker
 	c.Components = []run.Func{
