@@ -64,10 +64,12 @@ config:
     # tks/keep/ (all would also keep every other answer under tks/30d/).
     capture_raw: sample
     capture_raw_sample: 0.01
-    # The shared contract's content.* events (M15a): on once the platform
-    # has made the content.* topics (hand-over §6); production's checks.
+    # The shared contract's content.* events (M15a): on since 2026-11-07,
+    # once the platform had made the twelve shared topics and tks-kafka's
+    # ACLs (hand-over §6); production's checks. What was stored before
+    # goes out with `tksctl content export`.
     content:
-      enabled: false
+      enabled: true
       production: true
     # Videos' subtitle texts (M17) go on tt.subtitle.v1, which the platform
     # makes (hand-over §6): on once it exists. A crawler producing to a

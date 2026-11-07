@@ -9,6 +9,7 @@
 //	tksctl accounts import               register a list of accounts for a client, with a report (M10a)
 //	tksctl discovery keywords seed|import|list   discovery keywords (seed: the Iraq list; M10a)
 //	tksctl dlq replay                    send dead letters back: tasks to run again, set-aside records as they were (M9c)
+//	tksctl content export [--since T]    send the content.* events of the tt.*.v1 records Kafka still holds (M15a)
 //	tksctl backup run|list|restore       dump schema tt to the backup bucket / list the dumps / restore one into a new database (M16)
 package main
 
@@ -42,6 +43,7 @@ commands:
   dlq replay [--topic tks.task.dlq|tks.persist.dlq] [--reason R] [--max N] [--idle D]
   report [--from "YYYY-MM-DD HH:MM"] [--to ...] [--hours 24] [--prometheus URL] [--check] [--json]   (Iraq time)
   stop --reason R | start
+  content export [--since 2026-11-07T00:00:00Z|24h] [--batch N] [--idle D]
   backup run | backup list | backup restore --target-database DB [--key KEY|latest]   [--bucket B] [--prefix P]`)
 	os.Exit(2)
 }
@@ -75,7 +77,7 @@ func main() {
 		waitDB = *w
 		limit += waitDB
 	}
-	if cmd == "backup" {
+	if cmd == "backup" || cmd == "content" {
 		// A dump grows with the data (nothing is deleted, D8): the backup
 		// job's activeDeadlineSeconds bounds it instead.
 		limit = 24 * time.Hour
@@ -117,6 +119,8 @@ func main() {
 		out, err = runStop(ctx, cfg, rest)
 	case "start ":
 		out, err = runStart(ctx, cfg)
+	case "content export":
+		out, err = contentExport(ctx, cfg, rest)
 	case "backup run", "backup list", "backup restore":
 		out, err = runBackup(ctx, cfg, sub, rest)
 	default:
