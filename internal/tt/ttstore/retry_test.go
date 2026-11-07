@@ -26,6 +26,7 @@ func TestRetryable(t *testing.T) {
 		{&pgconn.PgError{Code: "57P03", Message: "the database system is starting up"}, true},
 		{fmt.Errorf("ttstore: ping: %w", &pgconn.PgError{Code: "08P01", Message: "server login has been failing, try again later (server_login_retry)"}), true},
 		{errors.New("FATAL: no more connections allowed (max_client_conn)"), true},
+		{&pgconn.PgError{Code: "08P01", Message: "query_wait_timeout"}, true},
 		{&pgconn.PgError{Code: "28P01", Message: "password authentication failed"}, false},
 		{&pgconn.PgError{Code: "3D000", Message: "database does not exist"}, false},
 	} {
@@ -103,5 +104,41 @@ func TestOpenRetriesASilentServer(t *testing.T) {
 	}
 	if n := len(accepted); n < 2 {
 		t.Errorf("%d attempts, want the silent one retried", n)
+	}
+}
+
+// OpenWaiting keeps retrying past StartRetryFor, for as long as it is told.
+func TestOpenWaitingOutlastsStartRetry(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	accepted := make(chan net.Conn, 64)
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			accepted <- c
+		}
+	}()
+	defer func() {
+		for len(accepted) > 0 {
+			(<-accepted).Close()
+		}
+	}()
+	defer func(a, r time.Duration) { ttstore.AttemptTimeout, ttstore.StartRetryFor = a, r }(ttstore.AttemptTimeout, ttstore.StartRetryFor)
+	ttstore.AttemptTimeout, ttstore.StartRetryFor = 200*time.Millisecond, 100*time.Millisecond
+	start := time.Now()
+	if _, err := ttstore.OpenWaiting(context.Background(), "postgres://u:p@"+ln.Addr().String()+"/db?sslmode=disable", 1, 3500*time.Millisecond); err == nil {
+		t.Fatal("opened a server that never answers")
+	}
+	if d := time.Since(start); d < 2*time.Second {
+		t.Errorf("gave up after %s, want it to keep waiting past StartRetryFor", d)
+	}
+	if n := len(accepted); n < 3 {
+		t.Errorf("%d attempts, want it to keep retrying", n)
 	}
 }

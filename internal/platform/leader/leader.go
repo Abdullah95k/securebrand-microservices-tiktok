@@ -46,20 +46,28 @@ func Name(key int64) string { return "leader:" + strconv.FormatInt(key, 10) }
 
 // Run blocks until this process holds the lease of key, then calls fn with
 // a context that is cancelled when a renewal fails. It retries until ctx is
-// done.
+// done: every TTL while another process holds the lease.
 func Run(ctx context.Context, pool *pgxpool.Pool, key int64, fn func(ctx context.Context) error) error {
 	name := Name(key)
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if _, err := Hold(ctx, pool, name, fn); err != nil && ctx.Err() == nil {
+		ran, err := Hold(ctx, pool, name, fn)
+		if err != nil && ctx.Err() == nil {
 			slog.Warn("leader: lost or failed", "lease", name, "err", err)
+		}
+		// A standby tries again once a lease could have expired (TTL), not
+		// every Renew: its connection then idles long enough for PgBouncer
+		// to close it. A takeover waits at most TTL longer.
+		wait := TTL
+		if ran {
+			wait = Renew
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(Renew):
+		case <-time.After(wait):
 		}
 	}
 }

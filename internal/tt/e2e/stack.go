@@ -168,6 +168,11 @@ func Start(t *testing.T, o Options) *Stack {
 	cfg.TT.AccountRPS, cfg.TT.AccountRPSP0, cfg.TT.GlobalRPS = 2000, 2000, 5000
 	cfg.TT.RequestTimeout = 10 * time.Second
 	cfg.TT.AIMD.Enabled = false
+	// No jitter on the next check: the tests advance the world by exactly
+	// an interval and expect the account due. With 10% jitter a check
+	// could land up to 18 minutes later, after the tick (TestDiscoveryPartB
+	// failed so, now and then).
+	cfg.Scheduler.Jitter = 0
 	cfg.TT.CaptureRaw = "none"
 	// The shared contract's events, checked as production checks them; the
 	// content.* topics are made below, as the platform makes them.

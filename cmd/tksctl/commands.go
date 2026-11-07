@@ -35,9 +35,10 @@ type migrateResult struct {
 
 // migrate runs schema tt's migrations on postgres.dsn (database tks), then,
 // on up, seeds the operation registry from tt.operation_seed and creates
-// the partitions the backfill window and the months ahead need.
-func migrate(ctx context.Context, cfg *config.Config, sub string) (*migrateResult, error) {
-	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, 4)
+// the partitions the backfill window and the months ahead need. A database
+// with no free connection is retried for up to waitDB.
+func migrate(ctx context.Context, cfg *config.Config, sub string, waitDB time.Duration) (*migrateResult, error) {
+	db, err := ttstore.OpenConfigWaiting(ctx, cfg.Postgres, 4, waitDB)
 	if err != nil {
 		return nil, err
 	}

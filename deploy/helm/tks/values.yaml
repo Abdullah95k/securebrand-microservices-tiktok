@@ -189,6 +189,10 @@ keda:
 # `tksctl schemas apply` before installs and upgrades.
 hooks:
   migrate: true
+  # How long the migrate hook keeps retrying a database with no free
+  # connection (PgBouncer or PostgreSQL full) before it fails: a full
+  # server delays a rollout instead of failing it.
+  migrateWaitDB: 1h
   topics: true
   topicReplicas: 3
   # Caps every topic's partition count (0: configs/tt/topics.yaml's counts,
