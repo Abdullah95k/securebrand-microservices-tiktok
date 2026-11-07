@@ -157,6 +157,8 @@ func TestChartProductionConfigLoads(t *testing.T) {
   proxy:
     tiers:
       - {name: isp, kind: static_list, country: US, endpoints: ["http://user:pass@192.0.2.1:8080"]}
+      - {name: res_iq, kind: gateway, country: IQ, gateway: "http://gate.example:7000", username: u, password: p,
+         username_template: "user-{user}-country-iq-session-{session}-sessionduration-{ttl_min}", sticky_ttl: 60m}
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
