@@ -57,11 +57,19 @@ var Tables = store.Tables{
 // PostgreSQL has 50 connections for all of them; the master, 2026-11-07),
 // it backs off and tries again for up to StartRetryFor instead of failing.
 func Open(ctx context.Context, dsn string, maxConns int32) (*pgxpool.Pool, error) {
+	return OpenWaiting(ctx, dsn, maxConns, StartRetryFor)
+}
+
+// OpenWaiting is Open retrying for up to waitFor instead of StartRetryFor:
+// tksctl's migrate hook waits as long as a rollout may (an hour), so a
+// full server delays a rollout instead of failing its hook.
+func OpenWaiting(ctx context.Context, dsn string, maxConns int32, waitFor time.Duration) (*pgxpool.Pool, error) {
 	cfg, err := PoolConfig(dsn, maxConns)
 	if err != nil {
 		return nil, err
 	}
-	deadline := time.Now().Add(StartRetryFor)
+	start := time.Now()
+	deadline := start.Add(waitFor)
 	wait := time.Second
 	for attempt := 1; ; attempt++ {
 		slog.Info("ttstore: connecting to the database", "attempt", attempt)
@@ -77,7 +85,8 @@ func Open(ctx context.Context, dsn string, maxConns int32) (*pgxpool.Pool, error
 			}
 			return pool, err
 		}
-		slog.Info("ttstore: database busy; retrying", "in", wait.String(), "attempt", attempt, "err", err)
+		slog.Info("ttstore: database busy; still waiting", "retry_in", wait.String(), "waited", time.Since(start).Round(time.Second).String(),
+			"gives_up_in", time.Until(deadline).Round(time.Second).String(), "attempt", attempt, "err", err)
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -110,7 +119,8 @@ func connect(ctx context.Context, cfg *pgxpool.Config) (*pgxpool.Pool, error) {
 // go of their connections: PostgreSQL out of slots (53300
 // too_many_connections, 57P03 cannot_connect_now, 53000
 // insufficient_resources) and PgBouncer failing to log in to it or out of
-// client slots, which it reports with protocol errors (08P01).
+// client slots or holding us in its queue past query_wait_timeout, which
+// it reports with protocol errors (08P01).
 func Retryable(err error) bool {
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) {
@@ -121,7 +131,7 @@ func Retryable(err error) bool {
 	}
 	msg := err.Error()
 	for _, s := range []string{"server login has been failing", "no more connections allowed", "remaining connection slots are reserved",
-		"too many connections", "the database system is starting up"} {
+		"too many connections", "the database system is starting up", "query_wait_timeout"} {
 		if strings.Contains(msg, s) {
 			return true
 		}
@@ -281,9 +291,15 @@ var Registry = registry.Tables{Queries: "operations", Params: "client_params"}
 // OpenConfig opens the component's pool from its configuration: the DSN,
 // or the server's parts with the component's own role (config.Postgres).
 func OpenConfig(ctx context.Context, p config.Postgres, maxConns int32) (*pgxpool.Pool, error) {
+	return OpenConfigWaiting(ctx, p, maxConns, StartRetryFor)
+}
+
+// OpenConfigWaiting is OpenConfig that keeps retrying a database with no
+// connection for it for up to waitFor (OpenWaiting).
+func OpenConfigWaiting(ctx context.Context, p config.Postgres, maxConns int32, waitFor time.Duration) (*pgxpool.Pool, error) {
 	u, err := p.URL()
 	if err != nil {
 		return nil, err
 	}
-	return Open(ctx, u, maxConns)
+	return OpenWaiting(ctx, u, maxConns, waitFor)
 }

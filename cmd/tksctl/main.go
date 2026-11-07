@@ -1,7 +1,7 @@
 // Command tksctl is the tks operations CLI. It grows with the service; M3
 // gives it the contracts' lifecycle:
 //
-//	tksctl migrate up|down|status        migrate schema tt, seed the operation registry, create partitions
+//	tksctl migrate up|down|status [--wait-db 1h]        migrate schema tt, seed the operation registry, create partitions
 //	tksctl kafka apply                   create/grow tks's topics from configs/tt/topics.yaml
 //	tksctl schemas apply|check           register the tt.v1 and common.v1 schemas (BACKWARD_TRANSITIVE) / dry run
 //	tksctl fixtures add|scrub            scrub a real answer into a golden fixture (M4) / scrub old fixtures again
@@ -23,12 +23,13 @@ import (
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
 	plog "github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/log"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/ttstore"
 )
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage: tksctl [--config file] <command> [args]
 commands:
-  migrate up|down|status
+  migrate up|down|status [--wait-db 1h]
   kafka apply [--partitions-cap N] [--replicas N]
   schemas apply | schemas check
   fixtures add --from <har|answer> --name <case> [--kind K] [--entry N] [--items N]
@@ -60,6 +61,20 @@ func main() {
 	plog.Setup("tksctl", cfg.Log.Level, "text")
 	cmd, rest := args[0], args[1:]
 	limit := 30 * time.Minute
+	waitDB := ttstore.StartRetryFor
+	if cmd == "migrate" {
+		// --wait-db: how long to keep retrying a database with no free
+		// connection before failing (the migrate hook passes 1h).
+		fs := flag.NewFlagSet("migrate", flag.ExitOnError)
+		w := fs.Duration("wait-db", waitDB, "keep retrying a full database this long")
+		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+			_ = fs.Parse(rest[1:])
+		} else {
+			_ = fs.Parse(rest)
+		}
+		waitDB = *w
+		limit += waitDB
+	}
 	if cmd == "backup" {
 		// A dump grows with the data (nothing is deleted, D8): the backup
 		// job's activeDeadlineSeconds bounds it instead.
@@ -74,7 +89,7 @@ func main() {
 	var out any
 	switch cmd + " " + sub {
 	case "migrate up", "migrate down", "migrate status":
-		out, err = migrate(ctx, cfg, sub)
+		out, err = migrate(ctx, cfg, sub, waitDB)
 	case "kafka apply":
 		out, err = kafkaApply(ctx, cfg, rest)
 	case "schemas apply", "schemas check":

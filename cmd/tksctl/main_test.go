@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -27,24 +28,24 @@ func TestMigrate(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Postgres.DSN = testenv.EmptyPostgres(t)
 	ctx := context.Background()
-	res, err := migrate(ctx, cfg, "up")
+	res, err := migrate(ctx, cfg, "up", time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.Schema != "tt" || res.Operations == 0 || res.Partitions == 0 || len(res.Status) == 0 {
 		t.Fatalf("%+v", res)
 	}
-	again, err := migrate(ctx, cfg, "up")
+	again, err := migrate(ctx, cfg, "up", time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if again.Partitions != 0 || again.Operations != res.Operations {
 		t.Fatalf("not idempotent: %+v", again)
 	}
-	if _, err := migrate(ctx, cfg, "down"); err != nil {
+	if _, err := migrate(ctx, cfg, "down", time.Minute); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := migrate(ctx, cfg, "up"); err != nil {
+	if _, err := migrate(ctx, cfg, "up", time.Minute); err != nil {
 		t.Fatal(err)
 	}
 }
