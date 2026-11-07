@@ -185,15 +185,22 @@ func TestChartProductionConfigLoads(t *testing.T) {
 	if c.Service.Env != "prod" || c.TT.Proxy.Tiers[0].Country != "US" {
 		t.Errorf("env %q, tiers %+v", c.Service.Env, c.TT.Proxy.Tiers)
 	}
-	// The owner's canary accounts are in the values (2026-11-06): tks-canary
-	// refuses to start without, and tt.canary.confirm needs 2 of them to
-	// refuse a variant, so 3 leave one to spare.
-	if n := len(c.TT.Canary.Accounts); n < 3 || n < c.TT.Canary.Confirm+1 {
-		t.Errorf("tt.canary.accounts: %d accounts, want 3 or more", n)
+	// No real usernames in this public repository: the owner's canary
+	// accounts are Argo CD parameters (config.tt.canary.accounts[0..2]).
+	if n := len(c.TT.Canary.Accounts); n != 0 {
+		t.Errorf("tt.canary.accounts: %d usernames in values-production.yaml, want none (they are the platform's parameters)", n)
 	}
-	for _, a := range c.TT.Canary.Accounts {
-		if a == "" || strings.ContainsAny(a, "@/ ") {
-			t.Errorf("tt.canary.accounts: %q is not a bare username", a)
-		}
+	// With the platform's three parameters (synthetic names here): enough for
+	// tt.canary.confirm, which needs 2 of them to refuse a variant.
+	params := filepath.Join(t.TempDir(), "params.yaml")
+	if err := os.WriteFile(params, []byte("config:\n  tt:\n    canary:\n      accounts: [canary_one, canary_two, canary_three]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	withParams, err := Load(chartConfig(t, chart+"/values.yaml", chart+"/values-production.yaml", params) + "," + proxies)
+	if err != nil {
+		t.Fatalf("values-production.yaml with the canary parameters: %v", err)
+	}
+	if n := len(withParams.TT.Canary.Accounts); n < 3 || n < withParams.TT.Canary.Confirm+1 {
+		t.Errorf("tt.canary.accounts with the parameters: %d accounts, want 3 or more", n)
 	}
 }
