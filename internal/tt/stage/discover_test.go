@@ -47,6 +47,11 @@ func readTarget(t *testing.T, h *harness, source, key string) targetState {
 func discover(t *testing.T, h *harness, job string, sc *tkstaskv1.DiscoverScope) jobs.Status {
 	t.Helper()
 	ctx := context.Background()
+	h.d.Cfg.TT.Discovery.Enabled = true
+	if h.d.Cfg.TT.Discovery.Sources == nil {
+		h.d.Cfg.TT.Discovery.Sources = map[string]bool{}
+	}
+	h.d.Cfg.TT.Discovery.Sources[sc.Source] = true
 	origin := map[string]string{DiscoverSearch: "keyword", DiscoverHashtag: "keyword", DiscoverSound: "monitored",
 		DiscoverRelated: "post", DiscoverFeed: "feed"}[sc.Source]
 	if _, err := h.d.DB.Exec(ctx, `INSERT INTO discovery_targets (source, key, name, origin) VALUES ($1, $2, $3, $4)
@@ -206,5 +211,19 @@ func TestDiscoverRelatedFeedSound(t *testing.T) {
 	st = discover(t, h, "sound-1", &tkstaskv1.DiscoverScope{Source: DiscoverSound, Key: "1", ItemId: 1, MaxPages: 3, BootUsername: boot.Username})
 	if st.Counters["discover_stop_empty"] != 1 || st.Counters["posts"] != 0 {
 		t.Fatalf("sound: counters %v", st.Counters)
+	}
+}
+
+// A discover task whose source was switched off after it was planned (a
+// queued task, a retry) is dropped without a request.
+func TestDiscoverSourceOff(t *testing.T) {
+	h := newHarness(t, tttest.Options{})
+	ctx := context.Background()
+	h.d.Cfg.TT.Discovery.Enabled = true
+	h.d.Cfg.TT.Discovery.Sources = map[string]bool{DiscoverHashtag: true}
+	sc := &tkstaskv1.DiscoverScope{Source: DiscoverFeed, Key: "feed", Name: "feed", BootUsername: "someone", MaxPages: 3, Tier: "res_iq"}
+	out := (&DiscoverStage{D: h.d}).Run(ctx, &tkstaskv1.Task{JobId: "j", LineageId: "l", Scope: &tkstaskv1.Task_Discover{Discover: sc}})
+	if out.Result != Done || out.Counters["source_off"] != 1 || out.Counters["requests"] != 0 {
+		t.Fatalf("outcome %+v", out)
 	}
 }
