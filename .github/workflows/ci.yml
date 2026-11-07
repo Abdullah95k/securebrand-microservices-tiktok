@@ -45,7 +45,7 @@ jobs:
       - name: Unit tests (parsers, the fake TikTok, accounting)
         env: {TKS_BROWSER_NO_SANDBOX: "1"} # runners may not allow the Chromium sandbox
         run: go test -race -count=1 ./...
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
 
