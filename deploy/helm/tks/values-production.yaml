@@ -60,6 +60,18 @@ config:
     # Dumps under tks/postgres/ in S3_BUCKET_BACKUPS (the backup job).
     backup_prefix: "tks/"
   tt:
+    # Page loads (an identity's bootstrap: its profile page, HTML) are
+    # paced on each static exit (the ISP tier), and an exit whose page load
+    # is walled (a checkpoint) loads no page for 30 min, doubling up to
+    # 4 h, while its API calls go on. A precaution: the 2026-11-07 STOP's
+    # checkpoints were all on res_iq (a gateway, which this gate does not
+    # cover; see tt.discovery.sources); the ISP page loads stayed ok. The
+    # gate is per pod, so the fleet's rate is this times the crawler pods.
+    proxy:
+      page_loads:
+        interval: 20m
+        backoff: 30m
+        max_backoff: 4h
     # Failures and a 1 % sample of good answers, kept for good under
     # tks/keep/ (all would also keep every other answer under tks/30d/).
     capture_raw: sample
@@ -109,7 +121,13 @@ config:
     discovery:
       enabled: true
       max_new_per_day: 100
-      sources: {mention: true, reply: true, commenter: true, hashtag: true, sound: true, related: true, search: true, feed: true}
+      # Search and feed are off (2026-11-07 STOP): on res_iq, each of their
+      # tasks bootstrapped a new identity with a profile page through the
+      # residential gateway (a new exit each time), TikTok checkpointed
+      # those page loads (809 in 2 h), and each checkpoint retried on yet
+      # another identity. The page-load gate does not cover a gateway. On
+      # again only with a fix that bootstraps far less on res_iq.
+      sources: {mention: true, reply: true, commenter: true, hashtag: true, sound: true, related: true, search: false, feed: false}
       search:
         tier: res_iq
         every: 24h

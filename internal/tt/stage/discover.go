@@ -113,6 +113,13 @@ func (s *DiscoverStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 	if !ok {
 		return Outcome{Result: Fail, Reason: "discover task with unknown source " + sc.Source}
 	}
+	if !d.Cfg.TT.Discovery.SourceOn(sc.Source) {
+		// Switched off since the task was planned (a queued task or a
+		// retry): it is dropped, not run (the 2026-11-07 STOP: search and
+		// feed on res_iq).
+		metrics.DiscoverPages.WithLabelValues(sc.Source, "source_off").Inc()
+		return done(map[string]int64{"source_off": 1})
+	}
 	if sc.Source == DiscoverSearch && sc.Tier == "" {
 		// From US exits TikTok asks a logged-out search to log in (T37).
 		return Outcome{Result: Fail, Reason: "search without tt.discovery.search.tier"}
