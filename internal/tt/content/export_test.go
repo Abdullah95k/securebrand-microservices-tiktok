@@ -103,6 +103,11 @@ func TestExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := p.take()
+	// Batches of 2 records: 5 records are at least 3 emits, never one
+	// emit of everything a fetch returned.
+	if p.calls < 3 {
+		t.Fatalf("%d emits for 5 records in batches of 2", p.calls)
+	}
 	if len(res.Missing) != 1 || res.Missing[0] != "tt.subtitle.v1" {
 		t.Fatalf("missing topics %v", res.Missing)
 	}
