@@ -60,6 +60,18 @@ config:
     # Dumps under tks/postgres/ in S3_BUCKET_BACKUPS (the backup job).
     backup_prefix: "tks/"
   tt:
+    # Page loads (an identity's bootstrap: its profile page, HTML) are
+    # paced on each static exit, and an exit whose page load is walled
+    # (a checkpoint) loads no page for 30 min, doubling up to 4 h, while
+    # its API calls go on. Production's first evening (2026-11-07) had no
+    # pacing: 809 of 922 page loads in 3 h were checkpoints and the report
+    # said STOP. The gate is per pod, so the fleet's rate is this times the
+    # crawler pods.
+    proxy:
+      page_loads:
+        interval: 20m
+        backoff: 30m
+        max_backoff: 4h
     # Failures and a 1 % sample of good answers, kept for good under
     # tks/keep/ (all would also keep every other answer under tks/30d/).
     capture_raw: sample
