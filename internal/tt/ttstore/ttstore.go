@@ -63,12 +63,21 @@ func Open(ctx context.Context, dsn string, maxConns int32) (*pgxpool.Pool, error
 	}
 	deadline := time.Now().Add(StartRetryFor)
 	wait := time.Second
-	for {
-		pool, err := connect(ctx, cfg)
-		if err == nil || !Retryable(err) || time.Now().Add(wait).After(deadline) {
+	for attempt := 1; ; attempt++ {
+		slog.Info("ttstore: connecting to the database", "attempt", attempt)
+		actx, cancel := context.WithTimeout(ctx, AttemptTimeout)
+		pool, err := connect(actx, cfg)
+		cancel()
+		// An attempt that outlived AttemptTimeout (a connection proxy
+		// queueing us while the server is full) is retried like a refusal.
+		retry := err != nil && ctx.Err() == nil && (Retryable(err) || errors.Is(err, context.DeadlineExceeded))
+		if err == nil || !retry || time.Now().Add(wait).After(deadline) {
+			if err == nil {
+				slog.Info("ttstore: database open", "attempt", attempt)
+			}
 			return pool, err
 		}
-		slog.Warn("ttstore: the database has no connection for us yet; retrying", "in", wait, "err", err)
+		slog.Info("ttstore: database busy; retrying", "in", wait.String(), "attempt", attempt, "err", err)
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -77,6 +86,9 @@ func Open(ctx context.Context, dsn string, maxConns int32) (*pgxpool.Pool, error
 		wait = min(2*wait, 15*time.Second)
 	}
 }
+
+// AttemptTimeout bounds each of Open's connection attempts.
+var AttemptTimeout = 20 * time.Second
 
 // StartRetryFor bounds how long Open keeps retrying a server that is out of
 // connection slots.

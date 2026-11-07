@@ -33,6 +33,10 @@ func main() {
 }
 
 func serve(ctx context.Context, cfg *config.Config) error {
+	// /healthz answers while the database is still being retried; /readyz
+	// waits for ops.Run.
+	ops := httpserver.NewOps(cfg.HTTP.OpsAddr)
+	ops.Early()
 	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, cfg.Postgres.MaxConns)
 	if err != nil {
 		return err
@@ -68,7 +72,6 @@ func serve(ctx context.Context, cfg *config.Config) error {
 	defer producer.Close()
 	srv := &api.Server{Cfg: cfg, DB: db, ReadDB: read, Redis: rdb,
 		Dispatch: &dispatch.Dispatcher{DB: db, Jobs: jobs.New(rdb), Producer: producer}}
-	ops := httpserver.NewOps(cfg.HTTP.OpsAddr)
 	ops.AddCheck("postgres", db.Ping)
 	ops.AddCheck("redis", func(ctx context.Context) error { return rdb.Ping(ctx).Err() })
 	ops.AddCheck("kafka", producer.Ping)

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -23,6 +24,12 @@ type Ops struct {
 	addr   string
 	mu     sync.RWMutex
 	checks map[string]Check
+
+	// Set by Early: the server already listening, its result, and whether
+	// the binary is still opening its dependencies.
+	srv      *http.Server
+	served   chan error
+	starting atomic.Bool
 }
 
 func NewOps(addr string) *Ops { return &Ops{addr: addr, checks: map[string]Check{}} }
@@ -39,6 +46,10 @@ func (o *Ops) Handler() http.Handler {
 	mux.Handle("/metrics", promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		if o.starting.Load() {
+			http.Error(w, "starting", http.StatusServiceUnavailable)
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
 		o.mu.RLock()
@@ -54,9 +65,26 @@ func (o *Ops) Handler() http.Handler {
 	return mux
 }
 
+// Early starts serving before the binary opens its dependencies, so
+// /healthz (liveness) answers while, say, the database is still being
+// retried at start-up; /readyz fails with "starting" until Run is called,
+// which the binary does once its dependencies are open and its checks
+// added. Without Early, Run starts the server itself.
+func (o *Ops) Early() {
+	o.starting.Store(true)
+	o.srv = newServer(o.addr, o.Handler())
+	o.served = make(chan error, 1)
+	go func() { o.served <- o.srv.ListenAndServe() }()
+	slog.Info("http listening (starting)", "addr", o.addr)
+}
+
 // Run serves until ctx is done.
 func (o *Ops) Run(ctx context.Context) error {
-	return Serve(ctx, o.addr, o.Handler())
+	if o.srv == nil {
+		return Serve(ctx, o.addr, o.Handler())
+	}
+	o.starting.Store(false)
+	return wait(ctx, o.srv, o.served)
 }
 
 // Option configures the server Serve runs.
@@ -75,13 +103,23 @@ func WithReadTimeout(d time.Duration) Option {
 // Idle keep-alive connections are closed after 2 minutes, so clients that
 // hold connections open (authenticated or not) can't exhaust descriptors.
 func Serve(ctx context.Context, addr string, h http.Handler, opts ...Option) error {
-	srv := &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
+	srv := newServer(addr, h)
 	for _, o := range opts {
 		o(srv)
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	slog.Info("http listening", "addr", addr)
+	return wait(ctx, srv, errc)
+}
+
+func newServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
+}
+
+// wait returns when srv stops by itself (errc) or, once ctx is done, after
+// shutting it down gracefully.
+func wait(ctx context.Context, srv *http.Server, errc <-chan error) error {
 	select {
 	case err := <-errc:
 		if errors.Is(err, http.ErrServerClosed) {

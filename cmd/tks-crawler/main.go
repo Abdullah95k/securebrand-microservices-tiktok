@@ -38,6 +38,10 @@ func main() {
 }
 
 func runCrawler(ctx context.Context, cfg *config.Config, stages []string) error {
+	// /healthz answers while the database is still being retried; /readyz
+	// waits for ops.Run.
+	ops := httpserver.NewOps(cfg.HTTP.OpsAddr)
+	ops.Early()
 	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, cfg.Postgres.MaxConns)
 	if err != nil {
 		return err
@@ -70,7 +74,6 @@ func runCrawler(ctx context.Context, cfg *config.Config, stages []string) error 
 	if err != nil {
 		return err
 	}
-	ops := httpserver.NewOps(cfg.HTTP.OpsAddr)
 	ops.AddCheck("kafka", producer.Ping)
 	ops.AddCheck("redis", func(ctx context.Context) error { return rdb.Ping(ctx).Err() })
 	ops.AddCheck("postgres", db.Ping)

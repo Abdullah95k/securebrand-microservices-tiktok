@@ -29,6 +29,10 @@ func main() {
 }
 
 func runPersister(ctx context.Context, cfg *config.Config) error {
+	// /healthz answers while the database is still being retried; /readyz
+	// waits for ops.Run.
+	ops := httpserver.NewOps(cfg.HTTP.OpsAddr)
+	ops.Early()
 	db, err := ttstore.OpenConfig(ctx, cfg.Postgres, cfg.Postgres.MaxConns)
 	if err != nil {
 		return err
@@ -41,7 +45,6 @@ func runPersister(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	ops := httpserver.NewOps(cfg.HTTP.OpsAddr)
 	ops.AddCheck("postgres", db.Ping)
 	return run.Group(ctx, ops.Run, c.Run)
 }
