@@ -35,6 +35,7 @@ import (
 
 	ttv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/leader"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
@@ -223,27 +224,18 @@ func (c *Canary) Run(ctx context.Context) (rep Report, err error) {
 		c.now = time.Now
 	}
 	rep.StartedAt = c.now().UTC()
-	conn, err := c.DB.Acquire(ctx)
-	if err != nil {
-		return c.finish(ctx, rep, err)
-	}
-	defer conn.Release()
-	var locked bool
-	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock(hashtextextended($1, 0))`, lockKey).Scan(&locked); err != nil {
-		return c.finish(ctx, rep, err)
-	}
-	if !locked {
+	// One run at a time across replicas and rollouts: a lease, not a
+	// session advisory lock, which PgBouncer's transaction mode would share
+	// between clients (leader.Hold).
+	ran, err := leader.Hold(ctx, c.DB, lockKey, func(ctx context.Context) error {
+		return c.run(ctx, &rep)
+	})
+	if !ran && err == nil {
 		rep.Status = StatusSkipped
 		rep.FinishedAt = c.now().UTC()
 		metrics.CanaryRuns.WithLabelValues(rep.Status).Inc()
 		return rep, nil
 	}
-	defer func() {
-		// The lock is per connection; release it before the connection
-		// goes back to the pool, even when ctx is done.
-		_, _ = conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, lockKey)
-	}()
-	err = c.run(ctx, &rep)
 	return c.finish(ctx, rep, err)
 }
 
