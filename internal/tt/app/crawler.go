@@ -184,7 +184,7 @@ func NewCrawler(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, rdb *
 	if signer != nil {
 		client.Signer = ttclient.SignerFor(tc.Signer.Mode, signer)
 	}
-	loader := &session.Loader{Rules: rules, AcceptLanguage: tc.AcceptLanguage, Hooks: ttclient.Hooks(), Gate: proxies}
+	loader := &session.Loader{Rules: rules, AcceptLanguage: tc.AcceptLanguage, Hooks: ttclient.Hooks(), Gate: proxies, Halt: gate}
 	if tc.Browser.Enabled {
 		b, err := browser.NewBootstrapper(tc.Browser, tc.AcceptLanguage, ttclient.Hooks())
 		if err != nil {

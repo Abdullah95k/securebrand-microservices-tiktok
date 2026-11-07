@@ -131,3 +131,31 @@ func TestPoolFingerprintProfiles(t *testing.T) {
 		t.Fatal("an unknown profile was accepted")
 	}
 }
+
+type stopped struct{ err error }
+
+func (s stopped) Wait(context.Context) error { return s.err }
+
+// While the stop switch is set a page load waits for it: one cancelled
+// meanwhile sends nothing.
+func TestLoadHeldByTheStopSwitch(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		fmt.Fprint(w, `<html>token=T</html>`)
+	}))
+	defer srv.Close()
+	pool := testPool(t, PoolConfig{BaseURL: srv.URL, Profile: "chrome_146", MaxPerTier: 1})
+	id, err := pool.Acquire(context.Background(), "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := &Loader{Rules: detect.DefaultRules(), Hooks: lsdHooks(), Halt: stopped{context.Canceled}}
+	if _, err := l.Load(context.Background(), id, srv.URL+"/page"); !errors.Is(err, context.Canceled) || hits.Load() != 0 {
+		t.Fatalf("err %v, %d requests while stopped", err, hits.Load())
+	}
+	l.Halt = stopped{}
+	if _, err := l.Load(context.Background(), id, srv.URL+"/page"); err != nil || hits.Load() != 1 {
+		t.Fatalf("err %v, %d requests after the start", err, hits.Load())
+	}
+}

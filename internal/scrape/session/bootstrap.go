@@ -87,6 +87,10 @@ type Loader struct {
 	// load takes a slot from it, except a new identity's first one, which
 	// was reserved when its exit was chosen.
 	Gate PageGate
+	// Halt, when set, holds every page load while the stop switch is set
+	// (tksctl stop), as the GraphQL client holds every call: a task that
+	// was already running when tks was stopped loads no page.
+	Halt interface{ Wait(context.Context) error }
 }
 
 // PageGate paces page loads per exit.
@@ -130,6 +134,11 @@ func NavHeaders(fp Fingerprint, acceptLanguage, secFetchSite string) [][2]string
 func (l *Loader) Load(ctx context.Context, id *Identity, rawURL string) (*PageLoad, error) {
 	if l.Hooks.Extract == nil {
 		return nil, ErrNoHooks
+	}
+	if l.Halt != nil {
+		if err := l.Halt.Wait(ctx); err != nil {
+			return nil, err
+		}
 	}
 	if id.Base != nil {
 		// Only Facebook's own pages: a page reference must never turn into
