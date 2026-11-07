@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/testenv"
@@ -140,5 +141,65 @@ func TestOpenWaitingOutlastsStartRetry(t *testing.T) {
 	}
 	if n := len(accepted); n < 3 {
 		t.Errorf("%d attempts, want it to keep retrying", n)
+	}
+}
+
+// A role whose default search_path is tt (production: the platform's setup
+// job) gets no session-level SET, which PgBouncer's transaction pooling
+// would leave on the pooled server session; a role without one is moved to
+// tt with a SET.
+func TestSearchPathOnlySetWhenNeeded(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	dsn := testenv.EmptyPostgres(t)
+	admin, err := ttstore.Open(ctx, dsn, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	source := func(pool interface {
+		QueryRow(context.Context, string, ...any) pgx.Row
+	}) (schema, src string) {
+		t.Helper()
+		if err := pool.QueryRow(ctx, `SELECT coalesce(current_schema(), ''), (SELECT source FROM pg_settings WHERE name = 'search_path')`).
+			Scan(&schema, &src); err != nil {
+			t.Fatal(err)
+		}
+		return schema, src
+	}
+	var db string
+	if err := admin.QueryRow(ctx, `SELECT current_database()`).Scan(&db); err != nil {
+		t.Fatal(err)
+	}
+	role := fmt.Sprintf("tks_path_%d", time.Now().UnixNano())
+	for _, q := range []string{
+		`CREATE SCHEMA IF NOT EXISTS tt`,
+		fmt.Sprintf(`CREATE ROLE %s LOGIN PASSWORD 'path'`, role),
+		fmt.Sprintf(`GRANT USAGE ON SCHEMA tt TO %s`, role),
+		fmt.Sprintf(`ALTER ROLE %s IN DATABASE %s SET search_path = tt`, role, db),
+	} {
+		if _, err := admin.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec(context.Background(), `DROP SCHEMA tt CASCADE`)
+		_, _ = admin.Exec(context.Background(), fmt.Sprintf(`DROP OWNED BY %s; DROP ROLE IF EXISTS %s`, role, role))
+	})
+	if s, src := source(admin); s != "tt" || src != "session" {
+		t.Errorf("a role with no default: schema %q from %q, want tt set by the session", s, src)
+	}
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.User = url.UserPassword(role, "path")
+	pool, err := ttstore.Open(ctx, u.String(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if s, src := source(pool); s != "tt" || src == "session" {
+		t.Errorf("a role defaulting to tt: schema %q from %q, want tt with no session SET", s, src)
 	}
 }

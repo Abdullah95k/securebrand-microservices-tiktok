@@ -139,17 +139,21 @@ func Retryable(err error) bool {
 	return false
 }
 
-// setSearchPath is run on every new connection of a pool from Open.
+// setSearchPath is run on a new connection of a pool from Open whose
+// schema is not tt already.
 const setSearchPath = "SET search_path TO " + Schema
 
-// PoolConfig is Open's pool configuration. search_path is set by a SET
-// on each new connection (AfterConnect), never as a startup parameter:
-// production's PostgreSQL (DigitalOcean, behind a connection proxy)
-// refuses a startup message that carries search_path ("unsupported
-// startup parameter", the master, 2026-11-07). A DSN's own search_path is
-// dropped from the startup message too, and the SET overrides it, so no
-// connection of the pool ever sees another schema. CheckSchema verifies it
-// at start.
+// PoolConfig is Open's pool configuration. search_path is never a startup
+// parameter: production's PostgreSQL (DigitalOcean, behind a connection
+// proxy) refuses a startup message that carries search_path ("unsupported
+// startup parameter", the master, 2026-11-07), and a DSN's own search_path
+// is dropped from the startup message too. In production each role's
+// default is tt (ALTER ROLE ... IN DATABASE tks SET search_path, run by the
+// platform's setup job), so a new connection finds itself in tt and sets
+// nothing: under PgBouncer's transaction pooling a session-level SET would
+// stay on the pooled server session for its next client. Elsewhere (local
+// runs, tests), a connection that is not in tt is moved there with a SET.
+// CheckSchema verifies it at start.
 func PoolConfig(dsn string, maxConns int32) (*pgxpool.Config, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -166,6 +170,13 @@ func PoolConfig(dsn string, maxConns int32) (*pgxpool.Config, error) {
 	// statement, so the pool cannot switch sessions in the middle.
 	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeCacheDescribe
 	cfg.AfterConnect = func(ctx context.Context, c *pgx.Conn) error {
+		var cur *string
+		if err := c.QueryRow(ctx, `SELECT current_schema()`).Scan(&cur); err != nil {
+			return fmt.Errorf("ttstore: current schema: %w", err)
+		}
+		if cur != nil && *cur == Schema {
+			return nil
+		}
 		if _, err := c.Exec(ctx, setSearchPath); err != nil {
 			return fmt.Errorf("ttstore: %s: %w", setSearchPath, err)
 		}
