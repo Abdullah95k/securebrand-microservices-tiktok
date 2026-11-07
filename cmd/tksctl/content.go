@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"time"
 
 	"github.com/abdullah95k/securebrand-contracts/conformance"
@@ -27,7 +28,11 @@ func contentExport(ctx context.Context, cfg *config.Config, args []string) (*con
 	since := fs.String("since", "", "start at records from this time (RFC 3339) or this long ago (e.g. 24h); empty: everything the tt.*.v1 topics still hold (168 h)")
 	batch := fs.Int("batch", 500, "records per emit")
 	idle := fs.Duration("idle", 30*time.Second, "fail after this long without a record while partitions are unfinished")
+	mem := fs.Int64("memory-limit-mib", 160, "soft limit on the Go heap (it runs inside tks-api's container, 512 MiB)")
 	_ = fs.Parse(args)
+	if *mem > 0 {
+		debug.SetMemoryLimit(*mem << 20)
+	}
 	from, err := parseSince(*since, time.Now())
 	if err != nil {
 		return nil, err

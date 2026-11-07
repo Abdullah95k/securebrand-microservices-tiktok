@@ -130,7 +130,11 @@ func Export(ctx context.Context, opts []kgo.Opt, prefix string, e *Emitter, o Ex
 	if open == 0 {
 		return res, nil
 	}
-	cl, err := kgo.NewClient(append(opts, kgo.ConsumePartitions(from))...)
+	// Bounded fetches: the export runs beside a live service (in its pod),
+	// so it holds at most one fetch (a few MiB) and one batch at a time.
+	cl, err := kgo.NewClient(append(opts, kgo.ConsumePartitions(from),
+		kgo.FetchMaxBytes(exportFetchBytes), kgo.FetchMaxPartitionBytes(exportPartitionBytes),
+		kgo.MaxConcurrentFetches(1))...)
 	if err != nil {
 		return res, err
 	}
@@ -143,18 +147,19 @@ func Export(ctx context.Context, opts []kgo.Opt, prefix string, e *Emitter, o Ex
 	if idle <= 0 {
 		idle = 30 * time.Second
 	}
-	var batch []proto.Message
+	batch := make([]proto.Message, 0, o.Batch)
 	flush := func() error {
 		if len(batch) == 0 {
 			return nil
 		}
 		err := e.Emit(ctx, batch)
+		clear(batch)
 		batch = batch[:0]
 		return err
 	}
 	for open > 0 {
 		pctx, cancel := context.WithTimeout(ctx, idle)
-		fs := cl.PollFetches(pctx)
+		fs := cl.PollRecords(pctx, o.Batch-len(batch))
 		cancel()
 		if err := ctx.Err(); err != nil {
 			return res, err
@@ -163,39 +168,38 @@ func Export(ctx context.Context, opts []kgo.Opt, prefix string, e *Emitter, o Ex
 			return res, fmt.Errorf("content export: %d partitions not read to the persister's offset after %s without records", open, idle)
 		}
 		var ferr error
-		fs.EachError(func(t string, p int32, err error) { ferr = fmt.Errorf("content export: %s/%d: %w", t, p, err) })
+		fs.EachError(func(t string, p int32, err error) {
+			if !errors.Is(err, context.DeadlineExceeded) {
+				ferr = fmt.Errorf("content export: %s/%d: %w", t, p, err)
+			}
+		})
 		if ferr != nil {
 			return res, ferr
 		}
-		fs.EachPartition(func(fp kgo.FetchTopicPartition) {
-			end, ok := ends[fp.Topic][fp.Partition]
-			if !ok {
+		fs.EachRecord(func(r *kgo.Record) {
+			end, ok := ends[r.Topic][r.Partition]
+			if !ok || r.Offset >= end {
+				return // a partition already read to its end
+			}
+			if r.Offset >= end-1 {
+				delete(ends[r.Topic], r.Partition)
+				open--
+				cl.PauseFetchPartitions(map[string][]int32{r.Topic: {r.Partition}})
+			}
+			base := strings.TrimPrefix(r.Topic, prefix)
+			res.Read[base]++
+			m := o.New(base)
+			if m == nil {
 				return
 			}
-			for _, r := range fp.Records {
-				if r.Offset >= end {
-					break
-				}
-				base := strings.TrimPrefix(r.Topic, prefix)
-				res.Read[base]++
-				m := o.New(base)
-				if m == nil {
-					continue
-				}
-				if proto.Unmarshal(r.Value, m) != nil {
-					res.Undecodable++
-					continue
-				}
-				// The persister's writer strips NULs before it stores and
-				// emits; the content hash must be the same.
-				sharedpersist.StripNUL(m.ProtoReflect())
-				batch = append(batch, m)
+			if proto.Unmarshal(r.Value, m) != nil {
+				res.Undecodable++
+				return
 			}
-			if n := len(fp.Records); n > 0 && fp.Records[n-1].Offset >= end-1 {
-				delete(ends[fp.Topic], fp.Partition)
-				open--
-				cl.PauseFetchPartitions(map[string][]int32{fp.Topic: {fp.Partition}})
-			}
+			// The persister's writer strips NULs before it stores and
+			// emits; the content hash must be the same.
+			sharedpersist.StripNUL(m.ProtoReflect())
+			batch = append(batch, m)
 		})
 		if len(batch) >= o.Batch || open == 0 {
 			if err := flush(); err != nil {
@@ -209,6 +213,13 @@ func Export(ctx context.Context, opts []kgo.Opt, prefix string, e *Emitter, o Ex
 	res.Sent, res.Unchanged, res.Invalid = counts.Sent, counts.Unchanged, counts.Invalid
 	return res, nil
 }
+
+// The export's fetch bounds: one fetch of at most 4 MiB, 1 MiB per
+// partition.
+const (
+	exportFetchBytes     = 4 << 20
+	exportPartitionBytes = 1 << 20
+)
 
 // SendCounts tallies an emitter's outcomes for its caller (the export);
 // the metrics count them for everyone.

@@ -16,8 +16,9 @@ import (
 )
 
 type fakeProducer struct {
-	recs []*kgo.Record
-	fail bool
+	recs  []*kgo.Record
+	fail  bool
+	calls int
 }
 
 func (f *fakeProducer) Topic(base string) string { return base }
@@ -26,6 +27,7 @@ func (f *fakeProducer) ProduceSync(_ context.Context, recs ...*kgo.Record) error
 	if f.fail {
 		return errors.New("broker down")
 	}
+	f.calls++
 	f.recs = append(f.recs, recs...)
 	return nil
 }
