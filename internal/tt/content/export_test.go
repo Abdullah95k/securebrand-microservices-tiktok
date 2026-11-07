@@ -164,3 +164,60 @@ func (f *fakeProducer) all(by map[string][]*kgo.Record) []*kgo.Record {
 	}
 	return out
 }
+
+// A partition whose persister offset lies past its last readable record
+// (an offset with no record: a transaction marker, an aborted batch) ends
+// the export after Idle without failing it: what was read is sent, and the
+// partition is named as stalled.
+func TestExportStalledPartition(t *testing.T) {
+	ctx := context.Background()
+	brokers := testenv.Kafka(t)
+	prefix := testenv.TopicPrefix()
+	opts := []kgo.Opt{kgo.SeedBrokers(brokers...)}
+	pc, err := kgo.NewClient(append(opts, kgo.RecordPartitioner(kgo.ManualPartitioner()))...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Close()
+	if err := kafka.EnsureTopics(ctx, pc, prefix, []kafka.TopicSpec{{Name: "tt.comment.v1", Partitions: 2, Retention: time.Hour}}, 1); err != nil {
+		t.Fatal(err)
+	}
+	var recs []*kgo.Record
+	for i := range 4 {
+		c := comment(t0, 0, nil, nil)
+		c.CommentId += int64(i)
+		b, _ := proto.Marshal(c)
+		recs = append(recs, &kgo.Record{Topic: prefix + "tt.comment.v1", Partition: int32(i % 2), Value: b})
+	}
+	if err := pc.ProduceSync(ctx, recs...).FirstErr(); err != nil {
+		t.Fatal(err)
+	}
+	// Partition 0 is committed exactly at its end; partition 1 three
+	// offsets past its last record.
+	commit := kadm.Offsets{}
+	for _, r := range recs {
+		at := r.Offset + 1
+		if r.Partition == 1 {
+			at += 2
+		}
+		if o, ok := commit.Lookup(r.Topic, r.Partition); !ok || o.At < at {
+			commit.Add(kadm.Offset{Topic: r.Topic, Partition: r.Partition, At: at, LeaderEpoch: -1})
+		}
+	}
+	if cr, err := kadm.NewClient(pc).CommitOffsets(ctx, prefix+"tks-tt-persister", commit); err != nil || cr.Error() != nil {
+		t.Fatal(err, cr.Error())
+	}
+	e, p := newEmitter(t)
+	res, err := Export(ctx, opts, prefix, e, ExportOptions{Topics: []string{"tt.comment.v1"}, Group: "tks-tt-persister",
+		New: exportNew, Batch: 500, Idle: 3 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Read["tt.comment.v1"] != 4 || len(p.take()[topicComment]) != 4 || res.Sent == 0 {
+		t.Fatalf("result %+v", res)
+	}
+	if len(res.Stalled) != 1 || res.Stalled[0].Partition != 1 || res.Stalled[0].Topic != "tt.comment.v1" ||
+		res.Stalled[0].LastRead != 1 || res.Stalled[0].End != 4 {
+		t.Fatalf("stalled %+v", res.Stalled)
+	}
+}
