@@ -106,6 +106,18 @@ func TestMigrateUpDownUp(t *testing.T) {
 	if err := ttstore.CheckSchema(ctx, plain); !errors.Is(err, ttstore.ErrWrongSchema) {
 		t.Fatalf("an unpinned pool passed the check: %v", err)
 	}
+	// No search_path in the startup message (production's proxy refuses
+	// it), the DSN's own included; the pool sets it after connecting.
+	pc, err := ttstore.PoolConfig(dsn+"&search_path=public", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := pc.ConnConfig.RuntimeParams["search_path"]; ok {
+		t.Fatalf("search_path %q sent at startup", v)
+	}
+	if pc.AfterConnect == nil {
+		t.Fatal("no AfterConnect to set search_path")
+	}
 	// A DSN's own search_path cannot move a pool off tt.
 	other, err := ttstore.Open(ctx, dsn+"&search_path=public", 2)
 	if err != nil {

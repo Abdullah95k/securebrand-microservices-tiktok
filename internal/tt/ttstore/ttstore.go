@@ -2,7 +2,9 @@
 // ADR 0007 §4). Every table lives in schema tt; a pool from Open pins
 // search_path to tt, so unqualified names (the copied code's) resolve
 // there and nowhere else, and goose keeps tt's version table at
-// tt.goose_db_version, apart from any other service's. In testing, tks has
+// tt.goose_db_version, apart from any other service's. The search_path is
+// set after connecting, not in the startup message, which production's
+// connection proxy refuses (PoolConfig). In testing, tks has
 // its own database (tks) on fbs's Postgres server; CheckSchema, run by the
 // binaries at start, refuses a pool that would read another schema.
 package ttstore
@@ -49,17 +51,10 @@ var Tables = store.Tables{
 // Open creates a pool whose connections all use search_path tt, and checks
 // it can connect.
 func Open(ctx context.Context, dsn string, maxConns int32) (*pgxpool.Pool, error) {
-	cfg, err := pgxpool.ParseConfig(dsn)
+	cfg, err := PoolConfig(dsn, maxConns)
 	if err != nil {
-		return nil, fmt.Errorf("ttstore: parse dsn: %w", err)
+		return nil, err
 	}
-	if maxConns > 0 {
-		cfg.MaxConns = maxConns
-	}
-	// A runtime parameter is sent with every connection's startup, so no
-	// connection of the pool ever sees another search_path. A DSN's own
-	// search_path is overridden.
-	cfg.ConnConfig.RuntimeParams["search_path"] = Schema
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("ttstore: connect: %w", err)
@@ -69,6 +64,35 @@ func Open(ctx context.Context, dsn string, maxConns int32) (*pgxpool.Pool, error
 		return nil, fmt.Errorf("ttstore: ping: %w", err)
 	}
 	return pool, nil
+}
+
+// setSearchPath is run on every new connection of a pool from Open.
+const setSearchPath = "SET search_path TO " + Schema
+
+// PoolConfig is Open's pool configuration. search_path is set by a SET
+// on each new connection (AfterConnect), never as a startup parameter:
+// production's PostgreSQL (DigitalOcean, behind a connection proxy)
+// refuses a startup message that carries search_path ("unsupported
+// startup parameter", the master, 2026-11-07). A DSN's own search_path is
+// dropped from the startup message too, and the SET overrides it, so no
+// connection of the pool ever sees another schema. CheckSchema verifies it
+// at start.
+func PoolConfig(dsn string, maxConns int32) (*pgxpool.Config, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("ttstore: parse dsn: %w", err)
+	}
+	if maxConns > 0 {
+		cfg.MaxConns = maxConns
+	}
+	delete(cfg.ConnConfig.RuntimeParams, "search_path")
+	cfg.AfterConnect = func(ctx context.Context, c *pgx.Conn) error {
+		if _, err := c.Exec(ctx, setSearchPath); err != nil {
+			return fmt.Errorf("ttstore: %s: %w", setSearchPath, err)
+		}
+		return nil
+	}
+	return cfg, nil
 }
 
 // ErrWrongSchema is returned by CheckSchema.
