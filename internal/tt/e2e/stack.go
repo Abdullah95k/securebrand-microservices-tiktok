@@ -228,7 +228,7 @@ func Start(t *testing.T, o Options) *Stack {
 	for i := range doc.Topics {
 		doc.Topics[i].Partitions = min(doc.Topics[i].Partitions, 3)
 	}
-	for _, tp := range content.Topics {
+	for _, tp := range content.AllTopics {
 		doc.Topics = append(doc.Topics, kafka.TopicSpec{Name: tp, Partitions: 3, Retention: 168 * time.Hour})
 	}
 	if err := kafka.EnsureTopics(ctx, producer.Client(), prefix, doc.Topics, 1); err != nil {

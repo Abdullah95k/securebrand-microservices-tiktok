@@ -80,6 +80,9 @@ type Event struct {
 	// by Seal.
 	Msg proto.Message
 	env *contentv1.Envelope
+	// seal sets the event id of a message without an envelope (a
+	// candidate) from its content hash.
+	seal func(hash string)
 	// edited sets the message's edited flag and time.
 	edited func(at time.Time)
 }
@@ -87,6 +90,12 @@ type Event struct {
 // Seal sets the envelope's content hash and event id: SHA-256 of
 // "<id>|<observed µs>|<content hash>", the same for a redelivered record.
 func (e *Event) Seal() {
+	if e.env == nil {
+		if e.seal != nil {
+			e.seal(hex.EncodeToString(e.Hash))
+		}
+		return
+	}
 	e.env.ContentHash = hex.EncodeToString(e.Hash)
 	sum := sha256.Sum256([]byte(e.env.Id + "|" + strconv.FormatInt(e.env.Version, 10) + "|" + e.env.ContentHash))
 	e.env.EventId = hex.EncodeToString(sum[:])
@@ -102,10 +111,13 @@ func (e *Event) Edited(at time.Time) {
 
 var deterministic = proto.MarshalOptions{Deterministic: true}
 
-// hashOf is SHA-256 over m without its envelope, after strip.
+// hashOf is SHA-256 over m without its envelope (if it has one), after
+// strip.
 func hashOf(m proto.Message, strip func(proto.Message)) []byte {
 	c := proto.Clone(m)
-	c.ProtoReflect().Clear(c.ProtoReflect().Descriptor().Fields().ByName("envelope"))
+	if fd := c.ProtoReflect().Descriptor().Fields().ByName("envelope"); fd != nil {
+		c.ProtoReflect().Clear(fd)
+	}
 	if strip != nil {
 		strip(c)
 	}
@@ -385,8 +397,9 @@ func PostURL(username string, postID int64, photo bool) string {
 // not content: a post whose counts alone changed is not sent again (its
 // counts go on content.metrics.v1). An unavailable or private post is a
 // partial event with the status and TikTok's code, never DELETED (a
-// logged-out reader cannot tell deleted from removed).
-func Post(p *ttv1.Post, owner *Owner) []*Event {
+// logged-out reader cannot tell deleted from removed). captions are the
+// post's stored subtitle tracks (M17); a photo post's title is its own.
+func Post(p *ttv1.Post, owner *Owner, captions []*contentv1.CaptionTrack) []*Event {
 	if p.PostId == 0 {
 		return nil
 	}
@@ -428,6 +441,17 @@ func Post(p *ttv1.Post, owner *Owner) []*Event {
 		if p.Width > 0 && p.Height > 0 {
 			m.Video.Width, m.Video.Height = proto.Int32(p.Width), proto.Int32(p.Height)
 		}
+		langs := map[string]bool{}
+		for _, si := range p.Subtitles {
+			if l := SubtitleLanguage(si.Language); l != "" && !langs[l] {
+				langs[l] = true
+				m.Video.CaptionLanguages = append(m.Video.CaptionLanguages, l)
+			}
+		}
+		m.Captions = captions
+	}
+	if p.Title != "" {
+		m.Title = &contentv1.Text{Text: p.Title, PlatformLanguage: language(p.TextLanguage)}
 	}
 	acct := &contentv1.AccountRef{Id: m.AccountId, Platform: Platform, NativeId: strconv.FormatInt(p.UserId, 10)}
 	if owner != nil {
@@ -469,6 +493,7 @@ func Post(p *ttv1.Post, owner *Owner) []*Event {
 	x := map[string]any{}
 	if l := p.Labels; l != nil {
 		m.Labels.AiGenerated = l.AiGenerated
+		m.Labels.AiLabelText = l.AiDescription
 		m.Labels.Warnings = l.Warnings
 		if l.AigcLabelType != nil {
 			x["tt.aigc_label_type"] = float64(*l.AigcLabelType)
@@ -639,17 +664,8 @@ func Media(md *ttv1.Media) []*Event {
 	if md.MediaId == "" || t == contentv1.MediaType_MEDIA_TYPE_UNSPECIFIED {
 		return nil
 	}
-	var owner, ownerKind string
-	switch {
-	case md.CommentId != nil && *md.CommentId != 0:
-		owner, ownerKind = idOf("comment", *md.CommentId), "comment"
-	case md.PostId != nil && *md.PostId != 0:
-		owner, ownerKind = idOf("post", *md.PostId), "post"
-	case md.MusicId != nil && *md.MusicId != 0:
-		owner, ownerKind = idOf("audio", *md.MusicId), "audio"
-	case md.UserId != 0:
-		owner, ownerKind = idOf("account", md.UserId), "account"
-	default:
+	owner, ownerKind := mediaOwner(md.UserId, md.PostId, md.CommentId, md.MusicId)
+	if owner == "" {
 		return nil
 	}
 	at := observedAt(md.Obs)

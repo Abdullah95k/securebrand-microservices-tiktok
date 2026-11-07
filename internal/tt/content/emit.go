@@ -11,6 +11,9 @@ import (
 	contracts "github.com/abdullah95k/securebrand-contracts"
 	"github.com/abdullah95k/securebrand-contracts/conformance"
 	contentv1 "github.com/abdullah95k/securebrand-contracts/gen/go/securebrand/content/v1"
+	coveragev1 "github.com/abdullah95k/securebrand-contracts/gen/go/securebrand/coverage/v1"
+	discoveryv1 "github.com/abdullah95k/securebrand-contracts/gen/go/securebrand/discovery/v1"
+	mediav1 "github.com/abdullah95k/securebrand-contracts/gen/go/securebrand/media/v1"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -41,15 +44,20 @@ type Emitter struct {
 }
 
 // Map maps a batch of tt.*.v1 records to contract events. owners gives the
-// stored account of each post's user id, for its URL and Post.account.
-func Map(msgs []proto.Message, owners map[int64]*Owner) []*Event {
+// stored account of each post's user id, for its URL and Post.account;
+// subtitles the stored subtitle tracks of each post, for Post.captions.
+func Map(msgs []proto.Message, owners map[int64]*Owner, subtitles map[int64][]*ttv1.Subtitle) []*Event {
 	var out []*Event
 	for _, m := range msgs {
 		switch m := m.(type) {
 		case *ttv1.Account:
 			out = append(out, Account(m)...)
 		case *ttv1.Post:
-			out = append(out, Post(m, owners[m.UserId])...)
+			out = append(out, Post(m, owners[m.UserId], captionTracks(subtitles[m.PostId]))...)
+		case *ttv1.PostSubtitles:
+			if e := PostCaptions(m, subtitles[m.PostId]); e != nil {
+				out = append(out, e)
+			}
 		case *ttv1.PostMetrics:
 			out = append(out, PostMetrics(m)...)
 		case *ttv1.Comment:
@@ -91,7 +99,19 @@ func (e *Emitter) Emit(ctx context.Context, msgs []proto.Message) error {
 	if err != nil {
 		return fmt.Errorf("content: owners: %w", err)
 	}
-	evs := latest(Map(msgs, owners))
+	subs, err := e.storedSubtitles(ctx, msgs)
+	if err != nil {
+		return fmt.Errorf("content: subtitles: %w", err)
+	}
+	return e.Send(ctx, Map(msgs, owners, subs))
+}
+
+// Send passes events through the change gate and produces those that
+// passed, all before the gate's transaction commits: a failed produce
+// rolls the gate back, so the caller's retry sends them again (with the
+// same event ids).
+func (e *Emitter) Send(ctx context.Context, all []*Event) error {
+	evs := latest(all)
 	if len(evs) == 0 {
 		return nil
 	}
@@ -117,7 +137,7 @@ func (e *Emitter) Emit(ctx context.Context, msgs []proto.Message) error {
 				slog.Warn("content: event breaks the contract, not sent", "topic", ev.Topic, "id", ev.Key, "err", err)
 				continue
 			}
-			rec, err := e.record(ev)
+			rec, err := Record(e.Producer, ev.Topic, ev.Key, ev.Msg)
 			if err != nil {
 				return err
 			}
@@ -136,13 +156,15 @@ func (e *Emitter) Emit(ctx context.Context, msgs []proto.Message) error {
 
 var wire = proto.MarshalOptions{Deterministic: true}
 
-func (e *Emitter) record(ev *Event) (*kgo.Record, error) {
-	b, err := wire.Marshal(ev.Msg)
+// Record builds a contract record for topic (the producer's prefix
+// applied): the deterministic wire form, with the contract's headers.
+func Record(p Producer, topic, key string, m proto.Message) (*kgo.Record, error) {
+	b, err := wire.Marshal(m)
 	if err != nil {
-		return nil, fmt.Errorf("content: marshal %s: %w", ev.Topic, err)
+		return nil, fmt.Errorf("content: marshal %s: %w", topic, err)
 	}
-	return &kgo.Record{Topic: e.Producer.Topic(ev.Topic), Key: []byte(ev.Key), Value: b, Headers: []kgo.RecordHeader{
-		{Key: HeaderType, Value: []byte(proto.MessageName(ev.Msg))},
+	return &kgo.Record{Topic: p.Topic(topic), Key: []byte(key), Value: b, Headers: []kgo.RecordHeader{
+		{Key: HeaderType, Value: []byte(proto.MessageName(m))},
 		{Key: HeaderContract, Value: []byte(contracts.Version)},
 		{Key: kafka.HeaderContentType, Value: []byte(kafka.ContentTypeProto)},
 	}}, nil
@@ -165,6 +187,16 @@ func Check(m proto.Message, opt conformance.Options) error {
 		return conformance.Media(m, opt)
 	case *contentv1.Audio:
 		return conformance.Envelope(m.GetEnvelope(), "audio", opt).Err()
+	case *mediav1.MediaReady:
+		return conformance.MediaReady(m, opt)
+	case *mediav1.MediaProcessed:
+		return conformance.MediaProcessed(m, opt)
+	case *mediav1.MediaDeleted:
+		return conformance.MediaDeleted(m, opt)
+	case *discoveryv1.Candidate:
+		return conformance.Candidate(m, opt)
+	case *coveragev1.JobCoverage:
+		return checkCoverage(m)
 	}
 	return fmt.Errorf("content: no check for %T", m)
 }

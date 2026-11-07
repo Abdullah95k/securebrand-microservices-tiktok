@@ -41,6 +41,11 @@ const (
 	// following or followers list (task.NewFollows): its mode is the
 	// direction (docs/tiktok/discovery-plan.md §9).
 	KindFollows = "follows"
+	// KindDiscover is discovery part C's read of a discovery page
+	// (task.NewDiscover): its mode is the source (search, hashtag, sound,
+	// related, feed) and it names no account (docs/tiktok/discovery-plan.md
+	// §8).
+	KindDiscover = "discover"
 )
 
 // Modes a job may ask for. auto reads a never-checked account in full (the
@@ -81,6 +86,9 @@ type Request struct {
 	// Follows is a follow-list read's scope (Kind KindFollows); its
 	// direction sets the job's mode.
 	Follows *tkstaskv1.FollowScope
+	// Discover is a discovery page read's scope (Kind KindDiscover); its
+	// source is the job's mode.
+	Discover *tkstaskv1.DiscoverScope
 }
 
 // Job is a job row.
@@ -237,9 +245,14 @@ func (d *Dispatcher) Create(ctx context.Context, r Request, maxRunning int) (*Jo
 			return j, false, nil
 		}
 	}
-	acc, known, err := Resolve(ctx, d.DB, r.AccountRef)
-	if err != nil {
-		return nil, false, err
+	var acc *Account
+	var known bool
+	var err error
+	if r.Kind != KindDiscover {
+		// A discovery page read names no account.
+		if acc, known, err = Resolve(ctx, d.DB, r.AccountRef); err != nil {
+			return nil, false, err
+		}
 	}
 	if !known && strings.HasPrefix(r.AccountRef, "id:") {
 		return nil, false, ErrUnknownAccount
@@ -256,6 +269,12 @@ func (d *Dispatcher) Create(ctx context.Context, r Request, maxRunning int) (*Jo
 		if r.Follows.Direction == ttv1.FollowDirection_FOLLOW_DIRECTION_FOLLOWING {
 			mode = ModeFollowing
 		}
+	}
+	if r.Kind == KindDiscover {
+		if r.Discover == nil || r.Discover.Source == "" {
+			return nil, false, errors.New("dispatch: discover job without its scope")
+		}
+		mode = r.Discover.Source
 	}
 	id := r.JobID
 	if id == uuid.Nil {
@@ -335,6 +354,9 @@ func (d *Dispatcher) Create(ctx context.Context, r Request, maxRunning int) (*Jo
 	}
 	if r.Kind == KindFollows {
 		root = task.NewFollows(id.String(), r.Follows)
+	}
+	if r.Kind == KindDiscover {
+		root = task.NewDiscover(id.String(), r.Discover)
 	}
 	rec, err := d.Producer.Record(topics.Task(root.Kind, root.Lane), task.ScopeKey(root), root)
 	if err != nil {

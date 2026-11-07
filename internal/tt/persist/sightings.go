@@ -220,6 +220,56 @@ func recordBio(ctx context.Context, tx pgx.Tx, a *ttv1.Account, got sightingCoun
 	return got.add(rows)
 }
 
+// find is the author of a post discovery part C found (Post.find).
+type find struct {
+	how, via, region string
+	userID, postID   int64
+	at               time.Time
+}
+
+// postFinds are the finds of the part C sources switched on in ps.
+func (w *Writer) postFinds(ps []*ttv1.Post) []find {
+	var out []find
+	for _, p := range ps {
+		f := p.GetFind()
+		if f == nil || p.UserId == 0 || p.PostId == 0 || f.Via == "" || !w.on(f.Source) {
+			continue
+		}
+		out = append(out, find{how: f.Source, via: f.Via, region: f.Region, userID: p.UserId, postID: p.PostId, at: observed(p.Obs)})
+	}
+	return out
+}
+
+// recordFinds appends part C's finds (docs/tiktok/discovery-plan.md §8):
+// each post's author, once per source, target and post, so a re-read or a
+// redelivery records nothing again; the author's secUid and username are
+// the stored account's (the stage sends the author with the post). Every
+// author is recorded, monitored or not: a monitored one gains the source
+// with no read.
+func recordFinds(ctx context.Context, tx pgx.Tx, fs []find, got sightingCounts) error {
+	if len(fs) == 0 {
+		return nil
+	}
+	n := len(fs)
+	how, via, region := make([]string, 0, n), make([]string, 0, n), make([]*string, 0, n)
+	uid, post, at := make([]int64, 0, n), make([]int64, 0, n), make([]time.Time, 0, n)
+	for _, f := range fs {
+		how, via, region = append(how, f.how), append(via, f.via), append(region, nilIfEmpty(f.region))
+		uid, post, at = append(uid, f.userID), append(post, f.postID), append(at, f.at)
+	}
+	rows, err := tx.Query(ctx, `INSERT INTO discovery_sightings (how, found_in, via, region, user_id, sec_uid, username, post_id, seen_at)
+		SELECT d.how, d.how, d.via, d.region, d.user_id, a.sec_uid, a.username, d.post_id, d.at
+		FROM unnest($1::text[], $2::text[], $3::text[], $4::bigint[], $5::bigint[], $6::timestamptz[])
+			AS d(how, via, region, user_id, post_id, at)
+		LEFT JOIN accounts a ON a.user_id = d.user_id
+		ON CONFLICT (how, via, post_id, user_id) WHERE via IS NOT NULL DO NOTHING
+		RETURNING how`, how, via, region, uid, post, at)
+	if err != nil {
+		return err
+	}
+	return got.add(rows)
+}
+
 // sightingCounts counts a transaction's sightings by source, published
 // once it commits.
 type sightingCounts map[string]int

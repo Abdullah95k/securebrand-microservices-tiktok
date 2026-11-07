@@ -28,6 +28,8 @@ tks's review of the shared contract's draft v0.1 (`Abdullah95k/securebrand-contr
 
 **Built in M15a** (2026-11-06; [ADR 0007 §24](adr/0007-tks-data-model-and-contracts.md#24-settled-in-m15a-the-shared-contracts-content-events)), pinned to contract **v1.2.0**: the content events (account, account snapshot, post, comment, metrics, audio, media) from the persister through a change gate, `exit_country` on every `tt` record, conformance in the fakett e2e. Where it differs from this note: a TikTok reply to a reply has **depth 2** (the contract's conformance requires a depth-1 reply's parent to be its root); `scope` stays unset (the registry's decision); a list's author is not mapped (only the page's account); `relevance`, `Post.coverage`, `raw_ref` and comment authors as accounts are not mapped yet. **M15b** does the media hand-off (`content.media.ready/processed/deleted`, `delete_after`), `collection.coverage.v1` and `discovery.candidate.v1`.
 
+**Built in M15b** (2026-11-06; [ADR 0007 §25](adr/0007-tks-data-model-and-contracts.md#25-settled-in-m15b-the-shared-contracts-media-hand-off-coverage-and-candidates)): `content.media.ready.v1` beside `tt.media.ready.v1` (`delete_after` 72 h from storing by default, at least 24 h; `required_consumers` `[sb-analysis]`), the ledger reading `content.media.processed.v1` and `content.media.deleted.v1`, `collection.coverage.v1` per finished job, `Post.coverage` as partial post events from the finalizer, and `discovery.candidate.v1` from the candidates table (`blocked` → `OUTCOME_EXCLUDED`). Comment authors are not sent as `NOT_MONITORED` accounts (the contract does not ask for them).
+
 ---
 
 ## The review (REQ-014)
@@ -128,7 +130,7 @@ Notes on the tables:
 | `kind` video / photo | `type` SHORT_VIDEO, subtype `video` / `type` POST, subtype `photo` | agree (as the rules table) |
 | — | `url` = `https://www.tiktok.com/@<username>/video/<id>` (`/photo/` for photo posts) | agree (built) |
 | `created_at` | `published_at` (EXACT; a scheduled post: when it went public) | agree |
-| photo posts' `imagePost.title` (served, not read) | `title` | **X**: tks doesn't read it yet; small |
+| photo posts' `imagePost.title` | `title` | **done in M17** (ADR 0007 §26) |
 | `caption` | `text.text` | agree |
 | `text_language` | `text.platform_language` (`un` → empty) | agree |
 | `text_ranges` | `text.spans` (UTF-16), mention spans with `AccountRef` (`user_id`, `sec_uid`, handle) | agree |
@@ -139,7 +141,7 @@ Notes on the tables:
 | `duration_ms`, `width`, `height` | `video.duration_ms`, `width`, `height` | agree |
 | `cover_media_id`, `photos` | `media[]` (roles: Q7) | agree |
 | `labels.ai_generated` | `labels.ai_generated` | agree |
-| (served, not read) `AIGCDescription` | `labels.ai_label_text` | **X** |
+| `AIGCDescription` | `labels.ai_label_text` | **done in M17** |
 | `labels.aigc_label_type` | extras `tt.aigc_label_type` | agree |
 | `labels.warnings` | `labels.warnings` | agree. The matrix lists them under age_restricted/members_only/family_safe; they belong only in `warnings` |
 | `labels.anchors_json` | extras `tt.anchors` | agree |
@@ -152,7 +154,7 @@ Notes on the tables:
 | `status`, `status_code` | `status.availability`, `status.reason`, `status.since` | agree (Q6); **drop extras `tt.status_code`** |
 | `discovered_via` | extras `tt.discovered_via` | agree |
 | `comments_state`, `comments_collected`, `replies_collected`, `completeness`, `comment_count_read`, `comments_synced_at` | `coverage` (`comments_state`, collected, reported, completeness, `replies_collected`, `synced_at`; `replies_available = true`) | agree; `comments_disabled` → `COMMENTS_STATE_DISABLED` |
-| (served, not read) `video.subtitleInfos` | `captions[]` | **X**, and a proposed field (§4) |
+| `video.subtitleInfos` | `captions[]` (with its `source`) and `video.caption_languages` | **done in M17**: fetched, stored, and sent on full post events and as partial post events |
 | — | `relevance` | agree. The mapper sets `region-IQ` from `created_in_country` and language rules (`lang-ckb`). Keyword ids need the shared list |
 | — | `tagged`, `coauthors`, `links`, `uploader_tags`, `platform_topics`, `poll`, `video.live_status`, `chapters` | not on TikTok logged out: unset |
 | — | `reshare` (duet, stitch) | **unknown**, not X: no duet or stitch source id was seen in 253 posts (only `duetEnabled`, `duetDisplay`…) |

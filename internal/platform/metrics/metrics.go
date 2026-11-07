@@ -118,6 +118,7 @@ var (
 	// Media.
 	MediaDiscoveryToStored = histVec("media_discovery_to_stored_seconds", "Time from media discovery to object stored.", prometheus.ExponentialBuckets(1, 2, 14), "kind")
 	MediaOutcome           = counterVec("media_download_total", "Media downloads by outcome.", "kind", "outcome")
+	SubtitleFetches        = counterVec("subtitle_fetches_total", "Videos' subtitle files the crawlers fetched (M17), by result: fetched; failed (an error, a refusal or not WebVTT); expired (the link had expired); too_large (over tt.subtitles.max_bytes, recorded without its text).", "result")
 	MediaDeleted           = counterVec("media_deleted_total", "Media objects deleted by reason.", "reason")
 
 	// Persistence and jobs.
@@ -146,7 +147,7 @@ var (
 	DiscoveryCandidates = gaugeVec("discovery_candidates", "tks accounts discovery found and does not monitor, by state (pending, checking, qualified, not_iraqi, dormant, blocked; added counts those it registered) (leader scheduler).", "state")
 	// Discovery part B (docs/tiktok/discovery-plan.md §7): people a
 	// monitored account's new posts, bio and comments bring in.
-	DiscoverySightings        = counterVec("discovery_sightings_total", "tks people the persister recorded for discovery to count: from monitored accounts' new posts, bios and comments (part B: mention, reply, commenter) and from their following and followers lists (part D: following, follower), by source.", "source")
+	DiscoverySightings        = counterVec("discovery_sightings_total", "tks people the persister recorded for discovery to count: from monitored accounts' new posts, bios and comments (part B: mention, reply, commenter) from their following and followers lists (part D: following, follower) and as authors of posts found on discovery pages (part C: search, hashtag, sound, feed, related), by source.", "source")
 	DiscoverySightingsCounted = counter("discovery_sightings_counted_total", "tks part B sightings the leader scheduler counted into accounts' sources and candidates.")
 	DiscoverySightingsBacklog = gauge("discovery_sightings_backlog", "tks part B and D sightings waiting to be counted (leader scheduler).")
 	// Discovery part D (docs/tiktok/discovery-plan.md §9): monitored
@@ -156,6 +157,12 @@ var (
 	FollowLinks     = counterVec("follows_stored_total", "tks follow links the persister wrote, by direction and whether the link was new (new, seen).", "direction", "result")
 	FollowListsDue  = gaugeVec("follow_lists_due", "tks following and followers lists due to be read and not yet claimed, by direction (leader scheduler).", "direction")
 	FollowListState = gaugeVec("follow_lists", "tks following and followers lists by direction and state (new, ok, hidden, gone, refused) (leader scheduler).", "direction", "state")
+	// Discovery part C (M12): TikTok's discovery pages.
+	DiscoverPages   = counterVec("discover_pages_total", "tks discovery page reads (search, hashtag, sound, feed, related pages), by source and result (ok, gone, refused, error).", "source", "result")
+	DiscoverReads   = counterVec("discover_reads_total", "tks discovery page reads that ended, by source and why they stopped (end, cap, day_cap, stuck, empty, gone, refused).", "source", "stop")
+	DiscoverPosts   = counterVec("discover_posts_total", "tks posts found on discovery pages, by source.", "source")
+	DiscoverTargets = gaugeVec("discover_targets", "tks discovery targets (keywords, hashtags, sounds, posts, the feed) by source and state (new, ok, gone, refused) (leader scheduler).", "source", "state")
+	DiscoverDue     = gaugeVec("discover_targets_due", "tks discovery targets due to be read and not yet claimed, by source (leader scheduler).", "source")
 	// tks's delay before a new post is stored (build brief §8 A2): the
 	// buckets hold the targets (median 1.5 h, 99 % in 3 h, 99.9 % in 6 h).
 	PostStoreDelay = histVec("post_store_delay_seconds", "Time from a new tks post's createTime to its row in Postgres, for posts first read by a scheduled check (mode incremental) or a metrics walk in its place (refresh); backfills are not counted.",

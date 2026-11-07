@@ -4,5 +4,5 @@ Create an API key (it is printed once):
   kubectl exec deploy/{{ include "tks.fullname" . }}-api -- /usr/local/bin/tksctl apikey create --name <client> --scopes jobs:write,accounts:write,data:read
 
 Before real TikTok traffic: legal sign-off (build brief D15), staging and the canary (C5),
-proxies in the {{ .Values.secretFiles.existingSecret | default "proxies" }} Secret, and the canary accounts in TKS_TT__CANARY__ACCOUNTS
+proxies in the {{ .Values.secretFiles.existingSecret | default "proxies" }} Secret, and the canary accounts in config.tt.canary.accounts or TKS_TT__CANARY__ACCOUNTS
 (docs/runbooks/tks-deploy.md).

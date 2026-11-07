@@ -4,7 +4,7 @@ What the platform needs to deploy tks (M18, decision D-026: tks's first real run
 
 ## 1. The commit to pin
 
-**`3bca5c0b379c62904f64ad03dac736856cc80c98`**: the merge commit of M16's pull request ([#61](https://github.com/Abdullah95k/securebrand-microservices-tiktok/pull/61)) on `main` (production hardening; it adds the backup image and the backup job, so it supersedes M18's `a7a5dfab763d2170d47b155487950d4c6eb0dc15`). Pin this full SHA, never a branch. A later tks commit to deploy is announced the same way, in [`build-status.md`](build-status.md).
+**`53300f28ca35090058dd2477a4f4e0f4c75338e8`**: the merge commit of [#76](https://github.com/Abdullah95k/securebrand-microservices-tiktok/pull/76) on `main` (the owner's canary accounts in `values-production.yaml`), pinned by the master on 2026-11-06. It holds everything built since M16's `3bca5c0b379c62904f64ad03dac736856cc80c98` (M15a, M15b, M17, M12, all off in production) and supersedes it. Pin this full SHA, never a branch. A later tks commit to deploy is announced the same way, in [`build-status.md`](build-status.md).
 
 ## 2. Images (the platform builds all three)
 
@@ -42,7 +42,7 @@ Rendered and checked in CI on every pull request (`make chart-check`: `helm lint
 |---|---|---|
 | `platform-credentials` | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_SSLMODE`, `POSTGRES_DATABASE`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_CA_CERT`; `KAFKA_BROKERS`, `KAFKA_USER`, `KAFKA_PASSWORD`, `KAFKA_SASL_MECHANISM`, `KAFKA_TLS`, `KAFKA_CA_CERT`; `VALKEY_HOST`, `VALKEY_PORT`, `VALKEY_PASSWORD`, `VALKEY_TLS`, `VALKEY_CA_CERT`; `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET_RAW`, `S3_BUCKET_MEDIA`, **`S3_BUCKET_BACKUPS`**; `SCHEMA_REGISTRY_URL`; **and the roles below** | the platform |
 | `proxies` | `proxies.yaml`: `tt.proxy.tiers` in tks's format, each tier with `country` | the platform, from the owner |
-| `tks-env` | `TKS_PRIVACY__AUTHOR_HMAC_KEY` (a secret of 64 hex characters: `openssl rand -hex 32`, made once and **never changed**), `TKS_TT__CANARY__ACCOUNTS` (3 or more of the owner's public accounts, comma separated) | made once for tks; not in git |
+| `tks-env` | `TKS_PRIVACY__AUTHOR_HMAC_KEY` (a secret of 64 hex characters: `openssl rand -hex 32`, made once and **never changed**). **No `TKS_TT__CANARY__ACCOUNTS`:** the owner's canary accounts are in `values-production.yaml` (`config.tt.canary.accounts`, owner, 2026-11-06), and a value here would replace them (an empty one leaves the canary with none) | made once for tks; not in git |
 
 Notes on the mapping (`deploy/helm/tks/templates/_helpers.tpl`, `tks.platformEnv`):
 - CA certificates are read as values (PEM); tks writes Postgres's to a file itself. `KAFKA_SASL_MECHANISM` may be `SCRAM-SHA-256` in any case. `KAFKA_TLS` and `VALKEY_TLS` are `true` or `false`. `S3_ENDPOINT` may be a URL (`https://…`) or a host.
@@ -70,9 +70,17 @@ The rights are by kind (read, or read and write rows), not table by table: the c
 
 ## 6. Topics
 
-Every topic tks produces or consumes is in the platform's list (`configs/tt/topics.yaml` against build-status's "Production platform" table): the account, post and thread lanes, `tks.task.media`, the retries (`tks.task.retry.30s`, `.5m`, `.1h`), `tks.task.dlq`, `tks.persist.dlq` and the `tt.*.v1` topics, **including `tt.follow.v1`** (already added; 168 h). **No other topic is missing.** The chart's topic hook is off (`hooks.topics: false`), and no schema is registered (`hooks.schemas: false`).
+Every topic tks produces or consumes is in the platform's list (`configs/tt/topics.yaml` against build-status's "Production platform" table): the account, post and thread lanes, `tks.task.media`, the retries (`tks.task.retry.30s`, `.5m`, `.1h`), `tks.task.dlq`, `tks.persist.dlq` and the `tt.*.v1` topics, **including `tt.follow.v1`** (already added; 168 h). **No other topic is missing, except `tt.subtitle.v1`** (M17, below). The chart's topic hook is off (`hooks.topics: false`), and no schema is registered (`hooks.schemas: false`).
+
+**Subtitles (M17): one more topic, `tt.subtitle.v1`** (videos' subtitle texts; 3 partitions in production, retention 168 h, like the other `tt.*`). tks produces it from the crawlers and the persister reads it (group `tks-tt-persister`). It is **off** in `values-production.yaml` (`tt.subtitles.include: false`): once the platform has made the topic, set it to `true` (or `TKS_TT__SUBTITLES__INCLUDE=true`) and restart the crawlers. With it on and the topic missing, account checks retry until the topic exists.
 
 **The shared contract's topics (M15a).** tks's persister can publish the contract's events on `content.account.v1`, `content.account_snapshot.v1`, `content.post.v1`, `content.comment.v1`, `content.metrics.v1`, `content.media.v1` and `content.audio.v1` (user `tks-kafka` is already allowed `content.*`). They are shared with the other collectors, so tks does not create them and they are not in its list. It is **off** (`tt.content.enabled: false` in `values-production.yaml`): once the platform has made these topics, set it to `true` (or `TKS_TT__CONTENT__ENABLED=true`) and restart the persister. With it on and a topic missing, the persister stops writing until the topic exists (nothing is lost; it retries).
+
+**The rest of the contract (M15b)** goes on with the same switch, so the platform makes these **before** turning it on:
+- `content.media.ready.v1` (tks-media-downloader writes), `content.media.processed.v1` and `content.media.deleted.v1` (its ledger reads them, group `tks-tt-media-ledger`);
+- **`collection.coverage.v1`** (tks-scheduler: one per finished job) and **`discovery.candidate.v1`** (tks-scheduler: found accounts and their outcomes). These two are **not under `content.*`**: user `tks-kafka` needs write on them too.
+
+With the switch on and `collection.coverage.v1` missing or refused, the finalizer cannot send a job's events and finalises nothing until it can (the job's `tt.job.v1` goes in the same batch; nothing is lost: the jobs wait to be finalised, and the finalizer logs `job failed to finalise`). The media deadline is `tt.content.media.delete_after` (72 h by default, at least 24 h) and the consumers that must acknowledge a file `tt.content.media.required_consumers` (`[sb-analysis]`); both are the owner's to change.
 
 Pod maximums are at most the partitions of the topics each component reads: 3 for the crawlers (account, post, thread), the persister and the media downloader. When the platform adds partitions, raise `components.<name>.autoscale.max` with them.
 
@@ -88,7 +96,7 @@ The first-run report (`tksctl report`) reads Prometheus for requests, signatures
 
 ## 9. Backups
 
-A CronJob, `tks-backup`, dumps schema `tt` every day at 02:17 Iraq time (23:17 UTC) into `S3_BUCKET_BACKUPS` under **`tks/postgres/`**, as the read-only role `tks_reader`, streamed (no disk). tks never deletes a dump: **please add the bucket's expiry rule for `tks/postgres/`** (30 days is a sensible start). Restore and failures: [`../runbooks/tks-backup.md`](../runbooks/tks-backup.md). Rollbacks need no down migration ([`../runbooks/tks-rollback.md`](../runbooks/tks-rollback.md)).
+A CronJob, `tks-backup`, dumps schema `tt` every day at 02:17 Iraq time (23:17 UTC) into `S3_BUCKET_BACKUPS` under **`tks/postgres/`**, as the read-only role `tks_reader`, streamed (no disk). tks never deletes a dump: **please add the bucket's expiry rule for `tks/postgres/`: 30 days** (the owner's choice, 2026-11-06). Only the old daily copies go; the database itself keeps everything (D8). Restore and failures: [`../runbooks/tks-backup.md`](../runbooks/tks-backup.md). Rollbacks need no down migration ([`../runbooks/tks-rollback.md`](../runbooks/tks-rollback.md)).
 
 ## 10. Egress policy (optional, recommended)
 

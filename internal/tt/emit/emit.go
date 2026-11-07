@@ -151,6 +151,18 @@ func (e *Emitter) Media(ctx context.Context, b *kafka.Batch, src Source, m *ttv1
 	return b.AddProto(ctx, topics.Media, m.MediaId, m)
 }
 
+// Subtitles publishes the subtitle files a read fetched for one post. The
+// text is the account's own speech, not gated, like its caption (ADR 0007
+// §6).
+func (e *Emitter) Subtitles(ctx context.Context, b *kafka.Batch, src Source, s *ttv1.PostSubtitles) error {
+	if s == nil || s.PostId == 0 || len(s.Tracks) == 0 {
+		return nil
+	}
+	key := strconv.FormatInt(s.PostId, 10)
+	e.stamp(src, "subtitles:"+key, s, func(o *commonv1.Observation) { s.Obs = o })
+	return b.AddProto(ctx, topics.Subtitle, key, s)
+}
+
 // Comment applies the privacy rules and publishes a comment.
 func (e *Emitter) Comment(ctx context.Context, b *kafka.Batch, src Source, c *ttv1.Comment) error {
 	e.Privatize(c)
@@ -215,10 +227,13 @@ func textPeople(rs []*ttv1.TextRange) []*ttv1.Person {
 
 // hashable is msg without what changes between two reads of the same
 // content: the query of signed links (x-expires, x-signature, policy), a
-// link's expiry and a metrics sample's capture time.
+// link's expiry, a metrics sample's capture time and where discovery found
+// a post (the same post found by two searches is the same post).
 func hashable(msg proto.Message) proto.Message {
 	c := proto.Clone(msg)
 	switch m := c.(type) {
+	case *ttv1.Post:
+		m.Find = nil
 	case *ttv1.Media:
 		m.SourceExpiresAt = nil
 	case *ttv1.PostMetrics:
