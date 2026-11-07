@@ -26,14 +26,32 @@ enum PostStatus {
   POST_STATUS_PRIVATE = 3;
 }
 
-// How the post was found. Only LIST today; the others are kept for later
-// sources (build brief D1) so adding one is not a breaking change.
+// How the post was first found: an account's list or post page, or one of
+// discovery part C's sources (docs/tiktok/discovery-plan.md §8, ADR 0007
+// §27): a keyword search, a hashtag's or a sound's posts, the For You feed,
+// a post's related posts. A stored post keeps the way it was first found.
 enum DiscoveredVia {
   DISCOVERED_VIA_UNSPECIFIED = 0;
   DISCOVERED_VIA_LIST = 1;
   DISCOVERED_VIA_SEARCH = 2;
   DISCOVERED_VIA_HASHTAG = 3;
   DISCOVERED_VIA_POST_PAGE = 4;
+  DISCOVERED_VIA_SOUND = 5;
+  DISCOVERED_VIA_FEED = 6;
+  DISCOVERED_VIA_RELATED = 7;
+}
+
+// PostFind is where discovery part C found a post (M12): the source
+// (search, hashtag, sound, feed, related), what it read (the keyword's id,
+// the hashtag's or sound's id, the post whose related posts these are, the
+// feed's UTC day), the region TikTok served the read in (the exit's), and
+// the post's place in the read.
+message PostFind {
+  string source = 1;
+  string via = 2;
+  string region = 3;
+  int32 page = 4;
+  int32 position = 5;
 }
 
 // Counts are a post's counts as TikTok serves them (statsV2, else stats).
@@ -72,6 +90,9 @@ message PostLabels {
   repeated string warnings = 3;
   // anchors (links to products, places, effects), as served.
   string anchors_json = 4;
+  // AIGCDescription: the creator's own text about AI in the post, as
+  // served (empty on most posts).
+  string ai_description = 5;
 }
 
 // Post is published on tt.post.v1, keyed by post_id, when a post is read in
@@ -119,6 +140,14 @@ message Post {
   // T30).
   optional int64 status_code = 26;
   string status_region = 27;
+  // imagePost.title: a photo post's own title, apart from its caption.
+  string title = 28;
+  // The subtitle tracks the video's item lists (video.subtitleInfos), in
+  // TikTok's order; their texts go on tt.subtitle.v1.
+  repeated SubtitleInfo subtitles = 29;
+  // Set when discovery part C found the post (the read's own, not stored
+  // on the post): the persister records its author as a find.
+  PostFind find = 30;
 }
 
 // PostMetrics is published on tt.post_metrics.v1, keyed by post_id, when a

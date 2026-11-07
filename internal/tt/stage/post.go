@@ -82,7 +82,7 @@ func (s *PostStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 		return retry(t, st.Cursor, "30s", "full pass: "+err.Error(), c)
 	}
 	q, _ := d.Client.Registry.Get(commentsQuery)
-	src := emit.Source{JobID: t.JobId, Query: commentsQuery, Variant: q.DocID, ParserVersion: parse.Version, Mode: t.Mode}
+	src := emit.Source{JobID: t.JobId, Query: commentsQuery, Variant: q.DocID, ParserVersion: parse.Version, Mode: t.Mode, Region: regionOf(id)}
 	cc := parse.CommentContext{PostID: sc.PostId, UserID: sc.UserId, PostCreatedAt: sc.CreatedAt}
 	popt := parse.Options{AuthorKey: d.Emit.Key, Query: commentsQuery, Variant: q.DocID}
 
@@ -387,7 +387,7 @@ func (s *ThreadStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 		st.ItemsSeen = sc.ItemsSeen
 	}
 	q, _ := d.Client.Registry.Get(repliesQuery)
-	src := emit.Source{JobID: t.JobId, Query: repliesQuery, Variant: q.DocID, ParserVersion: parse.Version, Mode: t.Mode}
+	src := emit.Source{JobID: t.JobId, Query: repliesQuery, Variant: q.DocID, ParserVersion: parse.Version, Mode: t.Mode, Region: regionOf(id)}
 	cc := parse.CommentContext{PostID: sc.PostId, UserID: sc.UserId, PostCreatedAt: sc.PostCreatedAt, Replies: true, ParentCommentID: sc.CommentId}
 	popt := parse.Options{AuthorKey: d.Emit.Key, Query: repliesQuery, Variant: q.DocID}
 

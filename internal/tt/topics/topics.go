@@ -20,7 +20,10 @@ const (
 	Media       = "tt.media.v1"
 	// Follow carries the people on monitored accounts' following and
 	// followers lists (discovery part D, ADR 0007 §23).
-	Follow         = "tt.follow.v1"
+	Follow = "tt.follow.v1"
+	// Subtitle carries the texts of videos' subtitle tracks (M17), keyed
+	// by the post.
+	Subtitle       = "tt.subtitle.v1"
 	MediaReady     = "tt.media.ready.v1"
 	MediaProcessed = "tt.media.processed.v1"
 	MediaDeleted   = "tt.media.deleted.v1"
@@ -58,6 +61,7 @@ var ValueSchemas = map[string]string{
 	Music:          "securebrand/tt/v1/music.proto",
 	Media:          "securebrand/tt/v1/media.proto",
 	Follow:         "securebrand/tt/v1/follow.proto",
+	Subtitle:       "securebrand/tt/v1/subtitle.proto",
 	MediaReady:     "securebrand/common/v1/media.proto",
 	MediaProcessed: "securebrand/common/v1/media.proto",
 	MediaDeleted:   "securebrand/common/v1/media.proto",
@@ -75,6 +79,7 @@ var ValueTypes = map[string]string{
 	Music:          "securebrand.tt.v1.Music",
 	Media:          "securebrand.tt.v1.Media",
 	Follow:         "securebrand.tt.v1.Follow",
+	Subtitle:       "securebrand.tt.v1.PostSubtitles",
 	MediaReady:     "securebrand.common.v1.MediaReady",
 	MediaProcessed: "securebrand.common.v1.MediaProcessed",
 	MediaDeleted:   "securebrand.common.v1.MediaDeleted",
@@ -84,14 +89,14 @@ var ValueTypes = map[string]string{
 
 // Entity lists the public entity topics a job's records go to; the job
 // finalizer waits for the persister to catch up on exactly these. Follow
-// is not among them: finalising a follow-list read needs nothing stored,
-// and a deployment whose Kafka lacks tt.follow.v1 (part D off) must not
-// hold every job back.
+// and Subtitle are not among them: finalising a job needs neither stored,
+// and a deployment whose Kafka lacks tt.follow.v1 (part D off) or
+// tt.subtitle.v1 (tt.subtitles.include off) must not hold every job back.
 var Entity = []string{Account, Post, PostMetrics, Comment, Music, Media}
 
-// Persisted lists every topic the persister consumes: the entity topics
-// and the follow links.
-var Persisted = append(append([]string{}, Entity...), Follow)
+// Persisted lists every topic the persister consumes: the entity topics,
+// the follow links and the subtitles.
+var Persisted = append(append([]string{}, Entity...), Follow, Subtitle)
 
 // RetryTopics are consumed by the retry relay.
 var RetryTopics = []string{Retry30s, Retry5m, Retry1h}
@@ -102,9 +107,10 @@ func Task(kind tkstaskv1.Kind, lane tkstaskv1.Lane) string {
 	switch kind {
 	case tkstaskv1.Kind_KIND_MEDIA:
 		return TaskMedia
-	case tkstaskv1.Kind_KIND_ACCOUNT, tkstaskv1.Kind_KIND_ENTRY, tkstaskv1.Kind_KIND_FOLLOWS:
-		// Entry checks and follow-list reads share the account stage's
-		// topics and consumers: the worker runs each by its kind.
+	case tkstaskv1.Kind_KIND_ACCOUNT, tkstaskv1.Kind_KIND_ENTRY, tkstaskv1.Kind_KIND_FOLLOWS, tkstaskv1.Kind_KIND_DISCOVER:
+		// Entry checks, follow-list reads and discovery page reads share
+		// the account stage's topics and consumers: the worker runs each by
+		// its kind.
 		stage = "account"
 	case tkstaskv1.Kind_KIND_POST:
 		stage = "post"

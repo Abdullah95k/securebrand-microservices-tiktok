@@ -115,3 +115,75 @@ queries:
       count: "{{count}}"
       cursor: "{{cursor}}"
       from_page: video
+  # Discovery part C (docs/tiktok/discovery-plan.md §8, ADR 0007 §27):
+  # every one served logged out only signed (C6 run 2, 2026-11-06: unsigned
+  # no answer; signed on a profile page, as the crawler's signer signs, all
+  # answered), so their label is "web-signed". Search from US exits answers
+  # 2483 (T37): it runs only through tt.discovery.search.tier. The
+  # parameters are the probe's (internal/tt/discprobe/operations.yaml); the
+  # tag page's calls carry challengeID, count, cursor and coverFormat (C6
+  # run 2 §3).
+  - name: search_general
+    doc_id: web-signed
+    method: GET
+    endpoint: /api/search/general/full/
+    parser: found
+    priority: 10
+    variables:
+      keyword: "{{keyword}}"
+      offset: "{{offset}}"
+      cursor: "{{offset}}"
+      count: "12"
+      search_source: normal_search
+      search_id: "{{search_id}}"
+      is_non_personalized_search: "0"
+      from_page: search
+  - name: challenge_detail
+    doc_id: web-signed
+    method: GET
+    endpoint: /api/challenge/detail/
+    parser: challenge_detail
+    priority: 10
+    variables:
+      challengeName: "{{name}}"
+  - name: challenge_list
+    doc_id: web-signed
+    method: GET
+    endpoint: /api/challenge/item_list/
+    parser: found
+    priority: 10
+    variables:
+      challengeID: "{{id}}"
+      count: "30"
+      cursor: "{{offset}}"
+      coverFormat: "2"
+  - name: music_list
+    doc_id: web-signed
+    method: GET
+    endpoint: /api/music/item_list/
+    parser: found
+    priority: 10
+    variables:
+      musicID: "{{id}}"
+      count: "30"
+      cursor: "{{offset}}"
+      coverFormat: "2"
+  - name: related_list
+    doc_id: web-signed
+    method: GET
+    endpoint: /api/related/item_list/
+    parser: found
+    priority: 10
+    variables:
+      itemID: "{{item_id}}"
+      count: "16"
+  - name: recommend_list
+    doc_id: web-signed
+    method: GET
+    endpoint: /api/recommend/item_list/
+    parser: found
+    priority: 10
+    variables:
+      count: "12"
+      from_page: fyp
+      pullType: "{{pull}}"

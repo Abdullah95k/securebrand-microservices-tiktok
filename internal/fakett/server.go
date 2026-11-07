@@ -82,6 +82,8 @@ type Faults struct {
 	// FollowListsNeedLogin answers the following and followers lists with
 	// LoginCode from the first page (discovery-plan §9).
 	FollowListsNeedLogin bool
+	// SubtitlesRefused answers subtitle files with an empty 200.
+	SubtitlesRefused bool
 }
 
 // Options configure a server.
@@ -107,6 +109,8 @@ type Server struct {
 	// VideoDownloads counts video files served; MediaRefused, the ones
 	// refused for want of a tt_chain_token (Faults.MediaNeedsCookie).
 	VideoDownloads, MediaRefused atomic.Int64
+	// SubtitleDownloads counts subtitle files served.
+	SubtitleDownloads atomic.Int64
 }
 
 // issuedChain reports whether a page load issued this tt_chain_token.
@@ -706,7 +710,7 @@ func (s *Server) item(p *Post, host string) map[string]any {
 		off += len(m.Username) + 2
 	}
 	it := map[string]any{
-		"id": id, "desc": p.Desc, "createTime": p.Created.Unix(), "isAd": p.Ad, "AIGCDescription": "", "ShowAIGC": false,
+		"id": id, "desc": p.Desc, "createTime": p.Created.Unix(), "isAd": p.Ad, "AIGCDescription": p.AIDescription, "ShowAIGC": false,
 		"CategoryType": 120, "textLanguage": "ar", "itemCommentStatus": 0, "privateItem": false,
 		"author": map[string]any{"id": strconv.FormatInt(p.Owner.UID, 10), "uniqueId": p.Owner.Username, "nickname": p.Owner.Nickname,
 			"secUid": p.Owner.SecUID, "verified": p.Owner.Verified, "signature": p.Owner.Bio, "privateAccount": p.Owner.Private},
@@ -728,7 +732,7 @@ func (s *Server) item(p *Post, host string) map[string]any {
 	}
 	cover := cdn + "cover/" + id + ".jpg?x-expires=" + exp + "&x-signature=fake"
 	if p.Kind == "photo" {
-		it["imagePost"] = map[string]any{"title": "", "cover": map[string]any{"imageURL": map[string]any{"urlList": []string{cover}}},
+		it["imagePost"] = map[string]any{"title": p.Title, "cover": map[string]any{"imageURL": map[string]any{"urlList": []string{cover}}},
 			"images": []any{
 				map[string]any{"imageURL": map[string]any{"urlList": []string{cdn + "photo/" + id + "-1.jpg?x-expires=" + exp}}, "imageWidth": 1080, "imageHeight": 1350},
 				map[string]any{"imageURL": map[string]any{"urlList": []string{cdn + "photo/" + id + "-2.jpg?x-expires=" + exp}}, "imageWidth": 1080, "imageHeight": 1350},
@@ -736,14 +740,28 @@ func (s *Server) item(p *Post, host string) map[string]any {
 		it["video"] = map[string]any{"duration": 0, "cover": cover}
 	} else {
 		play := cdn + "video/" + id + ".mp4?expire=" + exp + "&signature=fake"
-		it["video"] = map[string]any{"id": id, "duration": p.Duration, "width": 576, "height": 1024, "cover": cover, "originCover": cover,
+		v := map[string]any{"id": id, "duration": p.Duration, "width": 576, "height": 1024, "cover": cover, "originCover": cover,
 			"dynamicCover": cover, "playAddr": play, "downloadAddr": play,
 			"bitrateInfo": []any{map[string]any{"Bitrate": 400000, "QualityType": 20, "PlayAddr": map[string]any{"UrlList": []string{play}, "DataSize": 4096}}}}
+		if len(p.Subtitles) > 0 {
+			var infos []any
+			for _, st := range p.Subtitles {
+				infos = append(infos, map[string]any{"Format": "webvtt", "LanguageCodeName": st.Language, "LanguageID": "34",
+					"Size": len(st.VTT), "Source": st.Source, "Version": "1:whisper_lid", "UrlExpire": s.World.Now.Unix() + 48*3600,
+					"Url": cdn + "subtitle/" + id + "/" + st.Language + "/" + st.Source + ".vtt?x-expires=" + exp + "&x-signature=fake"})
+			}
+			v["subtitleInfos"] = infos
+		}
+		it["video"] = v
 	}
 	return it
 }
 
 func (s *Server) media(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/fake-cdn/subtitle/") {
+		s.subtitle(w, r)
+		return
+	}
 	if s.faults().MediaNeedsCookie && strings.HasPrefix(r.URL.Path, "/fake-cdn/video/") {
 		// Akamai's "Access Denied" without a tt_chain_token a page issued
 		// (T18).
@@ -765,6 +783,40 @@ func (s *Server) media(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/jpeg")
 		_, _ = w.Write([]byte("\xff\xd8\xff\xe0fake-jpeg" + r.URL.Path))
 	}
+}
+
+// subtitle serves a subtitle file (/fake-cdn/subtitle/<post id>/<language>/
+// <source>.vtt), refused like a video without the page's tt_chain_token
+// under MediaNeedsCookie (whether TikTok's need it is T42), and as an
+// empty 200 under SubtitlesRefused.
+func (s *Server) subtitle(w http.ResponseWriter, r *http.Request) {
+	f := s.faults()
+	if f.MediaNeedsCookie {
+		ck, err := r.Cookie("tt_chain_token")
+		if err != nil || !s.issuedChain(ck.Value) {
+			s.MediaRefused.Add(1)
+			http.Error(w, "Access Denied", http.StatusForbidden)
+			return
+		}
+	}
+	if f.SubtitlesRefused {
+		return
+	}
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/fake-cdn/subtitle/"), "/")
+	if len(parts) == 3 {
+		id, _ := strconv.ParseInt(parts[0], 10, 64)
+		if p := s.World.posts[id]; p != nil {
+			for _, st := range p.Subtitles {
+				if st.Language == parts[1] && st.Source+".vtt" == parts[2] {
+					s.SubtitleDownloads.Add(1)
+					w.Header().Set("Content-Type", "text/vtt")
+					_, _ = w.Write([]byte(st.VTT))
+					return
+				}
+			}
+		}
+	}
+	http.NotFound(w, r)
 }
 
 func (s *Server) oembed(w http.ResponseWriter, r *http.Request) {

@@ -47,6 +47,10 @@ type Source struct {
 	Query, Variant string
 	ParserVersion  uint32
 	Mode           commonv1.CrawlMode
+	// Region is where TikTok placed the reader: the region its page
+	// reported to the identity (Observation.exit_country; the shared
+	// contract's provenance.exit_country). Empty when unknown.
+	Region string
 }
 
 // Emitter publishes records.
@@ -83,7 +87,7 @@ func (e *Emitter) stamp(src Source, entityKey string, msg proto.Message, set fun
 	set(&commonv1.Observation{
 		EventId: hex.EncodeToString(ev[:]), ObservedAt: timestamppb.New(e.now()), JobIds: jobs, QueryName: src.Query,
 		DocId: src.Variant, ParserVersion: src.ParserVersion, ContentHash: h[:], Mode: src.Mode,
-		Platform: commonv1.Platform_PLATFORM_TIKTOK,
+		Platform: commonv1.Platform_PLATFORM_TIKTOK, ExitCountry: src.Region,
 	})
 }
 
@@ -145,6 +149,18 @@ func (e *Emitter) Music(ctx context.Context, b *kafka.Batch, src Source, m *ttv1
 func (e *Emitter) Media(ctx context.Context, b *kafka.Batch, src Source, m *ttv1.Media) error {
 	e.stamp(src, "media:"+m.MediaId, m, func(o *commonv1.Observation) { m.Obs = o })
 	return b.AddProto(ctx, topics.Media, m.MediaId, m)
+}
+
+// Subtitles publishes the subtitle files a read fetched for one post. The
+// text is the account's own speech, not gated, like its caption (ADR 0007
+// §6).
+func (e *Emitter) Subtitles(ctx context.Context, b *kafka.Batch, src Source, s *ttv1.PostSubtitles) error {
+	if s == nil || s.PostId == 0 || len(s.Tracks) == 0 {
+		return nil
+	}
+	key := strconv.FormatInt(s.PostId, 10)
+	e.stamp(src, "subtitles:"+key, s, func(o *commonv1.Observation) { s.Obs = o })
+	return b.AddProto(ctx, topics.Subtitle, key, s)
 }
 
 // Comment applies the privacy rules and publishes a comment.
@@ -211,10 +227,13 @@ func textPeople(rs []*ttv1.TextRange) []*ttv1.Person {
 
 // hashable is msg without what changes between two reads of the same
 // content: the query of signed links (x-expires, x-signature, policy), a
-// link's expiry and a metrics sample's capture time.
+// link's expiry, a metrics sample's capture time and where discovery found
+// a post (the same post found by two searches is the same post).
 func hashable(msg proto.Message) proto.Message {
 	c := proto.Clone(msg)
 	switch m := c.(type) {
+	case *ttv1.Post:
+		m.Find = nil
 	case *ttv1.Media:
 		m.SourceExpiresAt = nil
 	case *ttv1.PostMetrics:

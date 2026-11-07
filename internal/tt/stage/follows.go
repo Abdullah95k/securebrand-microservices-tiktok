@@ -152,7 +152,7 @@ func (s *FollowsStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 
 	fl := d.Cfg.TT.Discovery.Follows
 	q, _ := d.Client.Registry.Get(followQuery)
-	src := emit.Source{JobID: t.JobId, Query: followQuery, Variant: q.DocID, ParserVersion: parse.Version, Mode: t.Mode}
+	src := emit.Source{JobID: t.JobId, Query: followQuery, Variant: q.DocID, ParserVersion: parse.Version, Mode: t.Mode, Region: regionOf(id)}
 	popt := parse.Options{AuthorKey: d.Emit.Key, Query: followQuery, Variant: q.DocID}
 	softRetried := false
 	for r.stop == "" {

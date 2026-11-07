@@ -47,6 +47,22 @@ var PartB = []string{SourceMention, SourceReply, SourceCommenter}
 // pages.
 var PartD = []string{SourceFollowing, SourceFollower}
 
+// Part C's sources (docs/tiktok/discovery-plan.md §8): TikTok's discovery
+// pages. A find is recorded with what was read (via: the keyword's id, the
+// hashtag, the sound's id, the post, the feed's day) and the region TikTok
+// served it in.
+const (
+	SourceSearch  = SearchSource
+	SourceHashtag = "hashtag"
+	SourceSound   = "sound"
+	SourceRelated = "related"
+	SourceFeed    = "feed"
+)
+
+// PartC are part C's sources, the ones the persister records from the
+// posts found on discovery pages.
+var PartC = []string{SourceSearch, SourceHashtag, SourceSound, SourceRelated, SourceFeed}
+
 // bioMention is an @username in a bio: TikTok usernames are letters,
 // digits, underscores and periods, 2 to 24 of them. The character before
 // the @ must not continue a word or an address (name@example.org).
@@ -77,15 +93,17 @@ func BioMentions(bio, own string) []string {
 
 // sighting is one row of discovery_sightings.
 type sighting struct {
-	id        int64
-	how, in   string
-	via       int64
-	userID    *int64
-	secUID    *string
-	username  *string
-	postID    *int64
-	commentID *int64
-	at        time.Time
+	id      int64
+	how, in string
+	via     *int64
+	// Part C: what was read, and the region TikTok served it in.
+	viaRef, region *string
+	userID         *int64
+	secUID         *string
+	username       *string
+	postID         *int64
+	commentID      *int64
+	at             time.Time
 	// What a list page showed (part D): the cheap pre-checks.
 	private *bool
 	videos  *int64
@@ -121,16 +139,16 @@ func (d *Discoverer) Count(ctx context.Context, n int) (int, error) {
 	if n <= 0 {
 		return 0, nil
 	}
-	rows, err := d.DB.Query(ctx, `SELECT id, how, found_in, via_user_id, user_id, sec_uid, username, post_id, comment_id, seen_at,
-			private, videos
+	rows, err := d.DB.Query(ctx, `SELECT id, how, found_in, via_user_id, via, region, user_id, sec_uid, username, post_id,
+			comment_id, seen_at, private, videos
 		FROM discovery_sightings WHERE counted_at IS NULL ORDER BY id LIMIT $1`, n)
 	if err != nil {
 		return 0, err
 	}
 	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (sighting, error) {
 		var s sighting
-		return s, r.Scan(&s.id, &s.how, &s.in, &s.via, &s.userID, &s.secUID, &s.username, &s.postID, &s.commentID, &s.at,
-			&s.private, &s.videos)
+		return s, r.Scan(&s.id, &s.how, &s.in, &s.via, &s.viaRef, &s.region, &s.userID, &s.secUID, &s.username, &s.postID,
+			&s.commentID, &s.at, &s.private, &s.videos)
 	})
 	if err != nil || len(list) == 0 {
 		return 0, err
@@ -141,13 +159,20 @@ func (d *Discoverer) Count(ctx context.Context, n int) (int, error) {
 	for _, s := range list {
 		ids = append(ids, s.id)
 		p := s.person()
-		if p == "" || (s.userID != nil && *s.userID == s.via) {
+		if p == "" || (s.via != nil && s.userID != nil && *s.userID == *s.via) {
 			continue // nobody, or the monitored account itself
 		}
-		k := s.how + "|" + strconv.FormatInt(s.via, 10) + "|" + p
+		via := ""
+		switch {
+		case s.viaRef != nil:
+			via = *s.viaRef
+		case s.via != nil:
+			via = strconv.FormatInt(*s.via, 10)
+		}
+		k := s.how + "|" + via + "|" + p
 		g, ok := groups[k]
 		if !ok {
-			g = &sightingGroup{first: s, f: Finding{How: s.how, Via: strconv.FormatInt(s.via, 10), At: s.at}}
+			g = &sightingGroup{first: s, f: Finding{How: s.how, Via: via, At: s.at}}
 			groups[k] = g
 			order = append(order, k)
 		}
@@ -245,11 +270,15 @@ func (d *Discoverer) fillUsernames(ctx context.Context, groups map[string]*sight
 	return nil
 }
 
-// sightingEvidence is a part B source's evidence: where the account was
-// seen first in the batch (the post and comment, by id), and how often.
-// Never any text.
+// sightingEvidence is a source's evidence: where the account was seen
+// first in the batch (the post and comment, by id), how often, and for
+// part C the region TikTok served the page in ("IQ": shown to viewers in
+// Iraq, discovery-plan §8.3). Never any text.
 func sightingEvidence(s sighting, seen int64) json.RawMessage {
 	ev := map[string]any{"found_in": s.in, "sightings": seen}
+	if s.region != nil && *s.region != "" {
+		ev["region"] = *s.region
+	}
 	if s.postID != nil {
 		ev["post_id"] = strconv.FormatInt(*s.postID, 10)
 	}
