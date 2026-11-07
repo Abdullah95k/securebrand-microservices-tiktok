@@ -5,13 +5,13 @@ go 1.27.2
 require (
 	github.com/abdullah95k/securebrand-contracts v1.2.0
 	github.com/alicebob/miniredis/v2 v2.40.0
-	github.com/bogdanfinn/fhttp v0.7.2
-	github.com/bogdanfinn/tls-client v1.17.1
+	github.com/bogdanfinn/fhttp v0.7.3
+	github.com/bogdanfinn/tls-client v1.18.0
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/go-redis/redis_rate/v10 v10.0.1
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.11.0
+	github.com/jackc/pgx/v5 v5.12.0
 	github.com/johannesboyne/gofakes3 v1.2.0
 	github.com/klauspost/compress v1.20.3
 	github.com/knadh/koanf/parsers/yaml v1.1.1
@@ -36,13 +36,13 @@ require (
 )
 
 require (
-	github.com/andybalholm/brotli v1.2.6 // indirect
+	github.com/andybalholm/brotli v1.2.7 // indirect
 	github.com/bdandy/go-errors v1.2.2 // indirect
 	github.com/bdandy/go-socks4 v1.2.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/bogdanfinn/quic-go-utls v1.0.12-utls // indirect
+	github.com/bogdanfinn/quic-go-utls v1.0.13-utls // indirect
 	github.com/bogdanfinn/utls v1.8.2-barnius // indirect
-	github.com/bogdanfinn/websocket v1.5.8-barnius // indirect
+	github.com/bogdanfinn/websocket v1.5.9-barnius // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
