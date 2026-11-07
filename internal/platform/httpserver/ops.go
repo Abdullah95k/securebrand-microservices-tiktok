@@ -30,7 +30,18 @@ type Ops struct {
 	srv      *http.Server
 	served   chan error
 	starting atomic.Bool
+
+	// The last run of the readiness checks, reused for CheckEvery.
+	lastMu  sync.Mutex
+	lastAt  time.Time
+	lastErr error
 }
+
+// CheckEvery bounds how often /readyz runs its checks: between runs it
+// answers with the last result. A probe every 10 s that pinged
+// PostgreSQL each time kept every pod's pooled server connection busy, so
+// PgBouncer could never close it as idle (the master, 2026-11-07).
+var CheckEvery = time.Minute
 
 func NewOps(addr string) *Ops { return &Ops{addr: addr, checks: map[string]Check{}} }
 
@@ -50,19 +61,36 @@ func (o *Ops) Handler() http.Handler {
 			http.Error(w, "starting", http.StatusServiceUnavailable)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-		defer cancel()
-		o.mu.RLock()
-		defer o.mu.RUnlock()
-		for name, c := range o.checks {
-			if err := c(ctx); err != nil {
-				http.Error(w, name+": "+err.Error(), http.StatusServiceUnavailable)
-				return
-			}
+		if err := o.ready(r.Context()); err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
 		}
 		w.WriteHeader(http.StatusOK)
 	})
 	return mux
+}
+
+// ready runs the readiness checks, or returns their last result when they
+// ran less than CheckEvery ago.
+func (o *Ops) ready(ctx context.Context) error {
+	o.lastMu.Lock()
+	defer o.lastMu.Unlock()
+	if !o.lastAt.IsZero() && time.Since(o.lastAt) < CheckEvery {
+		return o.lastErr
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	o.lastErr = nil
+	for name, c := range o.checks {
+		if err := c(ctx); err != nil {
+			o.lastErr = errors.New(name + ": " + err.Error())
+			break
+		}
+	}
+	o.lastAt = time.Now()
+	return o.lastErr
 }
 
 // Early starts serving before the binary opens its dependencies, so
