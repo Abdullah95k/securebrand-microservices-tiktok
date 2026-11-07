@@ -1274,8 +1274,12 @@ func (t TT) validate() []error {
 	if s := t.Discovery.Search; s.Every <= 0 || s.MaxPages <= 0 {
 		errs = append(errs, errors.New("tt.discovery.search: every and max_pages > 0"))
 	}
+	// The tiers come from the proxies file, which only the components that
+	// reach TikTok mount (secretFiles.components): the others (the migrate
+	// hook, api, scheduler, persister) load no tiers, so the names can only
+	// be checked where tiers are loaded.
 	for name, tier := range map[string]string{"search": t.Discovery.Search.Tier, "feed": t.Discovery.Feed.Tier} {
-		if tier != "" && tier != "direct" && !slices.ContainsFunc(t.Proxy.Tiers, func(p ProxyTier) bool { return p.Name == tier }) {
+		if len(t.Proxy.Tiers) > 0 && tier != "" && tier != "direct" && !slices.ContainsFunc(t.Proxy.Tiers, func(p ProxyTier) bool { return p.Name == tier }) {
 			errs = append(errs, fmt.Errorf("tt.discovery.%s.tier %q is not one of tt.proxy.tiers", name, tier))
 		}
 	}
