@@ -166,6 +166,24 @@ func TestChartProductionConfigLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("values-production.yaml: %v", err)
 	}
+	// The components without the proxies file (the migrate hook, api,
+	// scheduler, persister) load the same values with no tiers at all.
+	if _, err := Load(chartConfig(t, chart+"/values.yaml", chart+"/values-production.yaml")); err != nil {
+		t.Fatalf("values-production.yaml without the proxies file (the migrate hook): %v", err)
+	}
+	// With the file, a search or feed tier it does not define refuses to load.
+	noIQ := filepath.Join(t.TempDir(), "proxies.yaml")
+	if err := os.WriteFile(noIQ, []byte(`tt:
+  proxy:
+    tiers:
+      - {name: isp, kind: static_list, country: US, endpoints: ["http://user:pass@192.0.2.1:8080"]}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(chartConfig(t, chart+"/values.yaml", chart+"/values-production.yaml") + "," + noIQ); err == nil ||
+		!strings.Contains(err.Error(), "res_iq") {
+		t.Errorf("a proxies file without res_iq loaded (%v)", err)
+	}
 	if c.Kafka.SASL.Mechanism != "scram-sha-256" || len(c.Kafka.Brokers) != 2 || !c.Kafka.TLS.Enabled || !c.Redis.TLS.Enabled {
 		t.Errorf("kafka/valkey: %+v %v", c.Kafka.SASL, c.Kafka.Brokers)
 	}
