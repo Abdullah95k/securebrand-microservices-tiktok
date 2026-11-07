@@ -25,7 +25,7 @@ var tables = []string{
 	"api_clients", "jobs", "crawl_cursors", "account_schedule", "account_registrations", "post_refresh",
 	"discovery_keywords", "account_sources", "account_labels", "account_blocks", "import_batches", "import_lines",
 	"operations", "client_params", "canary_runs", "post_status_changes", "discovery_candidates", "discovery_sightings",
-	"follows", "follow_lists", "content_state", "content_cursors", "post_subtitles", "discovery_targets",
+	"follows", "follow_lists", "content_state", "content_cursors", "post_subtitles", "discovery_targets", "leases",
 }
 
 func tablesIn(t *testing.T, db interface {
@@ -215,6 +215,7 @@ func TestSchemaHoldsData(t *testing.T) {
 		VALUES ('follower', 'followers', 7, 8, 'MS4wother', false, 0, now())`)
 	exec(`INSERT INTO follows (user_id, direction, person_user_id, author_key, first_seen_at, last_seen_at) VALUES (7, 'follower', 8, $1, now(), now())`, key)
 	exec(`INSERT INTO follow_lists (user_id, direction, state) VALUES (7, 'following', 'hidden')`)
+	exec(`INSERT INTO leases (name, holder, until) VALUES ('leader:4400100', 'pod', now())`)
 	exec(`INSERT INTO discovery_targets (source, key, name, item_id, origin, next_read_at) VALUES ('hashtag', 'tag', 'tag', 5, 'monitored', now())`)
 	exec(`INSERT INTO discovery_sightings (how, found_in, via, region, user_id, sec_uid, post_id, seen_at)
 		VALUES ('hashtag', 'hashtag', 'tag', 'IQ', 8, 'MS4wother', 7400000000000000001, now())`)

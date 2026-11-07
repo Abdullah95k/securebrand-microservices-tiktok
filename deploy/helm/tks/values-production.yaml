@@ -42,6 +42,11 @@ config:
   service: {env: prod}
   # Brokers, Valkey, Postgres and the object store come from
   # platform-credentials; these are what the Secret does not say.
+  # Production's PostgreSQL is reached through PgBouncer in transaction
+  # mode, max_connections 50 for every service (the master, 2026-11-07):
+  # a small pool per process, short transactions.
+  postgres:
+    max_conns: 4
   kafka:
     brokers: []
   s3:

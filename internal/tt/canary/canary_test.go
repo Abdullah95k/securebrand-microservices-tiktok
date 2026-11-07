@@ -265,3 +265,24 @@ func TestNoAccounts(t *testing.T) {
 		t.Errorf("%d error runs recorded (%v), want 1", n, err)
 	}
 }
+
+// One run at a time across replicas: while another process holds the
+// canary's lease, a run is skipped and reads nothing (a lease, not a
+// session advisory lock, which PgBouncer's transaction mode would share).
+func TestSkippedWhileAnotherRuns(t *testing.T) {
+	e := start(t, 1, nil)
+	ctx := context.Background()
+	if _, err := e.c.DB.Exec(ctx, `INSERT INTO leases (name, holder, until) VALUES ('tks:canary', 'another-pod', now() + interval '1 minute')`); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := e.c.Run(ctx)
+	if err != nil || rep.Status != canary.StatusSkipped {
+		t.Fatalf("status %s, err %v; want skipped", rep.Status, err)
+	}
+	if _, err := e.c.DB.Exec(ctx, `UPDATE leases SET until = now() - interval '1 second' WHERE name = 'tks:canary'`); err != nil {
+		t.Fatal(err)
+	}
+	if rep, _ := e.c.Run(ctx); rep.Status == canary.StatusSkipped {
+		t.Fatal("skipped after the other run's lease expired")
+	}
+}

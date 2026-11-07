@@ -86,6 +86,12 @@ func PoolConfig(dsn string, maxConns int32) (*pgxpool.Config, error) {
 		cfg.MaxConns = maxConns
 	}
 	delete(cfg.ConnConfig.RuntimeParams, "search_path")
+	// PgBouncer in transaction mode, with no prepared-statement tracking
+	// (production; the master, 2026-11-07): a named prepared statement made
+	// on one server session would be missing on the next. Cached
+	// descriptions run each query in one round trip with the unnamed
+	// statement, so the pool cannot switch sessions in the middle.
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeCacheDescribe
 	cfg.AfterConnect = func(ctx context.Context, c *pgx.Conn) error {
 		if _, err := c.Exec(ctx, setSearchPath); err != nil {
 			return fmt.Errorf("ttstore: %s: %w", setSearchPath, err)

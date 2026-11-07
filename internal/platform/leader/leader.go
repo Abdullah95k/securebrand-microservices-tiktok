@@ -1,101 +1,133 @@
-// Package leader implements leader election with a Postgres session-level
-// advisory lock, which behaves the same under Compose and Kubernetes.
+// Package leader elects one leader among replicas with a lease row in the
+// leases table (tks: tt.leases, migration 00016), renewed every few
+// seconds. A session advisory lock cannot be used: production's PostgreSQL
+// is reached through PgBouncer in transaction mode, where a session lock
+// stays on a pooled server session that another client may then use (two
+// leaders), and an unlock may run on another session (the master,
+// 2026-11-07). A lease is a plain row written in one statement, so it holds
+// whatever the pool mode.
 package leader
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"log/slog"
+	"os"
+	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Run blocks until this process holds the lock identified by key, then calls
-// fn with a context that is cancelled if the lock's connection dies. It
-// retries until ctx is done.
+const (
+	// TTL is how long a lease holds without a renewal; Renew how often its
+	// holder renews it. A holder that misses one renewal stops its work
+	// well before another process can take the lease.
+	TTL   = 15 * time.Second
+	Renew = 5 * time.Second
+	// callTimeout bounds each acquire, renewal and release.
+	callTimeout = 3 * time.Second
+)
+
+// Holder names this process in the leases it holds: the host name and a
+// random suffix, so two processes on one host never share a lease.
+var Holder = func() string {
+	h, _ := os.Hostname()
+	b := make([]byte, 6)
+	_, _ = rand.Read(b)
+	return h + "-" + hex.EncodeToString(b)
+}()
+
+// Name is the lease name of a numeric key (the scheduler's leaderKey).
+func Name(key int64) string { return "leader:" + strconv.FormatInt(key, 10) }
+
+// Run blocks until this process holds the lease of key, then calls fn with
+// a context that is cancelled when a renewal fails. It retries until ctx is
+// done.
 func Run(ctx context.Context, pool *pgxpool.Pool, key int64, fn func(ctx context.Context) error) error {
+	name := Name(key)
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		err := runOnce(ctx, pool, key, fn)
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if err != nil {
-			slog.Warn("leader: lost or failed", "err", err)
+		if _, err := Hold(ctx, pool, name, fn); err != nil && ctx.Err() == nil {
+			slog.Warn("leader: lost or failed", "lease", name, "err", err)
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(5 * time.Second):
+		case <-time.After(Renew):
 		}
 	}
 }
 
-// pingTimeout bounds each check that the lock's connection is alive, and
-// the unlock.
-const pingTimeout = 3 * time.Second
-
-// drop closes a pooled connection instead of returning it to the pool.
-func drop(conn *pgxpool.Conn) {
-	c := conn.Hijack()
-	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
-	defer cancel()
-	_ = c.Close(ctx)
-}
-
-func runOnce(ctx context.Context, pool *pgxpool.Pool, key int64, fn func(ctx context.Context) error) error {
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		return err
+// Hold takes the lease name once and, if it got it, runs fn while renewing
+// it every Renew; fn's context is cancelled when a renewal fails, and Hold
+// waits for fn before it releases the lease. It reports whether fn ran: a
+// lease another process holds is not an error.
+func Hold(ctx context.Context, pool *pgxpool.Pool, name string, fn func(ctx context.Context) error) (bool, error) {
+	got, err := acquire(ctx, pool, name)
+	if err != nil || !got {
+		return false, err
 	}
-	var got bool
-	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", key).Scan(&got); err != nil {
-		drop(conn)
-		return err
-	}
-	if !got {
-		conn.Release()
-		return nil
-	}
-	slog.Info("leader: acquired", "key", key)
-	defer func() {
-		// Unlock and hand the connection back; if that fails, close it,
-		// which releases the lock with the session, so a connection still
-		// holding it never returns to the pool.
-		uctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
-		defer cancel()
-		if _, err := conn.Exec(uctx, "SELECT pg_advisory_unlock($1)", key); err != nil {
-			drop(conn)
-			return
-		}
-		conn.Release()
-	}()
+	slog.Info("leader: lease acquired", "lease", name)
+	defer release(pool, name)
 
 	lctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- fn(lctx) }()
-	tick := time.NewTicker(5 * time.Second)
+	tick := time.NewTicker(Renew)
 	defer tick.Stop()
 	for {
 		select {
 		case err := <-done:
-			return err
+			return true, err
 		case <-tick.C:
-			pctx, pcancel := context.WithTimeout(ctx, pingTimeout)
-			err := conn.Ping(pctx)
-			pcancel()
+			ok, err := acquire(ctx, pool, name)
+			if err == nil && !ok {
+				err = errors.New("leader: lease taken by another process")
+			}
 			if err != nil {
-				// A hung connection counts as lost: the work stops before
-				// another process can take the lock.
+				// The work stops before the lease can expire for another
+				// process to take it.
 				cancel()
 				if ferr := <-done; ferr != nil {
-					slog.Debug("leader: work stopped after losing the lock", "err", ferr)
+					slog.Debug("leader: work stopped after losing the lease", "err", ferr)
 				}
-				return err
+				return true, err
 			}
 		}
+	}
+}
+
+// acquire takes or renews the lease, in one statement: it succeeds when
+// nobody holds it, this process holds it, or its holder let it expire.
+// Times are the database's, so the replicas' clocks do not matter.
+func acquire(ctx context.Context, pool *pgxpool.Pool, name string) (bool, error) {
+	cctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	var until time.Time
+	err := pool.QueryRow(cctx, `INSERT INTO leases AS l (name, holder, until) VALUES ($1, $2, now() + $3::interval)
+		ON CONFLICT (name) DO UPDATE SET holder = EXCLUDED.holder, until = EXCLUDED.until
+		WHERE l.holder = EXCLUDED.holder OR l.until < now()
+		RETURNING until`, name, Holder, TTL.String()).Scan(&until)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// release ends this process's lease at once, so another can take it
+// without waiting for it to expire.
+func release(pool *pgxpool.Pool, name string) {
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	defer cancel()
+	if _, err := pool.Exec(ctx, `UPDATE leases SET until = now() - interval '1 second' WHERE name = $1 AND holder = $2`,
+		name, Holder); err != nil {
+		slog.Warn("leader: lease not released (it expires by itself)", "lease", name, "err", err)
 	}
 }
