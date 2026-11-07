@@ -216,6 +216,10 @@ api:
 # 1,000 accounts; each signer page holds up to tt.signer.max_page_mb and is
 # killed past kill_page_mb. "service: true" gives a component a Service on
 # its port; "podIP: true" passes the pod's IP as $POD_IP.
+# Each component may set paused: true to hold it at 0 pods, KEDA included
+# (replicas 0, and autoscaling.keda.sh/paused-replicas "0" on its
+# ScaledObject), while keeping all its objects: for example the pods that
+# need the proxies Secret before it exists. Remove it to start them again.
 components:
   api:
     enabled: true

@@ -10,7 +10,10 @@ metadata:
     {{- include "tks.labels" $root | nindent 4 }}
     app.kubernetes.io/component: {{ $name }}
 spec:
-  {{- if not (and $root.Values.keda.enabled $c.autoscale) }}
+  {{- if $c.paused }}
+  # Paused (components.<name>.paused): held at 0 pods, KEDA included.
+  replicas: 0
+  {{- else if not (and $root.Values.keda.enabled $c.autoscale) }}
   replicas: {{ $c.replicas }}
   {{- end }}
   revisionHistoryLimit: 5
@@ -90,6 +93,12 @@ kind: ScaledObject
 metadata:
   name: {{ include "tks.fullname" $root }}-{{ $name }}
   labels: {{- include "tks.labels" $root | nindent 4 }}
+  {{- if $c.paused }}
+  annotations:
+    # KEDA holds the Deployment at 0 pods and stops scaling it, without
+    # removing the ScaledObject (components.<name>.paused).
+    autoscaling.keda.sh/paused-replicas: "0"
+  {{- end }}
 spec:
   scaleTargetRef:
     name: {{ include "tks.fullname" $root }}-{{ $name }}
