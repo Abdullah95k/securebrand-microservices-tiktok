@@ -14,9 +14,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -49,13 +52,38 @@ var Tables = store.Tables{
 }
 
 // Open creates a pool whose connections all use search_path tt, and checks
-// it can connect.
+// it can connect. While the server is out of connection slots, which
+// happens when every service of the cluster starts at once (production's
+// PostgreSQL has 50 connections for all of them; the master, 2026-11-07),
+// it backs off and tries again for up to StartRetryFor instead of failing.
 func Open(ctx context.Context, dsn string, maxConns int32) (*pgxpool.Pool, error) {
 	cfg, err := PoolConfig(dsn, maxConns)
 	if err != nil {
 		return nil, err
 	}
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	deadline := time.Now().Add(StartRetryFor)
+	wait := time.Second
+	for {
+		pool, err := connect(ctx, cfg)
+		if err == nil || !Retryable(err) || time.Now().Add(wait).After(deadline) {
+			return pool, err
+		}
+		slog.Warn("ttstore: the database has no connection for us yet; retrying", "in", wait, "err", err)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(wait):
+		}
+		wait = min(2*wait, 15*time.Second)
+	}
+}
+
+// StartRetryFor bounds how long Open keeps retrying a server that is out of
+// connection slots.
+var StartRetryFor = 3 * time.Minute
+
+func connect(ctx context.Context, cfg *pgxpool.Config) (*pgxpool.Pool, error) {
+	pool, err := pgxpool.NewWithConfig(ctx, cfg.Copy())
 	if err != nil {
 		return nil, fmt.Errorf("ttstore: connect: %w", err)
 	}
@@ -64,6 +92,29 @@ func Open(ctx context.Context, dsn string, maxConns int32) (*pgxpool.Pool, error
 		return nil, fmt.Errorf("ttstore: ping: %w", err)
 	}
 	return pool, nil
+}
+
+// Retryable reports a connection error that passes once other clients let
+// go of their connections: PostgreSQL out of slots (53300
+// too_many_connections, 57P03 cannot_connect_now, 53000
+// insufficient_resources) and PgBouncer failing to log in to it or out of
+// client slots, which it reports with protocol errors (08P01).
+func Retryable(err error) bool {
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) {
+		switch pe.Code {
+		case "53300", "57P03", "53000":
+			return true
+		}
+	}
+	msg := err.Error()
+	for _, s := range []string{"server login has been failing", "no more connections allowed", "remaining connection slots are reserved",
+		"too many connections", "the database system is starting up"} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // setSearchPath is run on every new connection of a pool from Open.
