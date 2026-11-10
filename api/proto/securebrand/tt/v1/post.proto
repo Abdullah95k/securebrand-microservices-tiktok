@@ -39,6 +39,8 @@ enum DiscoveredVia {
   DISCOVERED_VIA_SOUND = 5;
   DISCOVERED_VIA_FEED = 6;
   DISCOVERED_VIA_RELATED = 7;
+  // An account's reposts tab (discovery's reposts source, M19).
+  DISCOVERED_VIA_REPOST = 8;
 }
 
 // PostFind is where discovery part C found a post (M12): the source

@@ -70,3 +70,56 @@ func TestFinds(t *testing.T) {
 		t.Errorf("post 2 discovered_via %q after its list read", v)
 	}
 }
+
+// A reposts tab's posts (source repost, via the reposting account's id)
+// are finds like part C's, and every repost is kept in tt.reposts (owner
+// D-047): first seen once, last seen on each read; an account's own post
+// on its tab is no repost; nothing with the source off.
+func TestReposts(t *testing.T) {
+	w := newWriter(t)
+	ctx := context.Background()
+	on := map[string]bool{"repost": true}
+	w.Sightings = func(h string) bool { return on[h] }
+	t0 := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	reposted := func(id int64, at time.Time, by string) *ttv1.Post {
+		p := found(id, at, "repost", by)
+		p.DiscoveredVia = ttv1.DiscoveredVia_DISCOVERED_VIA_REPOST
+		p.Find.Region = ""
+		p.Obs.JobIds = []string{"00000000-0000-0000-0000-00000000000" + by[len(by)-1:]}
+		return p
+	}
+	if err := w.Posts(ctx, []*ttv1.Post{reposted(1, t0, "5"), reposted(2, t0, "5"), reposted(1, t0, "6"), reposted(3, t0, "7001")}); err != nil {
+		t.Fatal(err)
+	}
+	if n := one[int64](t, w.DB, `SELECT count(*) FROM reposts`); n != 3 {
+		t.Fatalf("%d reposts, want 3 (posts 1 and 2 by account 5, post 1 by account 6; the author's own post is none)", n)
+	}
+	if n := one[int64](t, w.DB, `SELECT count(*) FROM reposts WHERE author_user_id = 7001 AND first_seen_at = last_seen_at`); n != 3 {
+		t.Errorf("%d reposts with their author and one sighting time", n)
+	}
+	if n := one[int64](t, w.DB, `SELECT count(*) FROM discovery_sightings WHERE how = 'repost' AND found_in = 'repost' AND user_id = 7001`); n != 4 {
+		t.Errorf("%d repost finds, want 4 (one per account and post)", n)
+	}
+	if v := one[string](t, w.DB, `SELECT discovered_via FROM posts WHERE post_id = 2`); v != "repost" {
+		t.Errorf("post 2 discovered_via %q", v)
+	}
+	// A later read: last seen moves, first seen stays, no new find.
+	if err := w.Posts(ctx, []*ttv1.Post{reposted(1, t0.Add(time.Hour), "5")}); err != nil {
+		t.Fatal(err)
+	}
+	if n := one[int64](t, w.DB, `SELECT count(*) FROM reposts WHERE user_id = 5 AND post_id = 1
+		AND first_seen_at = $1 AND last_seen_at = $2 AND last_job_id IS NOT NULL`, t0, t0.Add(time.Hour)); n != 1 {
+		t.Errorf("the re-read repost's times are not first %v, last %v", t0, t0.Add(time.Hour))
+	}
+	if n := one[int64](t, w.DB, `SELECT count(*) FROM discovery_sightings WHERE how = 'repost'`); n != 4 {
+		t.Errorf("%d repost finds after a re-read", n)
+	}
+	// The source off: nothing kept.
+	on["repost"] = false
+	if err := w.Posts(ctx, []*ttv1.Post{reposted(9, t0, "8")}); err != nil {
+		t.Fatal(err)
+	}
+	if n := one[int64](t, w.DB, `SELECT count(*) FROM reposts WHERE user_id = 8`); n != 0 {
+		t.Errorf("%d reposts kept with the source off", n)
+	}
+}

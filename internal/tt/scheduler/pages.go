@@ -64,7 +64,7 @@ func (s *Discovery) pages(ctx context.Context) error {
 				return err
 			}
 			for i, t := range targets {
-				pages := maxPages(cfg, t.Source)
+				pages := maxPages(cfg, t)
 				if left >= 0 {
 					if left == 0 {
 						if err := s.D.TargetUnclaim(ctx, t.Source, t.Key); err != nil {
@@ -95,9 +95,10 @@ func (s *Discovery) pages(ctx context.Context) error {
 	return nil
 }
 
-// maxPages is a source's pages a read (the feed's reads).
-func maxPages(cfg config.Discovery, source string) int {
-	switch source {
+// maxPages is a target's pages a read (the feed's reads; a reposts tab's
+// first read goes deeper).
+func maxPages(cfg config.Discovery, t discovery.DueTarget) int {
+	switch t.Source {
 	case discovery.SourceSearch:
 		return cfg.Search.MaxPages
 	case discovery.SourceHashtag:
@@ -106,6 +107,11 @@ func maxPages(cfg config.Discovery, source string) int {
 		return cfg.Sounds.MaxPages
 	case discovery.SourceFeed:
 		return cfg.Feed.Reads
+	case discovery.SourceRepost:
+		if t.FirstRead {
+			return cfg.Reposts.FirstPages
+		}
+		return cfg.Reposts.MaxPages
 	}
 	return 1 // related: one page
 }
@@ -131,6 +137,13 @@ func (s *Discovery) startTarget(ctx context.Context, t discovery.DueTarget, boot
 		// The post's own author's page, when tks knows its username.
 		if t.PostUsername != "" {
 			scope.BootUsername = t.PostUsername
+		}
+	case discovery.SourceRepost:
+		// The reposting account's own profile page; the ISP tier (the list
+		// class's routing), unsigned.
+		scope.SecUid = t.SecUID
+		if t.Name != "" {
+			scope.BootUsername = t.Name
 		}
 	}
 	client := s.client

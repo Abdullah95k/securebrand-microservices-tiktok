@@ -187,3 +187,16 @@ queries:
       count: "12"
       from_page: fyp
       pullType: "{{pull}}"
+  # An account's reposts tab (M19, owner D-047): served logged out and
+  # unsigned from the ISP tier (C6 run 1, 7 of 7; the probe's seed).
+  - name: repost_list
+    doc_id: web
+    method: GET
+    endpoint: /api/repost/item_list/
+    parser: found
+    priority: 10
+    variables:
+      secUid: "{{sec_uid}}"
+      count: "16"
+      cursor: "{{offset}}"
+      coverFormat: "2"

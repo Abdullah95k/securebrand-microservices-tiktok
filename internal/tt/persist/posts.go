@@ -210,6 +210,9 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 			if err := recordFinds(ctx, tx, finds, got); err != nil {
 				return err
 			}
+			if err := recordReposts(ctx, tx, finds); err != nil {
+				return err
+			}
 			if len(mrows) == 0 {
 				return nil
 			}

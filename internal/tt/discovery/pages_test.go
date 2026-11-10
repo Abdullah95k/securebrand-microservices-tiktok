@@ -206,3 +206,85 @@ func one[T any](t *testing.T, c *candidates, q string, args ...any) T {
 	}
 	return v
 }
+
+// The reposts source (M19): every monitored account with a secUid and a
+// username is a target read every reposts.every; candidates whose entry
+// check has read them (active ones) are targets read once, up to
+// candidates_per_tick a call, and never twice; a candidate later admitted
+// becomes a monitored target, read again. A claim carries the secUid and
+// says whether the target was ever read.
+func TestRepostTargets(t *testing.T) {
+	c := newCandidates(t)
+	ctx := context.Background()
+	d := c.d
+	dc := &d.Cfg.TT.Discovery
+	dc.Enabled = true
+	dc.Sources = map[string]bool{"repost": true}
+	dc.Reposts.Candidates, dc.Reposts.CandidatesPerTick = true, 1
+	if src := d.PageSources(); !slices.Equal(src, []string{SourceRepost}) {
+		t.Fatalf("sources %v", src)
+	}
+	for _, uid := range []int64{1, 2, 3, 4, 5} {
+		c.exec(`INSERT INTO accounts (user_id, sec_uid, username, author_key) VALUES ($1, $2, $3, '\x00')`, uid, secOf(uid),
+			"user"+strconv.FormatInt(uid, 10))
+	}
+	c.exec(`INSERT INTO account_schedule (account_ref, user_id, interval_seconds, next_run_at, admitted_at)
+		VALUES ('id:1', 1, 9900, now(), now())`)
+	// Candidates: 2 and 3 checked, 4 not yet, 5 checked but gone.
+	for _, cd := range []struct {
+		uid     int64
+		checked bool
+	}{{2, true}, {3, true}, {4, false}, {5, true}} {
+		var at *time.Time
+		if cd.checked {
+			x := c.now.Add(-time.Duration(cd.uid) * time.Minute)
+			at = &x
+		}
+		c.exec(`INSERT INTO discovery_candidates (account_ref, user_id, state, first_seen_at, last_seen_at, checked_at)
+			VALUES ($1, $2, 'dormant', now(), now(), $3)`, "sec:"+secOf(cd.uid), cd.uid, at)
+	}
+	c.exec(`UPDATE accounts SET status = 'unavailable' WHERE user_id = 5`)
+	for range 3 {
+		if err := d.SeedTargets(ctx, []string{SourceRepost}, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	type row struct {
+		key, origin, sec string
+	}
+	rows, err := c.db.Query(ctx, `SELECT key, origin, sec_uid FROM discovery_targets WHERE source = 'repost' ORDER BY key`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.key, &r.origin, &r.sec); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, r)
+	}
+	want := []row{{"1", OriginMonitored, secOf(1)}, {"2", OriginCandidate, secOf(2)}, {"3", OriginCandidate, secOf(3)}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("targets %v, want %v (one candidate a call, the newest checked first; none unchecked or gone)", got, want)
+	}
+	due, err := d.ClaimTargets(ctx, []string{SourceRepost}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 3 || !due[0].FirstRead || due[0].SecUID == "" || due[0].Name == "" {
+		t.Fatalf("claimed %+v", due)
+	}
+	// Candidate 2's tab read once: no next read; admitted later, it is a
+	// monitored target due again.
+	c.exec(`UPDATE discovery_targets SET next_read_at = NULL, first_read_at = now(), claimed_at = NULL WHERE source = 'repost' AND key = '2'`)
+	c.exec(`INSERT INTO account_schedule (account_ref, user_id, interval_seconds, next_run_at, admitted_at)
+		VALUES ('id:2', 2, 9900, now(), now())`)
+	if err := d.SeedTargets(ctx, []string{SourceRepost}, false); err != nil {
+		t.Fatal(err)
+	}
+	if n := one[int64](t, c, `SELECT count(*) FROM discovery_targets WHERE source = 'repost' AND key = '2'
+		AND origin = 'monitored' AND next_read_at IS NOT NULL`); n != 1 {
+		t.Fatal("an admitted candidate's tab is not a monitored target with a next read")
+	}
+}

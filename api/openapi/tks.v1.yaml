@@ -374,6 +374,45 @@ paths:
                         last_seen_at: {type: string, format: date-time}
                   next_cursor: {type: string}
         "400": {$ref: '#/components/responses/Problem'}
+  /accounts/{account}/reposts:
+    parameters: [{$ref: '#/components/parameters/Account'}, {$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+    get:
+      summary: The posts on the account's reposts tab (discovery's reposts source), the newest first seen first
+      description: >-
+        Read when tt.discovery's repost source is on: a monitored account's
+        tab every tt.discovery.reposts.every, a candidate's once after its
+        entry check. Every repost is kept (owner D-047). TikTok shows no
+        repost time: the times are when tks first and last saw the post on
+        the tab. The posts themselves are at /posts/{post}.
+      responses:
+        "200":
+          description: Reposts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tab:
+                    type: object
+                    description: The tab's read state (absent before it is a target)
+                    properties:
+                      state: {type: string, enum: [new, ok, gone, refused]}
+                      status_code: {type: integer, format: int64, description: "TikTok's code for a tab it would not serve"}
+                      last_read_at: {type: string, format: date-time}
+                      next_read_at: {type: string, format: date-time, description: "Absent for a candidate's tab, read once"}
+                      reads: {type: integer, format: int64}
+                      last_stop: {type: string, enum: [end, cap, stuck, empty, gone, refused]}
+                  reposts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        post_id: {type: string}
+                        author_user_id: {type: string}
+                        first_seen_at: {type: string, format: date-time}
+                        last_seen_at: {type: string, format: date-time}
+                  next_cursor: {type: string}
+        "400": {$ref: '#/components/responses/Problem'}
   /accounts/{account}/posts:
     parameters: [{$ref: '#/components/parameters/Account'}]
     get:

@@ -2,6 +2,7 @@ package persist
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -225,6 +226,7 @@ type find struct {
 	how, via, region string
 	userID, postID   int64
 	at               time.Time
+	job              string // the read's job (a repost's first and last)
 }
 
 // postFinds are the finds of the part C sources switched on in ps.
@@ -235,7 +237,11 @@ func (w *Writer) postFinds(ps []*ttv1.Post) []find {
 		if f == nil || p.UserId == 0 || p.PostId == 0 || f.Via == "" || !w.on(f.Source) {
 			continue
 		}
-		out = append(out, find{how: f.Source, via: f.Via, region: f.Region, userID: p.UserId, postID: p.PostId, at: observed(p.Obs)})
+		var job string
+		if ids := p.GetObs().GetJobIds(); len(ids) > 0 {
+			job = ids[0]
+		}
+		out = append(out, find{how: f.Source, via: f.Via, region: f.Region, userID: p.UserId, postID: p.PostId, at: observed(p.Obs), job: job})
 	}
 	return out
 }
@@ -286,4 +292,46 @@ func (c sightingCounts) publish() {
 	for h, n := range c {
 		metrics.DiscoverySightings.WithLabelValues(h).Add(float64(n))
 	}
+}
+
+// recordReposts keeps the reposts among fs (source repost: via is the
+// reposting account's user id) in tt.reposts, every account's full repost
+// history (owner D-047): first seen once, last seen on every read.
+func recordReposts(ctx context.Context, tx pgx.Tx, fs []find) error {
+	var uid, post, author []int64
+	var at []time.Time
+	var job []*string
+	for _, f := range fs {
+		if f.how != discovery.SourceRepost {
+			continue
+		}
+		by, err := strconv.ParseInt(f.via, 10, 64)
+		if err != nil || by == 0 || by == f.userID {
+			continue // no reposting account, or its own post
+		}
+		uid, post, author, at = append(uid, by), append(post, f.postID), append(author, f.userID), append(at, f.at)
+		job = append(job, uuidOrNil(f.job))
+	}
+	if len(uid) == 0 {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO reposts AS r (user_id, post_id, author_user_id, first_seen_at, last_seen_at, first_job_id, last_job_id)
+		SELECT user_id, post_id, max(author_user_id), min(at), max(at), (array_agg(job ORDER BY at))[1], (array_agg(job ORDER BY at DESC))[1]
+		FROM unnest($1::bigint[], $2::bigint[], $3::bigint[], $4::timestamptz[], $5::uuid[]) AS d(user_id, post_id, author_user_id, at, job)
+		GROUP BY user_id, post_id
+		ON CONFLICT (user_id, post_id) DO UPDATE SET
+			first_seen_at = least(r.first_seen_at, EXCLUDED.first_seen_at),
+			first_job_id = CASE WHEN EXCLUDED.first_seen_at < r.first_seen_at THEN EXCLUDED.first_job_id ELSE r.first_job_id END,
+			last_seen_at = greatest(r.last_seen_at, EXCLUDED.last_seen_at),
+			last_job_id = CASE WHEN EXCLUDED.last_seen_at >= r.last_seen_at THEN EXCLUDED.last_job_id ELSE r.last_job_id END,
+			author_user_id = EXCLUDED.author_user_id`, uid, post, author, at, job)
+	return err
+}
+
+// uuidOrNil is s when it is a UUID's text form, else nil.
+func uuidOrNil(s string) *string {
+	if len(s) != 36 {
+		return nil
+	}
+	return &s
 }

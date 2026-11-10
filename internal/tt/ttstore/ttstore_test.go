@@ -25,7 +25,7 @@ var tables = []string{
 	"api_clients", "jobs", "crawl_cursors", "account_schedule", "account_registrations", "post_refresh",
 	"discovery_keywords", "account_sources", "account_labels", "account_blocks", "import_batches", "import_lines",
 	"operations", "client_params", "canary_runs", "post_status_changes", "discovery_candidates", "discovery_sightings",
-	"follows", "follow_lists", "content_state", "content_cursors", "post_subtitles", "discovery_targets", "leases",
+	"follows", "follow_lists", "content_state", "content_cursors", "post_subtitles", "discovery_targets", "leases", "reposts",
 }
 
 func tablesIn(t *testing.T, db interface {
@@ -219,6 +219,9 @@ func TestSchemaHoldsData(t *testing.T) {
 	exec(`INSERT INTO discovery_targets (source, key, name, item_id, origin, next_read_at) VALUES ('hashtag', 'tag', 'tag', 5, 'monitored', now())`)
 	exec(`INSERT INTO discovery_sightings (how, found_in, via, region, user_id, sec_uid, post_id, seen_at)
 		VALUES ('hashtag', 'hashtag', 'tag', 'IQ', 8, 'MS4wother', 7400000000000000001, now())`)
+	exec(`INSERT INTO discovery_targets (source, key, name, item_id, sec_uid, origin) VALUES ('repost', '8', 'other', 8, 'MS4wother', 'candidate')`)
+	exec(`INSERT INTO reposts (user_id, post_id, author_user_id, first_seen_at, last_seen_at) VALUES (7, 7400000000000000001, 8, now(), now())`)
+	exec(`INSERT INTO discovery_sightings (how, found_in, via, user_id, post_id, seen_at) VALUES ('repost', 'repost', '7', 8, 7400000000000000001, now())`)
 	exec(`INSERT INTO content_state (id, content_hash, observed_at) VALUES ('post/tt:post:1', $1, now())`, key)
 	exec(`INSERT INTO content_cursors (name, at) VALUES ('discovery.candidate.v1', now())`)
 	exec(`INSERT INTO post_subtitles (post_id, language, source_name, source, user_id, post_created_at, body, content_hash,

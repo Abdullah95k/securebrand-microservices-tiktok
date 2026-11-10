@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/discovery"
 )
 
@@ -122,7 +123,7 @@ func TestReviewAPI(t *testing.T) {
 	}
 	e.want(200, "dr", "GET", "/discovery/stats?days=3", nil, &stats)
 	if len(stats.Days) != 3 || stats.Days[2].Found["search"] != 1 || stats.Counts["blocked"] != 1 || stats.Admission == nil ||
-		len(stats.Sources) != 10 || stats.Pass <= 0 {
+		len(stats.Sources) != len(config.DiscoverySources) || stats.Pass <= 0 {
 		t.Fatalf("stats: %+v", stats)
 	}
 	e.want(400, "dr", "GET", "/discovery/stats?days=40", nil, nil)

@@ -408,6 +408,23 @@ type Discovery struct {
 	Sounds   UsedPages      `koanf:"sounds"`
 	Related  RelatedPages   `koanf:"related"`
 	Feed     FeedPages      `koanf:"feed"`
+	// Reposts is the reposts source (M19, owner D-047): accounts' reposts
+	// tabs, read as part C targets.
+	Reposts RepostPages `koanf:"reposts"`
+}
+
+// RepostPages are accounts' reposts tabs (source repost; owner D-047): a
+// monitored account's every Every, a candidate's once after its entry
+// check (Candidates, up to CandidatesPerTick new ones a tick). A read
+// fetches up to MaxPages pages, an account's first read up to FirstPages
+// (its older reposts: the history is kept in full). Each reposted post is
+// stored, the repost kept in tt.reposts, and its author is a find.
+type RepostPages struct {
+	Every             time.Duration `koanf:"every"`
+	MaxPages          int           `koanf:"max_pages"`
+	FirstPages        int           `koanf:"first_pages"`
+	Candidates        bool          `koanf:"candidates"`
+	CandidatesPerTick int           `koanf:"candidates_per_tick"`
 }
 
 // DiscoveryPages paces discovery part C's reads (docs/tiktok/
@@ -560,7 +577,7 @@ type IraqScore struct {
 
 // DiscoverySources are the ways discovery finds accounts (account_sources.how
 // beyond api and import).
-var DiscoverySources = []string{"mention", "reply", "commenter", "search", "hashtag", "sound", "feed", "related", "following", "follower"}
+var DiscoverySources = []string{"mention", "reply", "commenter", "search", "hashtag", "sound", "feed", "related", "following", "follower", "repost"}
 
 // SourceOn says whether discovery runs source.
 func (d Discovery) SourceOn(source string) bool { return d.Enabled && d.Sources[source] }
@@ -1293,6 +1310,9 @@ func (t TT) validate() []error {
 	}
 	if f := t.Discovery.Feed; f.Every <= 0 || f.Reads <= 0 {
 		errs = append(errs, errors.New("tt.discovery.feed: every and reads > 0"))
+	}
+	if r := t.Discovery.Reposts; r.Every <= 0 || r.MaxPages <= 0 || r.FirstPages < r.MaxPages || r.CandidatesPerTick < 0 {
+		errs = append(errs, errors.New("tt.discovery.reposts: every and max_pages > 0, first_pages >= max_pages, candidates_per_tick >= 0"))
 	}
 	for name := range t.Discovery.Sources {
 		if !slices.Contains(DiscoverySources, name) {

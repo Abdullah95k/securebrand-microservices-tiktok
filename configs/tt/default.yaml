@@ -407,3 +407,16 @@ tt:
       tier: ""
       every: 3h
       reads: 6                # each read brings 4 to 8 new posts
+    # Accounts' reposts tabs (source repost; owner D-047, M19): every
+    # monitored account's every `every`, each candidate's once after its
+    # entry check (candidates; posts of its own or not), up to
+    # candidates_per_tick new ones a tick. Logged out on the ISP tier,
+    # unsigned (C6 run 1: 7 of 7 served, 16 a page). An account's first
+    # read takes up to first_pages (its older reposts: the history is kept
+    # in full, tt.reposts), later reads max_pages from the newest.
+    reposts:
+      every: 168h
+      max_pages: 3
+      first_pages: 20
+      candidates: true
+      candidates_per_tick: 100

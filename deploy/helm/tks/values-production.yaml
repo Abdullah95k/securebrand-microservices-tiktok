@@ -127,7 +127,9 @@ config:
       # those page loads (809 in 2 h), and each checkpoint retried on yet
       # another identity. The page-load gate does not cover a gateway. On
       # again only with a fix that bootstraps far less on res_iq.
-      sources: {mention: true, reply: true, commenter: true, hashtag: true, sound: true, related: true, search: false, feed: false}
+      # repost (M19, owner D-047): monitored accounts' reposts tabs every
+      # 7 days and each checked candidate's once, on the ISP tier.
+      sources: {mention: true, reply: true, commenter: true, hashtag: true, sound: true, related: true, search: false, feed: false, repost: true}
       search:
         tier: res_iq
         every: 24h
