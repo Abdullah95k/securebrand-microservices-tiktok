@@ -24,6 +24,7 @@ const (
 	OriginMonitored = "monitored" // used by monitored accounts' recent posts
 	OriginPost      = "post"      // a monitored post's related posts
 	OriginFeed      = "feed"
+	OriginCandidate = "candidate" // an account discovery is checking (reposts, read once)
 )
 
 // FeedKey is the For You feed's one target.
@@ -111,7 +112,44 @@ func (d *Discoverer) SeedTargets(ctx context.Context, sources []string, refresh 
 			return err
 		}
 	}
+	if on[SourceRepost] {
+		if err := d.seedReposts(ctx, now); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// seedReposts makes every monitored account's reposts tab a target (read
+// every tt.discovery.reposts.every) and, with reposts.candidates, up to
+// candidates_per_tick candidates' tabs a call, the most recently checked
+// first, each read once: accounts whose secUid and username tks has
+// stored. A candidate admitted later becomes a monitored target. The key is
+// the account's user id, item_id the same, name its username (the read's
+// profile page), sec_uid what the repost list asks for.
+func (d *Discoverer) seedReposts(ctx context.Context, now time.Time) error {
+	if _, err := d.DB.Exec(ctx, `INSERT INTO discovery_targets AS t (source, key, name, item_id, sec_uid, origin, next_read_at)
+		SELECT 'repost', a.user_id::text, a.username, a.user_id, a.sec_uid, 'monitored', $1
+		FROM account_schedule s JOIN accounts a ON a.user_id = s.user_id
+		WHERE s.enabled AND s.admitted_at IS NOT NULL AND a.sec_uid IS NOT NULL AND a.username IS NOT NULL
+		ON CONFLICT (source, key) DO UPDATE SET origin = 'monitored', enabled = true, name = EXCLUDED.name, sec_uid = EXCLUDED.sec_uid,
+			next_read_at = CASE WHEN t.next_read_at IS NULL THEN EXCLUDED.next_read_at ELSE t.next_read_at END
+		WHERE t.origin <> 'monitored' OR t.name IS DISTINCT FROM EXCLUDED.name OR t.sec_uid IS DISTINCT FROM EXCLUDED.sec_uid`,
+		now); err != nil {
+		return err
+	}
+	r := d.Cfg.TT.Discovery.Reposts
+	if !r.Candidates || r.CandidatesPerTick <= 0 {
+		return nil
+	}
+	_, err := d.DB.Exec(ctx, `INSERT INTO discovery_targets (source, key, name, item_id, sec_uid, origin, next_read_at)
+		SELECT 'repost', a.user_id::text, a.username, a.user_id, a.sec_uid, 'candidate', $1
+		FROM discovery_candidates c JOIN accounts a ON a.user_id = c.user_id
+		WHERE c.checked_at IS NOT NULL AND a.sec_uid IS NOT NULL AND a.username IS NOT NULL AND a.status = 'active'
+		  AND NOT EXISTS (SELECT 1 FROM discovery_targets t WHERE t.source = 'repost' AND t.key = a.user_id::text)
+		ORDER BY c.checked_at DESC LIMIT $2
+		ON CONFLICT (source, key) DO NOTHING`, now, r.CandidatesPerTick)
+	return err
 }
 
 // seedKeywordTags makes the enabled one-word keywords hashtags to read, and
@@ -224,6 +262,10 @@ func lower(xs []string) []string {
 type DueTarget struct {
 	Source, Key, Name string
 	ItemID            int64
+	// SecUID is a reposts target's account's; FirstRead says the target
+	// was never read (a reposts tab's first read goes deeper).
+	SecUID    string
+	FirstRead bool
 	// PostUserID and PostUsername are a related target's post's author.
 	PostUserID   int64
 	PostUsername string
@@ -247,14 +289,15 @@ func (d *Discoverer) ClaimTargets(ctx context.Context, sources []string, n int) 
 		UPDATE discovery_targets t SET next_read_at = $2 + $4::interval, claimed_at = $2
 		FROM due WHERE t.source = due.source AND t.key = due.key
 		RETURNING t.source, t.key, coalesce(t.name, ''), coalesce(t.item_id, 0), coalesce(t.post_user_id, 0),
-			coalesce((SELECT a.username FROM accounts a WHERE a.user_id = t.post_user_id), '')`,
+			coalesce((SELECT a.username FROM accounts a WHERE a.user_id = t.post_user_id), ''), coalesce(t.sec_uid, ''),
+			t.first_read_at IS NULL`,
 		sources, now, n, d.Cfg.TT.Discovery.Pages.RetryAfter)
 	if err != nil {
 		return nil, err
 	}
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (DueTarget, error) {
 		var t DueTarget
-		return t, r.Scan(&t.Source, &t.Key, &t.Name, &t.ItemID, &t.PostUserID, &t.PostUsername)
+		return t, r.Scan(&t.Source, &t.Key, &t.Name, &t.ItemID, &t.PostUserID, &t.PostUsername, &t.SecUID, &t.FirstRead)
 	})
 	if err != nil {
 		return nil, err

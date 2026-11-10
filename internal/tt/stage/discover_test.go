@@ -53,7 +53,7 @@ func discover(t *testing.T, h *harness, job string, sc *tkstaskv1.DiscoverScope)
 	}
 	h.d.Cfg.TT.Discovery.Sources[sc.Source] = true
 	origin := map[string]string{DiscoverSearch: "keyword", DiscoverHashtag: "keyword", DiscoverSound: "monitored",
-		DiscoverRelated: "post", DiscoverFeed: "feed"}[sc.Source]
+		DiscoverRelated: "post", DiscoverFeed: "feed", DiscoverRepost: "monitored"}[sc.Source]
 	if _, err := h.d.DB.Exec(ctx, `INSERT INTO discovery_targets (source, key, name, origin) VALUES ($1, $2, $3, $4)
 		ON CONFLICT DO NOTHING`, sc.Source, sc.Key, sc.Name, origin); err != nil {
 		t.Fatal(err)
@@ -225,5 +225,53 @@ func TestDiscoverSourceOff(t *testing.T) {
 	out := (&DiscoverStage{D: h.d}).Run(ctx, &tkstaskv1.Task{JobId: "j", LineageId: "l", Scope: &tkstaskv1.Task_Discover{Discover: sc}})
 	if out.Result != Done || out.Counters["source_off"] != 1 || out.Counters["requests"] != 0 {
 		t.Fatalf("outcome %+v", out)
+	}
+}
+
+// An account's reposts tab (M19) is read unsigned on its own profile page:
+// every post on it goes out with find repost via the account's user id,
+// the authors with them, and the target records the read; a candidate's
+// tab (origin candidate) has no next read.
+func TestDiscoverReposts(t *testing.T) {
+	h := newHarness(t, tttest.Options{})
+	w := h.env.World
+	acc := w.Accounts()[0]
+	key := strconv.FormatInt(acc.UID, 10)
+	st := discover(t, h, "rep-1", &tkstaskv1.DiscoverScope{Source: DiscoverRepost, Key: key, Name: acc.Username, MaxPages: 3,
+		BootUsername: acc.Username, SecUid: acc.SecUID})
+	if st.Counters["discover_pages"] != 1 || st.Counters["discover_stop_end"] != 1 || st.Counters["posts"] != 5 || st.Counters["tasks_failed"] != 0 {
+		t.Fatalf("counters %v", st.Counters)
+	}
+	ps := posts(h, "rep-1")
+	if len(ps) != 5 {
+		t.Fatalf("%d posts published, want 5", len(ps))
+	}
+	for _, p := range ps {
+		f := p.GetFind()
+		if p.DiscoveredVia != ttv1.DiscoveredVia_DISCOVERED_VIA_REPOST || f.GetSource() != DiscoverRepost || f.GetVia() != key || p.UserId == acc.UID {
+			t.Fatalf("post %v", p)
+		}
+	}
+	if len(accounts(h, "rep-1")) == 0 {
+		t.Error("no author published")
+	}
+	tg := readTarget(t, h, DiscoverRepost, key)
+	if tg.state != "ok" || tg.stop != "end" || tg.posts != 5 || tg.next == nil ||
+		!tg.next.Equal(w.Clock().Add(h.d.Cfg.TT.Discovery.Reposts.Every)) {
+		t.Fatalf("monitored target %+v", tg)
+	}
+	// A candidate's tab: read once.
+	if _, err := h.d.DB.Exec(context.Background(), `UPDATE discovery_targets SET origin = 'candidate' WHERE source = 'repost' AND key = $1`, key); err != nil {
+		t.Fatal(err)
+	}
+	discover(t, h, "rep-2", &tkstaskv1.DiscoverScope{Source: DiscoverRepost, Key: key, Name: acc.Username, MaxPages: 3,
+		BootUsername: acc.Username, SecUid: acc.SecUID})
+	if tg := readTarget(t, h, DiscoverRepost, key); tg.next != nil {
+		t.Fatalf("a candidate's tab has a next read %v", tg.next)
+	}
+	// Without the secUid the task fails at once.
+	if out := (&DiscoverStage{D: h.d}).Run(context.Background(), &tkstaskv1.Task{JobId: "j", LineageId: "l",
+		Scope: &tkstaskv1.Task_Discover{Discover: &tkstaskv1.DiscoverScope{Source: DiscoverRepost, Key: key, BootUsername: acc.Username}}}); out.Result != Fail {
+		t.Fatalf("outcome without a secUid %+v", out)
 	}
 }

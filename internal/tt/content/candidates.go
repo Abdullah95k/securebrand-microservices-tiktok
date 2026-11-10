@@ -252,6 +252,9 @@ func candidateSource(how string) discoveryv1.Source {
 		return discoveryv1.Source_SOURCE_FOLLOWING
 	case "follower":
 		return discoveryv1.Source_SOURCE_FOLLOWERS
+	case "repost":
+		// Found on an account's reposts tab (M19): the contract's share.
+		return discoveryv1.Source_SOURCE_SHARE
 	}
 	return discoveryv1.Source_SOURCE_UNSPECIFIED
 }

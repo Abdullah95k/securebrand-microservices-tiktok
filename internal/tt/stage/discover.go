@@ -28,11 +28,15 @@ const (
 	DiscoverSound   = "sound"
 	DiscoverRelated = "related"
 	DiscoverFeed    = "feed"
+	// DiscoverRepost is an account's reposts tab (M19, owner D-047).
+	DiscoverRepost = "repost"
 )
 
 // Operations of part C's sources (configs/tt/operations.seed.yaml), all
-// signed (C6 run 2).
+// signed (C6 run 2) but the reposts tab's (unsigned, C6 run 1; the client
+// signs its twin if TikTok refuses it).
 const (
+	repostListQuery      = "repost_list"
 	searchQuery          = "search_general"
 	challengeDetailQuery = "challenge_detail"
 	challengeListQuery   = "challenge_list"
@@ -76,6 +80,7 @@ var discoverOps = map[string]discoverOp{
 	DiscoverSound:   {musicListQuery, ttv1.DiscoveredVia_DISCOVERED_VIA_SOUND, true},
 	DiscoverRelated: {relatedQuery, ttv1.DiscoveredVia_DISCOVERED_VIA_RELATED, false},
 	DiscoverFeed:    {feedQuery, ttv1.DiscoveredVia_DISCOVERED_VIA_FEED, false},
+	DiscoverRepost:  {repostListQuery, ttv1.DiscoveredVia_DISCOVERED_VIA_REPOST, true},
 }
 
 // DiscoverStage reads one discovery page target (discovery part C,
@@ -123,6 +128,9 @@ func (s *DiscoverStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 	if sc.Source == DiscoverSearch && sc.Tier == "" {
 		// From US exits TikTok asks a logged-out search to log in (T37).
 		return Outcome{Result: Fail, Reason: "search without tt.discovery.search.tier"}
+	}
+	if sc.Source == DiscoverRepost && sc.SecUid == "" {
+		return Outcome{Result: Fail, Reason: "reposts task without the account's secUid"}
 	}
 	if sc.BootUsername == "" {
 		return Outcome{Result: Fail, Reason: "discover task without an account to bootstrap on"}
@@ -207,6 +215,8 @@ func (s *DiscoverStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 			vars["item_id"] = sc.Key
 		case DiscoverFeed:
 			vars["pull"] = int(page) + 1
+		case DiscoverRepost:
+			vars["sec_uid"], vars["offset"] = sc.SecUid, offset
 		}
 		resp, err := d.Client.Do(ctx, id, graphql.Request{Query: op.query, Vars: vars, PageID: sc.ItemId, Lane: lane, Referer: referer})
 		c["requests"]++
@@ -423,6 +433,8 @@ func (d *Deps) discoverEvery(source string) time.Duration {
 		return dc.Sounds.Every
 	case DiscoverFeed:
 		return dc.Feed.Every
+	case DiscoverRepost:
+		return dc.Reposts.Every // a candidate's is read once (discoverRead)
 	}
 	return 0
 }
@@ -451,7 +463,8 @@ func (d *Deps) discoverRead(ctx context.Context, t *tkstaskv1.Task, sc *tkstaskv
 	if r.code != 0 {
 		code = &r.code
 	}
-	_, err := d.DB.Exec(ctx, `UPDATE discovery_targets t SET state = $3, status_code = $4, next_read_at = $5, last_job_id = $6::uuid,
+	_, err := d.DB.Exec(ctx, `UPDATE discovery_targets t SET state = $3, status_code = $4,
+			next_read_at = CASE WHEN t.origin = 'candidate' THEN NULL ELSE $5::timestamptz END, last_job_id = $6::uuid,
 			first_read_at = coalesce(t.first_read_at, $7), last_read_at = $7, reads = t.reads + 1,
 			pages_read = t.pages_read + $8, posts_seen = t.posts_seen + $9,
 			day_pages = CASE WHEN t.day = ($7 AT TIME ZONE 'UTC')::date THEN t.day_pages + $8::int ELSE $8::int END,

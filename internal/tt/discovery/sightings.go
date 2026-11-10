@@ -57,11 +57,14 @@ const (
 	SourceSound   = "sound"
 	SourceRelated = "related"
 	SourceFeed    = "feed"
+	// SourceRepost is an account's reposts tab (M19, owner D-047): via is
+	// the reposting account's user id. It is read like part C's pages.
+	SourceRepost = "repost"
 )
 
 // PartC are part C's sources, the ones the persister records from the
 // posts found on discovery pages.
-var PartC = []string{SourceSearch, SourceHashtag, SourceSound, SourceRelated, SourceFeed}
+var PartC = []string{SourceSearch, SourceHashtag, SourceSound, SourceRelated, SourceFeed, SourceRepost}
 
 // bioMention is an @username in a bio: TikTok usernames are letters,
 // digits, underscores and periods, 2 to 24 of them. The character before
