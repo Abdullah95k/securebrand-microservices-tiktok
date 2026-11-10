@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 # `--target browser`: the same binaries with Chromium, for tks-signer, whose
 # pages sign the comment and reply calls (build brief D11, M9d), for the
 # probes, and for tt.browser's bootstrap fallback.
-FROM debian:12-slim AS browser
+FROM debian:13-slim AS browser
 RUN apt-get update \
  && apt-get install -y --no-install-recommends chromium ca-certificates fonts-liberation tini \
  && rm -rf /var/lib/apt/lists/* \
