@@ -88,6 +88,12 @@ config:
     # missing topic would retry its tasks until the topic is made.
     subtitles:
       include: false
+    # Media files for the analysis service (owner, 2026-11-10): downloaded
+    # from TikTok's CDN over the downloader's own egress, and deleted by its
+    # sweeper once sb-analysis acknowledged them, or 72 h after storing
+    # (M20; tks-media.md). On together with the sweeper, in one pin.
+    media:
+      include: true
     canary:
       # The owner's canary accounts (public accounts that post often and get
       # comments with replies; tks-canary.md) are set by the platform as

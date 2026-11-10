@@ -28,7 +28,7 @@ One Dockerfile (`deploy/docker/Dockerfile`), two images, every binary in both:
 | `crawler-thread` | `tks-crawler --stages thread` | default | Replies, signed by tks-signer |
 | `crawler-retry` | `tks-crawler --stages retry` | default | The retry relays |
 | `persister` | `tks-persister` | default | |
-| `media-downloader` | `tks-media-downloader` | default | Idle while `tt.media.include` is false (D5); no janitor: another service deletes files |
+| `media-downloader` | `tks-media-downloader` | default | Idle while `tt.media.include` is false (D5); its sweeper deletes each file once acknowledged or at 72 h (owner, 2026-11-10) |
 | `canary` | `tks-canary` | default | Needs `tt.canary.accounts` (production: `values-production.yaml`) or `TKS_TT__CANARY__ACCOUNTS`; signs through tks-signer |
 | `signer` | `tks-signer` | browser | The signer's pages in their own capped pod; Service on port 8080 for the crawlers and the canary only ([below](#the-signer-service)) |
 

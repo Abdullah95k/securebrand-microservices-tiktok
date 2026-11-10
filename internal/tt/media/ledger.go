@@ -22,12 +22,12 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/topics"
 )
 
-// Ledger records what happens to a file after its handoff, and deletes
-// nothing (owner, 2026-11-02: deleting the files is another service's job):
+// Ledger records what happens to a file after its handoff (the Sweeper
+// deletes it; owner, 2026-11-10):
 //   - a consumer's acknowledgement on tt.media.processed.v1 goes to
 //     media_acks; a retryable failure announces the file again (attempt n+1)
 //     up to MaxRetryableFailures times, as fbs's janitor does, and then
-//     leaves it to the deleting service;
+//     leaves it to the Sweeper's deadline;
 //   - a deletion on tt.media.deleted.v1 marks the row deleted, so the API no
 //     longer names an object that is gone, and the file is never downloaded
 //     again.
@@ -61,7 +61,7 @@ type ack struct {
 	at                             *time.Time
 }
 
-// deletion is the deleting service's record, from either topic's message.
+// deletion is a deletion's record (the sweeper's), from either topic's message.
 type deletion struct {
 	mediaID, reason string
 	at              *time.Time
@@ -174,7 +174,7 @@ func (l *Ledger) retry(ctx context.Context, mediaID string) error {
 		return err
 	}
 	if failures > l.MaxRetryableFailures {
-		// The file stays: deleting it is the deleting service's call.
+		// The file stays until the Sweeper's deadline.
 		metrics.MediaOutcome.WithLabelValues(kind, "retries_exhausted").Inc()
 		return nil
 	}
@@ -207,7 +207,7 @@ func (l *Ledger) retry(ctx context.Context, mediaID string) error {
 	return nil
 }
 
-// deleted records that the deleting service removed a file.
+// deleted records that a file was removed (the Sweeper's own events).
 func (l *Ledger) deleted(ctx context.Context, d deletion) error {
 	if uuid.Validate(d.mediaID) != nil {
 		return nil

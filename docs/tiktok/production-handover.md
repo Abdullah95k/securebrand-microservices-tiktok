@@ -89,7 +89,7 @@ Pod maximums are at most the partitions of the topics each component reads: 3 fo
 ## 7. Storage
 
 - Raw answers in `S3_BUCKET_RAW`: failures and a 1 % sample of good answers under **`tks/keep/`** (kept for good); with `tt.capture_raw: all` the other answers under **`tks/30d/`** (production uses `sample`, so `tks/30d/` stays empty until someone switches it). tks never deletes raw files.
-- Media files in `S3_BUCKET_MEDIA` under **`tks/`** (downloads are off: `tt.media.include: false`).
+- Media files in `S3_BUCKET_MEDIA` under **`tks/`** (downloads on in production since M20: `tt.media.include: true`). tks's sweeper deletes each file once `sb-analysis` acknowledged it, or 72 h after storing: **tks's Spaces key must be allowed to delete under `tks/`** in that bucket.
 - tks makes no bucket and sets no lifecycle rule (`s3.create_buckets: false`).
 
 ## 8. Monitoring
@@ -108,7 +108,7 @@ The chart can restrict every tks pod's egress (`networkPolicy.enabled` and `netw
 - `networkPolicy.egress.proxies`: the proxies' exit addresses and ports (from the Secret `proxies`);
 - DNS is allowed to `kube-dns` by default (`networkPolicy.egress.dns`).
 
-The crawlers, the canary and the signer may then reach only the proxies (and the platform); the API, the scheduler, the persister and the backup job only the platform; the media downloader also TikTok's CDN on 443 (downloads are off). The cluster's CNI must enforce NetworkPolicy. An example with synthetic addresses: `deploy/helm/tks/examples/egress.yaml`.
+The crawlers, the canary and the signer may then reach only the proxies (and the platform); the API, the scheduler, the persister and the backup job only the platform; the media downloader also TikTok's CDN on 443. The cluster's CNI must enforce NetworkPolicy. An example with synthetic addresses: `deploy/helm/tks/examples/egress.yaml`.
 
 ## 11. The stop switch
 
