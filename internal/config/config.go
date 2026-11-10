@@ -248,9 +248,9 @@ type Content struct {
 }
 
 // ContentMedia is tt.content.media: what every content.media.ready.v1
-// event says about its file's life. tks deletes nothing (D5): another
-// service deletes the file when every required consumer has acknowledged
-// it, or at delete_after, whichever is first.
+// event says about its file's life. tks-media-downloader's sweeper deletes
+// the file when every required consumer has acknowledged it, or at
+// delete_after, whichever is first (owner, 2026-11-10, replacing D5).
 type ContentMedia struct {
 	// DeleteAfter is the file's deadline after it is stored: 72 hours by
 	// default, at least 24 (the contract's minimum).
@@ -258,6 +258,9 @@ type ContentMedia struct {
 	// RequiredConsumers must acknowledge a file before it may be deleted:
 	// names from the contract's registry (registry/platforms.yaml).
 	RequiredConsumers []string `koanf:"required_consumers"`
+	// SweepEvery is how often tks-media-downloader's sweeper deletes the
+	// files due (owner, 2026-11-10: tks deletes its own files).
+	SweepEvery time.Duration `koanf:"sweep_every"`
 }
 
 // MinMediaLifetime is the contract's shortest delete_after after a file
@@ -586,9 +589,9 @@ func (d Discovery) SourceOn(source string) bool { return d.Enabled && d.Sources[
 // read it instead of the shared limits.include_media, which the copied
 // Facebook pipeline's tests still run with on (docs/tiktok ADR 0007 §8).
 // tks-media-downloader takes its concurrency, size cap and presigning from
-// the shared media section; it sets no TTL and deletes nothing, so media.ttl,
-// required_consumers and the sweep intervals are not read (deleting the
-// files is another service's job: owner, 2026-11-02; ADR 0007 §15).
+// the shared media section; its sweeper deletes the files on
+// tt.content.media's settings, so the shared media.ttl, required_consumers
+// and sweep intervals are not read (owner, 2026-11-10; ADR 0007 §29).
 type TTMedia struct {
 	// Include queues downloads of covers, photos and videos; media
 	// metadata is published either way.
@@ -1346,6 +1349,9 @@ func (t TT) validate() []error {
 	}
 	if t.Content.Media.DeleteAfter < MinMediaLifetime {
 		errs = append(errs, fmt.Errorf("tt.content.media.delete_after %s must be at least 24h (the contract's minimum)", t.Content.Media.DeleteAfter))
+	}
+	if t.Content.Media.SweepEvery <= 0 {
+		errs = append(errs, errors.New("tt.content.media.sweep_every must be > 0"))
 	}
 	if len(t.Content.Media.RequiredConsumers) == 0 || slices.Contains(t.Content.Media.RequiredConsumers, "") {
 		errs = append(errs, errors.New("tt.content.media.required_consumers must name at least one consumer (sb-analysis)"))

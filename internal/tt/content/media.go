@@ -57,8 +57,8 @@ func MediaID(id string) string {
 // ID). attempt is 1 for the first announcement and one more for each
 // after a consumer's retryable failure; the event id is the same for the
 // same announcement, so a redelivery is one event. delete_after is the
-// stored time plus the setting, the same on every announcement: a hard
-// deadline for the deleting service (tks deletes nothing, D5). Nil when
+// stored time plus the setting, the same on every announcement: the hard
+// deadline at which tks's sweeper deletes the file. Nil when
 // the file has no owner or kind the contract knows.
 func MediaReady(f StoredFile, attempt int32, h Handoff) *mediav1.MediaReady {
 	t, role := mediaRole(f.Kind)
@@ -106,4 +106,19 @@ func mediaOwner(user int64, post, comment, music *int64) (string, string) {
 		return idOf("account", user), "account"
 	}
 	return "", ""
+}
+
+// MediaDeleted maps a file tks-media-downloader's sweeper removed to
+// content.media.deleted.v1 (key: the media ID): acked when every required
+// consumer acknowledged it, else expired (delete_after passed). The event
+// id is the same for the same file's deletion, so a repeat is one event.
+func MediaDeleted(mediaID string, acked bool, at time.Time) *mediav1.MediaDeleted {
+	id := ID("media", mediaID)
+	sum := sha256.Sum256([]byte(id + "|deleted"))
+	reason := mediav1.DeleteReason_DELETE_REASON_EXPIRED
+	if acked {
+		reason = mediav1.DeleteReason_DELETE_REASON_PROCESSED
+	}
+	return &mediav1.MediaDeleted{EventId: hex.EncodeToString(sum[:]), MediaId: id, Reason: reason,
+		DeletedAt: timestamppb.New(at), Platform: Platform}
 }

@@ -66,7 +66,7 @@ config:
     # secretEnv Secret (TKS_TT__CANARY__ACCOUNTS, comma separated, which
     # wins). tks-canary refuses to start without.
     media:
-      include: false   # D5: downloads off until the analysis service exists
+      include: false   # D5: downloads off by default (production: on)
   scheduler:
     budget:
       # Over the owner's budget only backfills pause; checks keep their
@@ -301,7 +301,8 @@ components:
         - {group: tks-tt-persister, topic: tt.comment.v1, threshold: 20000}
         - {group: tks-tt-persister, topic: tt.post.v1, threshold: 5000}
   # Idle while config.tt.media.include is false (D5). It stores files and
-  # keeps them: another service deletes them, so tks has no janitor.
+  # its sweeper deletes each once acknowledged or at its deadline (owner,
+  # 2026-11-10).
   media-downloader:
     enabled: true
     command: ["/usr/local/bin/tks-media-downloader"]

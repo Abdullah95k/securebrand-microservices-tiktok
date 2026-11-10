@@ -2,10 +2,11 @@
 // them over on tt.media.ready.v1 (build brief D5; docs/tiktok ADR 0007 §7,
 // §15). It is internal/media's downloader on tks's envelope (tks.task.v1),
 // records (tt.v1, common.v1) and schema tt, with two differences:
-//   - **Nothing is deleted.** tks sets no TTL, installs no bucket lifecycle
-//     rule and runs no janitor: another service deletes the files (owner,
-//     2026-11-02) and says so on tt.media.deleted.v1, which the Ledger
-//     records, as it records the consumers' acknowledgements.
+//   - **Deletion is tks's own sweeper's** (owner, 2026-11-10, replacing
+//     2026-11-02's "another service"): once every required consumer
+//     acknowledged a file, or at its deadline (Sweeper). tks installs no
+//     bucket lifecycle rule; the Ledger records acknowledgements and
+//     deletions.
 //   - **A video file is fetched with a cookie.** TikTok's video hosts refuse a
 //     video without the tt_chain_token cookie of a TikTok page (T18: C2 run
 //     3); the task carries the reading identity's, and the downloader sends
@@ -68,7 +69,11 @@ type Downloader struct {
 	// Contract, when set, also announces each file on the shared
 	// contract's content.media.ready.v1 (M15b).
 	Contract *Contract
-	Now      func() time.Time
+	// DeleteAfter is how long after its stored time a file is deleted at
+	// the latest (tt.content.media.delete_after; the Sweeper): recorded on
+	// the row when the file is handed over.
+	DeleteAfter time.Duration
+	Now         func() time.Time
 }
 
 // NewHTTPClient returns a client for TikTok's media hosts: direct egress,
@@ -159,7 +164,7 @@ func (d *Downloader) Handle(ctx context.Context, rec *kgo.Record) error {
 	switch status {
 	case "ready", "deleted", "expired":
 		// Handed over once: a re-read of the post does not download the
-		// same media again, and what the deleting service removed stays
+		// same media again, and what the sweeper removed stays
 		// removed.
 		metrics.MediaOutcome.WithLabelValues(kind, "skipped").Inc()
 		return nil
@@ -255,8 +260,9 @@ func (d *Downloader) Handle(ctx context.Context, rec *kgo.Record) error {
 // announce publishes the media's ready event, then marks it ready: a failure
 // in between leaves it stored, and a redelivery announces it again (the
 // event id is stable, so consumers see it once). tks's own event has no
-// delete_after; the contract's (Contract) carries the deleting service's
-// deadline. tks itself keeps the file until that service removes it.
+// delete_after; the contract's (Contract) carries the deadline, which the
+// row records too: the Sweeper deletes the file once every required
+// consumer acknowledged it, or then.
 func (d *Downloader) announce(ctx context.Context, t *tkstaskv1.Task, m *ttv1.Media, kind string, obj *commonv1.S3Object,
 	storedAt, start time.Time) error {
 	ready := Ready(m.MediaId, 1, obj)
@@ -290,8 +296,13 @@ func (d *Downloader) announce(ctx context.Context, t *tkstaskv1.Task, m *ttv1.Me
 	if err := b.Wait(ctx); err != nil {
 		return err
 	}
-	if _, err := d.DB.Exec(ctx, `UPDATE media SET status = 'ready', ready_at = $2 WHERE media_id = $1 AND status = 'stored'`,
-		m.MediaId, d.now()); err != nil {
+	var deleteAfter *time.Time
+	if d.DeleteAfter > 0 {
+		at := storedAt.Add(d.DeleteAfter)
+		deleteAfter = &at
+	}
+	if _, err := d.DB.Exec(ctx, `UPDATE media SET status = 'ready', ready_at = $2, delete_after = $3 WHERE media_id = $1 AND status = 'stored'`,
+		m.MediaId, d.now(), deleteAfter); err != nil {
 		return err
 	}
 	metrics.MediaOutcome.WithLabelValues(kind, "ready").Inc()
@@ -489,8 +500,8 @@ func nilBytes(b []byte) []byte {
 }
 
 // WarnExpiry logs a warning for each rule of the bucket that expires
-// objects: tks keeps its files until the deleting service removes them
-// (owner, 2026-11-02), so such a rule deletes what tks hands over. It
+// objects: tks keeps its files until its sweeper removes them (owner,
+// 2026-11-10), so such a rule deletes what tks hands over early. It
 // changes nothing; stores without lifecycle support say nothing.
 func WarnExpiry(ctx context.Context, s3 *minio.Client, bucket string) int {
 	cfg, err := s3.GetBucketLifecycle(ctx, bucket)

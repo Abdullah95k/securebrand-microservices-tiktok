@@ -38,12 +38,14 @@ type MediaOptions struct {
 	DrainTimeout time.Duration
 }
 
-// Media is tks-media-downloader: the downloader on tks.task.media and the
-// ledger of acknowledgements and deletions. It deletes nothing and sets no
-// TTL (owner, 2026-11-02; docs/tiktok ADR 0007 §15).
+// Media is tks-media-downloader: the downloader on tks.task.media, the
+// ledger of acknowledgements and deletions, and the sweeper that deletes a
+// file once every required consumer acknowledged it or at its deadline
+// (owner, 2026-11-10, replacing D5; ADR 0007 §29).
 type Media struct {
 	Downloader *ttmedia.Downloader
 	Ledger     *ttmedia.Ledger
+	Sweeper    *ttmedia.Sweeper
 	Producer   *kafka.Producer
 	Components []run.Func
 }
@@ -71,7 +73,7 @@ func NewMedia(ctx context.Context, cfg *config.Config, o MediaOptions) (*Media, 
 	m := &Media{Producer: producer,
 		Downloader: &ttmedia.Downloader{DB: o.DB, S3: o.S3, Bucket: cfg.S3.MediaBucket, Prefix: cfg.S3.MediaPrefix, Producer: producer, HTTP: hc,
 			CookieDomains: cfg.TT.Media.CookieDomains, MaxBytes: cfg.Media.MaxBytes, Presign: cfg.Media.Presign,
-			PresignTTL: cfg.Media.PresignTTL, Now: o.Now},
+			PresignTTL: cfg.Media.PresignTTL, DeleteAfter: cfg.TT.Content.Media.DeleteAfter, Now: o.Now},
 		Ledger: &ttmedia.Ledger{DB: o.DB, Producer: producer, MaxRetryableFailures: cfg.Media.MaxRetryableFailures, Now: o.Now},
 	}
 	if c := cfg.TT.Content; c.Enabled {
@@ -93,6 +95,11 @@ func NewMedia(ctx context.Context, cfg *config.Config, o MediaOptions) (*Media, 
 		producer.Close()
 		return nil, err
 	}
-	m.Components = []run.Func{down.Run, ledger.Run}
+	m.Sweeper = &ttmedia.Sweeper{DB: o.DB, S3: o.S3, Producer: producer, Bucket: cfg.S3.MediaBucket, Prefix: cfg.S3.MediaPrefix,
+		RequiredConsumers: cfg.TT.Content.Media.RequiredConsumers,
+		DeleteAfter:       cfg.TT.Content.Media.DeleteAfter, Contract: cfg.TT.Content.Enabled,
+		Options: conformance.Options{Production: cfg.TT.Content.Production}, Now: o.Now}
+	every := cfg.TT.Content.Media.SweepEvery
+	m.Components = []run.Func{down.Run, ledger.Run, func(ctx context.Context) error { return m.Sweeper.Run(ctx, every) }}
 	return m, nil
 }

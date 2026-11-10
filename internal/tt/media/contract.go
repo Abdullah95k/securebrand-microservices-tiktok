@@ -16,8 +16,8 @@ import (
 // Contract is the shared contract's media hand-off (M15b; ADR 0007 §25):
 // every announcement on tt.media.ready.v1 also goes on
 // content.media.ready.v1, in the same batch, with the contract's deadline
-// and required consumers. tks still deletes nothing (D5): delete_after is
-// the deleting service's deadline.
+// and required consumers. tks deletes the file (the Sweeper) once every
+// required consumer acknowledged it, or at delete_after.
 type Contract struct {
 	Producer *kafka.Producer
 	Handoff  content.Handoff

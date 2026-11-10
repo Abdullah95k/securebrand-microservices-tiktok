@@ -64,7 +64,7 @@ func newEnv(t *testing.T) *env {
 
 func (e *env) downloader(cdn *http.Client) *Downloader {
 	return &Downloader{DB: e.db, S3: e.s3, Bucket: "tks-media", Producer: e.prod, HTTP: cdn, CookieDomains: []string{"127.0.0.1"},
-		MaxBytes: 1 << 20}
+		MaxBytes: 1 << 20, DeleteAfter: 72 * time.Hour}
 }
 
 // ready reads n events from tt.media.ready.v1.
@@ -248,13 +248,16 @@ func TestDownloads(t *testing.T) {
 	if ev := byID[img]; ev == nil || ev.Kind != commonv1.MediaKind_MEDIA_KIND_COVER || ev.Object.GetContentType() != "image/jpeg" {
 		t.Errorf("cover's ready event %+v", ev)
 	}
-	var deleteAfter *time.Time
+	// The row records the file's deadline (the sweeper's: stored plus
+	// delete_after; owner, 2026-11-10, replacing D5's "no deletion time").
+	var due bool
 	var size int64
-	if err := e.db.QueryRow(ctx, `SELECT delete_after, size_bytes FROM media WHERE media_id = $1`, vid).Scan(&deleteAfter, &size); err != nil {
+	if err := e.db.QueryRow(ctx, `SELECT delete_after = stored_at + interval '72 hours', size_bytes FROM media WHERE media_id = $1`, vid).
+		Scan(&due, &size); err != nil {
 		t.Fatal(err)
 	}
-	if deleteAfter != nil || size == 0 {
-		t.Errorf("stored video: delete_after %v, size %d; want no deletion time", deleteAfter, size)
+	if !due || size == 0 {
+		t.Errorf("stored video: delete_after not stored + 72 h, size %d", size)
 	}
 	if _, err := e.s3.StatObject(ctx, "tks-media", ObjectKey(video(vid, ""), "video/mp4"), minio.StatObjectOptions{}); err != nil {
 		t.Errorf("video object: %v", err)

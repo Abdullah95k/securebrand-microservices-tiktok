@@ -115,14 +115,17 @@ func contractRecords(t *testing.T, s *Stack, topic string, n int) []proto.Messag
 //  3. the shared contract's hand-off (M15b): every file is announced on
 //     content.media.ready.v1 too, with the deleting service's deadline
 //     (72 h after it was stored) and its required consumer;
-//  4. tks deletes nothing: the files stay, its own events carry no deletion
-//     time, and a file the deleting service removes (on either topic) is
-//     only marked deleted; a consumer's retryable failure on the
-//     contract's topic announces the file again, on both.
+//  4. a deletion another service reports (on either topic) only marks the
+//     row; a consumer's retryable failure on the contract's topic announces
+//     the file again, on both;
+//  5. tks's sweeper (owner, 2026-11-10) deletes a file once its required
+//     consumer acknowledged it: the object goes, the row is marked, and
+//     both deleted topics say so. Every row records its 72 h deadline.
 func TestMediaDownloads(t *testing.T) {
 	s := Start(t, Options{Spec: fakett.Spec{Seed: 21, Accounts: 2, PostsPerAccount: 6, MaxComments: 3, MaxReplies: 1,
 		PostSpacing: 20 * time.Hour}, Faults: fakett.Faults{MediaNeedsCookie: true}, Config: func(c *config.Config) {
 		c.TT.Media.Include = true
+		c.TT.Content.Media.SweepEvery = time.Second
 		c.TT.Media.CookieDomains = []string{"127.0.0.1"} // fakett's media host
 		c.S3.MediaBucket = "tks-media"
 	}})
@@ -151,9 +154,9 @@ func TestMediaDownloads(t *testing.T) {
 	if n := s.Fake.VideoDownloads.Load(); n != 0 {
 		t.Errorf("%d videos downloaded by backfills (thumbnail policy)", n)
 	}
-	if n := count(t, s, `SELECT count(*) FROM media WHERE status = 'ready' AND (s3_key IS NULL OR delete_after IS NOT NULL
-		OR stored_at IS NULL OR size_bytes IS NULL)`); n != 0 {
-		t.Errorf("%d ready rows without an object, or with a deletion time", n)
+	if n := count(t, s, `SELECT count(*) FROM media WHERE status = 'ready' AND (s3_key IS NULL OR stored_at IS NULL OR size_bytes IS NULL
+		OR delete_after IS DISTINCT FROM stored_at + interval '72 hours')`); n != 0 {
+		t.Errorf("%d ready rows without an object, or without their 72 h deadline", n)
 	}
 	covers := count(t, s, `SELECT count(*) FROM media WHERE status = 'ready'`)
 
@@ -298,7 +301,38 @@ func TestMediaDownloads(t *testing.T) {
 		objects++
 	}
 	if int64(objects) != all {
-		t.Errorf("%d objects in the bucket, want all %d: tks deletes none", objects, all)
+		t.Errorf("%d objects in the bucket, want all %d: no file is acknowledged by every consumer or past its deadline yet", objects, all)
+	}
+	// 5. The analysis service processed a cover: the sweeper deletes it.
+	var done, doneKey string
+	if err := s.DB.QueryRow(ctx, `SELECT media_id::text, s3_key FROM media WHERE kind = 'cover' AND status = 'ready' LIMIT 1`).
+		Scan(&done, &doneKey); err != nil {
+		t.Fatal(err)
+	}
+	ack := &mediav1.MediaProcessed{EventId: "e2e-processed", MediaId: content.ID("media", done), Platform: "tt", Consumer: "sb-analysis",
+		Status: mediav1.ProcessStatus_PROCESS_STATUS_PROCESSED, ProcessedAt: timestamppb.New(w.Clock())}
+	rec, err := content.Record(s.Producer, content.TopicMediaProcessed, ack.MediaId, ack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Producer.ProduceSync(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	waitCount(t, s, 1, `SELECT count(*) FROM media WHERE media_id = $1 AND status = 'deleted' AND deleted_at IS NOT NULL`, done)
+	if _, err := s3.StatObject(ctx, bucket, doneKey, minio.StatObjectOptions{}); err == nil {
+		t.Error("the processed cover's object is still in the bucket")
+	}
+	gone := 0
+	for _, m := range contractRecords(t, s, content.TopicMediaDeleted, 2) {
+		if ev := m.(*mediav1.MediaDeleted); ev.MediaId == content.ID("media", done) && ev.Reason == mediav1.DeleteReason_DELETE_REASON_PROCESSED {
+			gone++
+			if err := content.Check(ev, opt); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	if gone != 1 {
+		t.Errorf("%d contract deletions of the processed cover, want 1", gone)
 	}
 	// Read again: the removed file is not downloaded again.
 	before := s.Fake.VideoDownloads.Load()

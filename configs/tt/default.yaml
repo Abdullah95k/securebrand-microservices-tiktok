@@ -44,13 +44,16 @@ tt:
   content:
     enabled: false
     production: false
-    # The media hand-off on content.media.ready.v1 (M15b). tks deletes
-    # nothing (D5): the deleting service removes a file once every
-    # required consumer acknowledged it, or at delete_after (from when it
-    # was stored; at least 24h).
+    # The media hand-off on content.media.ready.v1 (M15b): tks deletes a
+    # file once every required consumer acknowledged it, or at
+    # delete_after (from when it was stored; at least 24h).
     media:
       delete_after: 72h
       required_consumers: [sb-analysis]
+      # tks-media-downloader's sweeper deletes each file once every
+      # required consumer acknowledged it, or at delete_after (owner,
+      # 2026-11-10: tks deletes its own files, replacing D5).
+      sweep_every: 5m
   proxy:
     tiers: []
     routing:
@@ -239,8 +242,8 @@ tt:
     include: false
     # A video file needs the reading identity's tt_chain_token cookie (T18);
     # the downloader sends it to these hosts and their subdomains only.
-    # tks-media-downloader stores the files and keeps them: it sets no TTL
-    # and deletes nothing (another service deletes them: owner, 2026-11-02).
+    # tks-media-downloader stores the files and its sweeper deletes them
+    # (tt.content.media: owner, 2026-11-10, replacing D5).
     cookie_domains: [tiktok.com]
   # Videos' subtitle tracks (M17): TikTok's speech-to-text (ASR) of about
   # half the videos, mostly Arabic, and machine translations of it (MT), as

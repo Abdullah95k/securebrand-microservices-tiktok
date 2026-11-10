@@ -1,6 +1,6 @@
 # tks media downloads
 
-tks always publishes media **metadata** (`tt.media.v1`: covers, photos, video renditions, avatars, music covers, comment images) and stores it in `tt.media`. It downloads the **files** only when `tt.media.include` is on (`TKS_TT__MEDIA__INCLUDE=true`), which is **off by default** until the analysis service exists (build brief D5). Design: [ADR 0007 §15](../tiktok/adr/0007-tks-data-model-and-contracts.md#15-settled-in-m6c-media-the-objectives-and-the-budget).
+tks always publishes media **metadata** (`tt.media.v1`: covers, photos, video renditions, avatars, music covers, comment images) and stores it in `tt.media`. It downloads the **files** only when `tt.media.include` is on (`TKS_TT__MEDIA__INCLUDE=true`), which is **off by default** (build brief D5); production turns it on for the analysis service (owner, 2026-11-10). Design: [ADR 0007 §15](../tiktok/adr/0007-tks-data-model-and-contracts.md#15-settled-in-m6c-media-the-objectives-and-the-budget).
 
 ## What happens when it is on
 
@@ -10,18 +10,22 @@ tks always publishes media **metadata** (`tt.media.v1`: covers, photos, video re
 
 ## Who deletes the files
 
-**Not tks.** Deleting downloaded files is another service's job (owner, 2026-11-02): tks sets no TTL, installs no bucket lifecycle rule and runs no janitor. At start, `tks-media-downloader` logs a warning for any bucket rule that would expire objects.
+**tks does** (owner, 2026-11-10, replacing the rule of 2026-11-02 that another service would; [ADR 0007 §29](../tiktok/adr/0007-tks-data-model-and-contracts.md#29-settled-in-m20-tks-deletes-its-own-media-files)). `tks-media-downloader`'s **sweeper**, every `tt.content.media.sweep_every` (5 min), deletes each `ready` file:
+- once **every** consumer of `tt.content.media.required_consumers` (`[sb-analysis]`) has acknowledged it as processed, failed for good or skipped (reason `acked`); a pending retryable failure does not count;
+- otherwise at its **deadline**, the file's stored time + `tt.content.media.delete_after` (**72 h**; reason `expired`).
 
-The contract for the consuming and deleting services:
+Each deletion removes the object, goes out on `tt.media.deleted.v1` (`ACKED` or `TTL_EXPIRED`) and, with the contract on, `content.media.deleted.v1` (`PROCESSED` or `EXPIRED`), and marks the row `deleted`. Rows are claimed with `SKIP LOCKED`, so several downloader pods sweep side by side. tks still installs no bucket lifecycle rule; at start the downloader warns of any rule that would expire objects. The bucket's credentials must allow deleting under `s3.media_prefix`. The sweeper deletes **only** objects in `s3.media_bucket` whose key starts with `s3.media_prefix` (`tks/`): the media bucket is shared with the other platforms' services (`igs/`, `yts/`, …) and tks's key may delete anywhere in it, so a row naming any other object is never deleted (checked in the query and again before each delete).
+
+The contract for the consuming services:
 - **Read** `tt.media.ready.v1`; the object is at `object.bucket`/`object.key` (a presigned link in `presigned_url` when `media.presign` is on).
 - **Acknowledge** on `tt.media.processed.v1` (`common.v1.MediaProcessed`, `consumer` set to the service's name): `PROCESSED` or `FAILED_PERMANENT` is recorded in `tt.media_acks` (and `processed_at`); `FAILED_RETRYABLE` makes tks announce the file again (`attempt` 2, 3, …) up to `media.max_retryable_failures` times, then nothing more.
-- **After deleting a file**, publish `common.v1.MediaDeleted` on **`tt.media.deleted.v1`** (key: the media id). tks marks the row `deleted` with `deleted_at`, so the API no longer names an object that is gone; the file is not downloaded again.
+- **Deletions** go out on **`tt.media.deleted.v1`** (key: the media id) from tks's sweeper; the ledger also accepts them from elsewhere and marks the row `deleted` with `deleted_at`, so the API no longer names an object that is gone; the file is not downloaded again.
 
 ## The shared contract's hand-off (M15b)
 
 With `tt.content.enabled` on, every announcement also goes on **`content.media.ready.v1`** (`securebrand.media.v1.MediaReady`, the contract's; [ADR 0007 §25](../tiktok/adr/0007-tks-data-model-and-contracts.md#25-settled-in-m15b-the-shared-contracts-media-hand-off-coverage-and-candidates)), in the same batch as tks's own:
 - `media_id` is `tt:media:<uuid>`; `owner_id` the post, comment, sound or account; `account_id` the account; `object.sha256` in hex.
-- **`delete_after`** = the time the file was stored + `tt.content.media.delete_after` (**72 h** by default; at least 24 h, or tks refuses to start). The same deadline on every announcement of a file. It is the **deleting service's** deadline: tks still deletes nothing.
+- **`delete_after`** = the time the file was stored + `tt.content.media.delete_after` (**72 h** by default; at least 24 h, or tks refuses to start). The same deadline on every announcement of a file. It is the sweeper's deadline.
 - **`required_consumers`** = `tt.content.media.required_consumers` (`[sb-analysis]` by default; names from the contract's registry).
 - `attempt` 1, then 2, 3, 4 after `FAILED_RETRYABLE` acknowledgements (`media.max_retryable_failures: 3`, the contract's limit).
 
@@ -29,7 +33,7 @@ With `tt.content.enabled` on, every announcement also goes on **`content.media.r
 
 ## Turning it on
 
-1. Make sure the deleting service runs, or the bucket will only grow.
+1. Make sure the analysis service acknowledges as `sb-analysis` (else every file waits for its 72 h deadline). Watch `tks_media_deleted_total{reason}`.
 2. Set `TKS_TT__MEDIA__INCLUDE=true` on `tks-crawler` (it queues the tasks) and run `tks-media-downloader` with the same configuration (`s3.media_bucket`, `media.concurrency`, `media.max_bytes`, `media.presign`).
 3. Watch `tks_media_download_total` by `kind` and `outcome` (`ready`, `skipped`, `expired`, `refused`, `failed`, `retry`) and `tks_media_discovery_to_stored_seconds`.
 

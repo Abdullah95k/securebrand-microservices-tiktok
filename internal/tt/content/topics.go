@@ -14,8 +14,8 @@ const (
 	topicAudio           = "content.audio.v1"
 
 	// The media hand-off (M15b): tks-media-downloader announces each
-	// stored file; the consumers acknowledge it and the deleting service
-	// records its deletion, which tks-media-downloader's ledger reads.
+	// stored file; the consumers acknowledge it, and its sweeper deletes
+	// it and says so (the ledger reads both).
 	TopicMediaReady     = "content.media.ready.v1"
 	TopicMediaProcessed = "content.media.processed.v1"
 	TopicMediaDeleted   = "content.media.deleted.v1"
