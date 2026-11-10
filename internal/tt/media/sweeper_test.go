@@ -22,7 +22,8 @@ import (
 // yet to acknowledge, nor one whose retryable failure is pending, before
 // the deadline. Each deletion removes the object, goes out on tks's topic
 // and the contract's, and marks the row deleted; a second sweep deletes
-// nothing more.
+// nothing more. An object outside tks's prefix in the shared bucket is
+// never deleted, however due its row.
 func TestSweeper(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
@@ -34,6 +35,7 @@ func TestSweeper(t *testing.T) {
 		"retrying": "11111111-1111-5111-8111-000000000004", // a retryable failure, not yet due
 		"stored":   "11111111-1111-5111-8111-000000000005", // not handed over yet
 		"failed":   "11111111-1111-5111-8111-000000000006", // processed and failed for good
+		"foreign":  "11111111-1111-5111-8111-000000000007", // acked and past due, but outside tks/
 	}
 	for name, id := range ids {
 		st, stored := "ready", now.Add(-time.Hour)
@@ -46,6 +48,12 @@ func TestSweeper(t *testing.T) {
 			deleteAfter = &d
 		}
 		key := "tks/media/" + id
+		if name == "foreign" {
+			// Another platform's object in the shared bucket.
+			key = "igs/media/" + id
+			d := now.Add(-time.Minute)
+			deleteAfter = &d
+		}
 		if _, err := e.s3.PutObject(ctx, "tks-media", key, bytes.NewReader([]byte("x")), 1, minio.PutObjectOptions{}); err != nil {
 			t.Fatal(err)
 		}
@@ -68,8 +76,11 @@ func TestSweeper(t *testing.T) {
 	ack(ids["retrying"], "other", "processed")
 	ack(ids["failed"], "sb-analysis", "failed_permanent")
 	ack(ids["failed"], "other", "processed")
+	ack(ids["foreign"], "sb-analysis", "processed")
+	ack(ids["foreign"], "other", "processed")
 
-	s := &Sweeper{DB: e.db, S3: e.s3, Producer: e.prod, RequiredConsumers: []string{"sb-analysis", "other"}, DeleteAfter: 72 * time.Hour,
+	s := &Sweeper{DB: e.db, S3: e.s3, Producer: e.prod, Bucket: "tks-media", Prefix: "tks/",
+		RequiredConsumers: []string{"sb-analysis", "other"}, DeleteAfter: 72 * time.Hour,
 		Contract: true, Batch: 2, Now: func() time.Time { return now }}
 	n, err := s.Sweep(ctx)
 	if err != nil {
@@ -81,7 +92,11 @@ func TestSweeper(t *testing.T) {
 	gone := map[string]bool{"acked": true, "expired": true, "failed": true}
 	for name, id := range ids {
 		st, _ := status(t, e.db, id)
-		_, err := e.s3.StatObject(ctx, "tks-media", "tks/media/"+id, minio.StatObjectOptions{})
+		key := "tks/media/" + id
+		if name == "foreign" {
+			key = "igs/media/" + id
+		}
+		_, err := e.s3.StatObject(ctx, "tks-media", key, minio.StatObjectOptions{})
 		if gone[name] != (st == "deleted") || gone[name] != (err != nil) {
 			t.Errorf("%s: status %q, object err %v", name, st, err)
 		}

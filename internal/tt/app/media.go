@@ -95,8 +95,9 @@ func NewMedia(ctx context.Context, cfg *config.Config, o MediaOptions) (*Media, 
 		producer.Close()
 		return nil, err
 	}
-	m.Sweeper = &ttmedia.Sweeper{DB: o.DB, S3: o.S3, Producer: producer, RequiredConsumers: cfg.TT.Content.Media.RequiredConsumers,
-		DeleteAfter: cfg.TT.Content.Media.DeleteAfter, Contract: cfg.TT.Content.Enabled,
+	m.Sweeper = &ttmedia.Sweeper{DB: o.DB, S3: o.S3, Producer: producer, Bucket: cfg.S3.MediaBucket, Prefix: cfg.S3.MediaPrefix,
+		RequiredConsumers: cfg.TT.Content.Media.RequiredConsumers,
+		DeleteAfter:       cfg.TT.Content.Media.DeleteAfter, Contract: cfg.TT.Content.Enabled,
 		Options: conformance.Options{Production: cfg.TT.Content.Production}, Now: o.Now}
 	every := cfg.TT.Content.Media.SweepEvery
 	m.Components = []run.Func{down.Run, ledger.Run, func(ctx context.Context) error { return m.Sweeper.Run(ctx, every) }}

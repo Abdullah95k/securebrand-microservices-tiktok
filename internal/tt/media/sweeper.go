@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/abdullah95k/securebrand-contracts/conformance"
@@ -31,6 +32,14 @@ type Sweeper struct {
 	DB       *pgxpool.Pool
 	S3       *minio.Client
 	Producer *kafka.Producer
+	// Bucket and Prefix bound what the sweeper deletes: only objects in
+	// Bucket whose key starts with Prefix (s3.media_bucket and
+	// s3.media_prefix, "tks/" in production). The media bucket is shared
+	// with the other platforms' services (igs/, yts/, ...), and tks's key
+	// may delete anywhere in it, so a row naming any other object is left
+	// alone, never deleted.
+	Bucket string
+	Prefix string
 	// RequiredConsumers must all acknowledge a file before it goes early;
 	// DeleteAfter is the deadline after its stored time.
 	RequiredConsumers []string
@@ -50,6 +59,12 @@ func (s *Sweeper) now() time.Time {
 	return time.Now().UTC()
 }
 
+// owns reports whether an object is tks's to delete: in its bucket, under
+// its prefix.
+func (s *Sweeper) owns(bucket, key string) bool {
+	return bucket == s.Bucket && key != "" && strings.HasPrefix(key, s.Prefix)
+}
+
 // done are the acknowledgements that end a consumer's interest in a file.
 var done = []string{"processed", "failed_permanent", "skipped"}
 
@@ -59,6 +74,9 @@ var done = []string{"processed", "failed_permanent", "skipped"}
 func (s *Sweeper) Sweep(ctx context.Context) (int, error) {
 	if len(s.RequiredConsumers) == 0 || s.DeleteAfter <= 0 {
 		return 0, fmt.Errorf("media sweeper: required consumers and delete_after must be set")
+	}
+	if s.Bucket == "" {
+		return 0, fmt.Errorf("media sweeper: the media bucket must be set")
 	}
 	batch := s.Batch
 	if batch <= 0 {
@@ -89,12 +107,12 @@ func (s *Sweeper) sweepBatch(ctx context.Context, batch int) (int, error) {
 				NOT EXISTS (SELECT 1 FROM unnest($1::text[]) AS c(consumer) WHERE NOT EXISTS (
 					SELECT 1 FROM media_acks a WHERE a.media_id = m.media_id AND a.consumer = c.consumer AND a.status = ANY($2)))
 			FROM media m
-			WHERE m.status = 'ready'
+			WHERE m.status = 'ready' AND m.s3_bucket = $6 AND left(m.s3_key, length($7)) = $7
 			  AND (coalesce(m.delete_after, m.stored_at + $3::interval) <= $4
 			    OR NOT EXISTS (SELECT 1 FROM unnest($1::text[]) AS c(consumer) WHERE NOT EXISTS (
 					SELECT 1 FROM media_acks a WHERE a.media_id = m.media_id AND a.consumer = c.consumer AND a.status = ANY($2))))
 			ORDER BY m.stored_at LIMIT $5 FOR UPDATE OF m SKIP LOCKED`,
-			s.RequiredConsumers, done, s.DeleteAfter, now, batch)
+			s.RequiredConsumers, done, s.DeleteAfter, now, batch, s.Bucket, s.Prefix)
 		if err != nil {
 			return err
 		}
@@ -108,7 +126,11 @@ func (s *Sweeper) sweepBatch(ctx context.Context, batch int) (int, error) {
 		b := s.Producer.NewBatch()
 		ids := make([]string, 0, len(files))
 		for _, f := range files {
-			if f.bucket != "" && f.key != "" {
+			if !s.owns(f.bucket, f.key) {
+				// The query selects none; checked again before any delete.
+				return fmt.Errorf("media sweeper: %s names %s/%s, outside %s/%s*", f.id, f.bucket, f.key, s.Bucket, s.Prefix)
+			}
+			if f.key != "" {
 				// Removing an object that is already gone succeeds.
 				if err := s.S3.RemoveObject(ctx, f.bucket, f.key, minio.RemoveObjectOptions{}); err != nil {
 					return fmt.Errorf("media sweeper: remove %s: %w", f.id, err)
