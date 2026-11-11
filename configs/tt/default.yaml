@@ -175,6 +175,11 @@ tt:
     page_refresh: 168h
     # New accounts: every post back this far, or to the first post.
     backfill_days: 365
+    # While the budget pauses the backfill lane (p2): a new account's first
+    # read covers only its last first_read_days days, in the check lane, so
+    # its checks start; the year back comes with the 365-day metrics walk
+    # once p2 runs. 0: the account waits for its backfill.
+    first_read_days: 3
     # Deeper metric refreshes than the list check gives: walk the list
     # every `every` back `back`. After Phase 0.
     metrics_walks:

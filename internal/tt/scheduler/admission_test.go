@@ -242,21 +242,60 @@ func TestPlannerSlotsWithJobStillGoing(t *testing.T) {
 
 func TestSlotFor(t *testing.T) {
 	for _, c := range []struct {
-		status, mode string
-		lane         int16
-		paused       bool
-		want         slot
+		status, mode      string
+		lane              int16
+		paused, firstRead bool
+		want              slot
 	}{
-		{"completed", dispatch.ModeRefresh, 3, true, slotGo},
-		{"running", dispatch.ModeRefresh, 3, true, slotCancelWalk},
-		{"running", dispatch.ModeRefresh, 3, false, slotWait}, // p2 runs: the walk stands in for the check
-		{"running", dispatch.ModeFull, 3, true, slotWait},     // a backfill: no check before it
-		{"running", dispatch.ModeIncremental, 2, true, slotWait},
-		{"finalizing", dispatch.ModeRefresh, 3, true, slotWait},
-		{"cancelling", dispatch.ModeRefresh, 3, true, slotWait},
+		{"completed", dispatch.ModeRefresh, 3, true, true, slotGo},
+		{"running", dispatch.ModeRefresh, 3, true, false, slotCancelWalk},
+		{"running", dispatch.ModeRefresh, 3, false, true, slotWait},   // p2 runs: the walk stands in for the check
+		{"running", dispatch.ModeFull, 3, true, false, slotWait},      // a backfill, no light first reads: nothing can run before it
+		{"running", dispatch.ModeFull, 3, true, true, slotCancelWalk}, // a held backfill gives way to the light first read
+		{"running", dispatch.ModeFull, 3, false, true, slotWait},      // a backfill p2 is running
+		{"running", dispatch.ModeIncremental, 2, true, true, slotWait},
+		{"finalizing", dispatch.ModeRefresh, 3, true, true, slotWait},
+		{"cancelling", dispatch.ModeRefresh, 3, true, true, slotWait},
 	} {
-		if got := slotFor(c.status, c.mode, c.lane, c.paused); got != c.want {
+		if got := slotFor(c.status, c.mode, c.lane, c.paused, c.firstRead); got != c.want {
 			t.Errorf("%+v: %v", c, got)
 		}
+	}
+}
+
+// While the budget pauses p2, a never-read account's backfill held there
+// gives way to the light first read in p1.
+func TestPlannerHeldBackfillGivesWayToFirstRead(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	e.exec(t, `INSERT INTO accounts (user_id, sec_uid, username, author_key, status, profile_refreshed_at, page_read_at)
+		VALUES (95, 'SEC95', 'fresh', '\x01', 'active', now(), now())`)
+	e.exec(t, `INSERT INTO account_usernames (user_id, username, first_seen_at, last_seen_at) VALUES (95, 'fresh', now(), now())`)
+	backfill := uuid.New()
+	e.exec(t, `INSERT INTO jobs (job_id, kind, lane, mode, account_ref, params, status, created_at)
+		VALUES ($1, 'backfill', 3, 'full', 'u:fresh', '{}', 'running', $2)`, backfill, now.Add(-time.Hour))
+	e.exec(t, `INSERT INTO account_schedule (account_ref, user_id, interval_seconds, next_run_at, admitted_at, last_job_id)
+		VALUES ('u:fresh', 95, 9900, $1, $2, $3)`, now.Add(-time.Minute), now.Add(-2*time.Hour), backfill)
+	p := &Planner{DB: e.db, Dispatch: e.disp, Cfg: e.cfg, Now: func() time.Time { return now },
+		Budget: func(context.Context) ratelimit.BudgetState { return ratelimit.BudgetState{PauseP2: true, Stretch: 1} }}
+	if err := p.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var st string
+	if err := e.db.QueryRow(ctx, `SELECT status FROM jobs WHERE job_id = $1`, backfill).Scan(&st); err != nil || st != "cancelling" {
+		t.Fatalf("held backfill %q (%v), want cancelling", st, err)
+	}
+	var mode string
+	var lane int16
+	var maxAge int64
+	var first bool
+	if err := e.db.QueryRow(ctx, `SELECT j.mode, j.lane, coalesce((j.params->'limits'->>'max_age_seconds')::bigint, -1),
+			coalesce((j.params->>'first_read')::boolean, false)
+		FROM account_schedule s JOIN jobs j ON j.job_id = s.last_job_id WHERE s.account_ref = 'u:fresh'`).Scan(&mode, &lane, &maxAge, &first); err != nil {
+		t.Fatal(err)
+	}
+	if mode != dispatch.ModeIncremental || lane != 2 || maxAge != 3*86400 || !first {
+		t.Fatalf("u:fresh's job %s in lane %d, max age %d s, first_read %v; want the 3-day first read in p1", mode, lane, maxAge, first)
 	}
 }

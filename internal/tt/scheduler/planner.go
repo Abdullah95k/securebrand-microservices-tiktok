@@ -37,18 +37,21 @@ type slot int
 const (
 	slotGo         slot = iota // no job in the way: dispatch
 	slotWait                   // the previous job is still going: retry in SlotRetry
-	slotCancelWalk             // a metrics walk the budget holds in the paused p2 lane: cancel it, then check
+	slotCancelWalk             // a walk or backfill the budget holds in the paused p2 lane: cancel it, then check
 )
 
 // slotFor decides a due slot from the account's previous job. A walk held
 // in the paused backfill lane would leave the account unchecked until the
 // budget resumes p2 (hours, the 3-hour target missed), so it gives way to
-// the check, as a due walk does (request); a running check, a backfill (no
-// check can run before it) or a walk p2 is running wait.
-func slotFor(status, mode string, lane int16, p2Paused bool) slot {
+// the check, as a due walk does (request); so does a held backfill when
+// light first reads are on (firstRead: the first read runs in its place,
+// the year back comes with the walk). A running check, a backfill without
+// light first reads, or a walk or backfill p2 is running wait.
+func slotFor(status, mode string, lane int16, p2Paused, firstRead bool) slot {
 	switch status {
 	case "running", "finalizing":
-		if p2Paused && status == "running" && mode == dispatch.ModeRefresh && lane == int16(tkstaskv1.Lane_LANE_P2) {
+		held := p2Paused && status == "running" && lane == int16(tkstaskv1.Lane_LANE_P2)
+		if held && (mode == dispatch.ModeRefresh || (mode == dispatch.ModeFull && firstRead)) {
 			return slotCancelWalk
 		}
 		return slotWait
@@ -144,7 +147,7 @@ func (p *Planner) Tick(ctx context.Context) error {
 			var st, mode string
 			var lane int16
 			if err := p.DB.QueryRow(ctx, `SELECT status, mode, lane FROM jobs WHERE job_id = $1`, *d.lastJob).Scan(&st, &mode, &lane); err == nil {
-				switch slotFor(st, mode, lane, paused) {
+				switch slotFor(st, mode, lane, paused, p.Cfg.TT.Freshness.FirstReadDays > 0) {
 				case slotWait:
 					// The previous job is still going: try again soon,
 					// not a whole interval later.
@@ -155,11 +158,16 @@ func (p *Planner) Tick(ctx context.Context) error {
 					}
 					continue
 				case slotCancelWalk:
-					// A walk the budget holds in the paused p2 lane: it
-					// would keep the account unchecked until p2 resumes.
-					// Cancelled, it stays due (a cancelled job records no
-					// walk) and the check runs now.
-					metrics.PlannerSlots.WithLabelValues("held_walk_cancelled").Inc()
+					// A walk (or backfill) the budget holds in the paused
+					// p2 lane: it would keep the account unchecked until
+					// p2 resumes. Cancelled, it stays due (a cancelled job
+					// records no walk, and an account never read gets its
+					// light first read now).
+					outcome := "held_walk_cancelled"
+					if mode == dispatch.ModeFull {
+						outcome = "held_backfill_cancelled"
+					}
+					metrics.PlannerSlots.WithLabelValues(outcome).Inc()
 					if err := p.Dispatch.Cancel(ctx, *d.lastJob); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 						slog.Warn("planner: cancel held walk", "account", d.ref, "err", err)
 						continue
@@ -211,6 +219,18 @@ func (p *Planner) request(ctx context.Context, d due, backfillPaused bool) (disp
 	r := dispatch.Request{Kind: dispatch.KindScheduled, Lane: tkstaskv1.Lane_LANE_P1, Mode: dispatch.ModeIncremental,
 		AccountRef: d.ref, Limits: lim}
 	switch {
+	case !read && backfillPaused && p.Cfg.TT.Freshness.FirstReadDays > 0:
+		// The budget holds the backfill lane: a light first read of the
+		// last first_read_days days in the check lane, so the account's
+		// checks start now. It records no metrics walk, so the deepest
+		// walk (a year back) is due at once and runs in p2 when the budget
+		// allows: the backfill, later.
+		depth := int64(p.Cfg.TT.Freshness.FirstReadDays) * 86400
+		if lim.MaxAgeSeconds > 0 {
+			depth = min(depth, lim.MaxAgeSeconds)
+		}
+		r.Limits.MaxAgeSeconds = depth
+		r.Params = map[string]any{"first_read": true}
 	case !read:
 		// The account's first read: its year back (or to the first post), in
 		// the backfill lane, so it cannot hold up the 2 h 45 min checks.
