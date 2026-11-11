@@ -125,6 +125,15 @@ var (
 	PersistRows        = counterVec("persist_rows_total", "Rows written by the persister.", "entity", "op")
 	ContentEvents      = counterVec("content_events_total", "The shared contract's content.* events by topic and result: sent; unchanged (the gate held it back); invalid (it broke the contract's conformance checks and was not sent).", "topic", "result")
 	PersistQuarantined = counterVec("persist_quarantined_total", "Records the persister set aside in its quarantine topic: undecodable, or refused by Postgres.", "entity", "reason")
+	// LoopErrors are the leader scheduler's loop ticks that failed, by loop
+	// (planner, discovery, finalizer, ...): the count of the "scheduler:
+	// loop failed" log lines, without their text.
+	LoopErrors = counterVec("scheduler_loop_errors_total", "tks-scheduler loop ticks that failed, by loop.", "loop")
+	// CheckDuration is how long a scheduled job took from dispatch to
+	// finish, by kind (check, walk, backfill): a check's comments and
+	// replies included.
+	CheckDuration = histVec("check_duration_seconds", "tks scheduled jobs from dispatch to finish, by kind (check, walk, backfill), comments and replies included.",
+		[]float64{60, 300, 600, 1200, 1800, 3600, 5400, 7200, 9900, 14400, 21600, 43200}, "kind")
 	// QuietCommentReads are account reads that applied the quiet accounts'
 	// comment windows (tt.freshness.quiet_comment_windows, owner D-056).
 	QuietCommentReads = counter("quiet_comment_reads_total", "Account reads that applied the quiet accounts' comment windows (tt.freshness.quiet_comment_windows).")
@@ -133,7 +142,7 @@ var (
 	// walk the budget held in the paused p2 lane gave way to the check) or
 	// held_backfill_cancelled (a held backfill gave way to a light first
 	// read, tt.freshness.first_read_days).
-	PlannerSlots = counterVec("planner_slots_total", "Due check slots that met the account's previous job still going, by what the planner did (waited, held_walk_cancelled, held_backfill_cancelled).", "outcome")
+	PlannerSlots = counterVec("planner_slots_total", "Due check slots that met the account's previous job still going, by what the planner did (waited, held_walk_cancelled, held_backfill_cancelled), or that dispatched nothing (request_failed, dispatch_failed).", "outcome")
 	// CommentsNew are comments and replies stored for the first time, by
 	// their post's age when stored: recent (up to 30 days, the comment
 	// windows: new posts and their re-reads) or older (backfills, and

@@ -71,6 +71,12 @@ func TestReadTraffic(t *testing.T) {
 			res = `{"metric":{"result":"answered"},"value":[1,"40"]},{"metric":{"result":"refused"},"value":[1,"10"]}`
 		case strings.Contains(q, "tks_proxy_bytes_total"):
 			res = `{"metric":{},"value":[1,"2500000000"]}`
+		case strings.Contains(q, "histogram_quantile(0.5,") && strings.Contains(q, `kind="check"`):
+			res = `{"metric":{},"value":[1,"3600"]}`
+		case strings.Contains(q, "histogram_quantile(0.9,"):
+			res = `{"metric":{},"value":[1,"NaN"]}`
+		case strings.Contains(q, "tks_planner_slots_total"):
+			res = `{"metric":{"outcome":"waited"},"value":[1,"228"]},{"metric":{"outcome":"dispatch_failed"},"value":[1,"3"]}`
 		}
 		fmt.Fprintf(w, `{"status":"success","data":{"resultType":"vector","result":[%s]}}`, res)
 	}))
@@ -88,6 +94,25 @@ func TestReadTraffic(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(tr.Missing, ","), "signatures") {
 		t.Fatalf("missing %v", tr.Missing)
+	}
+	// Check durations: the median in minutes; NaN (no check ended) left at 0.
+	// Planner slots by outcome; none of these is reported missing.
+	if tr.CheckP50Min != 60 || tr.CheckP90Min != 0 || len(tr.PlannerSlots) != 2 {
+		t.Fatalf("checks p50 %v p90 %v, slots %v", tr.CheckP50Min, tr.CheckP90Min, tr.PlannerSlots)
+	}
+	for _, m := range []string{"planner slots", "scheduler loop errors", "check duration"} {
+		if strings.Contains(strings.Join(tr.Missing, ","), m) {
+			t.Errorf("%q reported missing: %v", m, tr.Missing)
+		}
+	}
+	var b bytes.Buffer
+	if err := (Report{Window: w, Traffic: tr}).Write(&b); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Check jobs, dispatch to finish (comments and replies included): median 60 min", "Planner slots:", " waited 228", " dispatch_failed 3"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("report lacks %q:\n%s", want, b.String())
+		}
 	}
 }
 

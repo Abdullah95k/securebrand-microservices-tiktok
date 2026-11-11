@@ -96,6 +96,7 @@ What it shows:
 - signatures by result, and how many signed calls TikTok answered or refused;
 - proxy data (GB) and the signer's browser hours;
 - each container's peak memory and restarts;
+- check jobs' duration from dispatch to finish, comments and replies included (median and p90, `tks_check_duration_seconds`), the planner's slots by outcome (`tks_planner_slots_total`: waited, held walks and backfills cancelled, request or dispatch failed) and the leader scheduler's failed loop ticks by loop (`tks_scheduler_loop_errors_total`), all without account names;
 - new posts stored within 3 hours and 6 hours, and the median delay;
 - comment reads by state, collected comments against TikTok's counts, posts stored against the profiles' counts;
 - new comments and replies stored in the last 24 hours, split by the post's age (up to 30 days old: new posts and their re-reads, about the steady rate; older: backfills' catch-up), from `tks_comments_new_total` (needs `--prometheus`), and how many backfills are still to run (admitted accounts whose post list was never read);

@@ -178,11 +178,13 @@ func (p *Planner) Tick(ctx context.Context) error {
 		req, err := p.request(ctx, d, paused)
 		if err != nil {
 			slog.Warn("planner: account", "account", d.ref, "err", err)
+			metrics.PlannerSlots.WithLabelValues("request_failed").Inc()
 			continue
 		}
 		j, _, err := p.Dispatch.Create(ctx, req, 0)
 		if err != nil {
 			slog.Warn("planner: dispatch failed", "account", d.ref, "err", err)
+			metrics.PlannerSlots.WithLabelValues("dispatch_failed").Inc()
 			continue
 		}
 		if _, err := p.DB.Exec(ctx, `UPDATE account_schedule SET last_job_id = $2 WHERE account_ref = $1`, d.ref, j.ID); err != nil {
