@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # One image for every tks binary; each Deployment picks its command.
-FROM golang:1.27-alpine AS build
+FROM golang:1.27.4-alpine AS build
 WORKDIR /src
 ENV CGO_ENABLED=0 GOFLAGS=-trimpath GOTOOLCHAIN=local
 COPY go.mod go.sum ./
