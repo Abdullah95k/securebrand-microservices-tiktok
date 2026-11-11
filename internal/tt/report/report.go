@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/ratelimit"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/iraq"
 )
 
@@ -89,6 +90,25 @@ type HeldMedia struct {
 	Bytes        int64     `json:"bytes"`
 	NextDeadline time.Time `json:"next_deadline"`
 	LastDeadline time.Time `json:"last_deadline"`
+}
+
+// BudgetPause is the verdict for the traffic budget's published state:
+// when it paused the backfill lane (p2: backfills, metrics walks and part
+// C's discovery pages), a WARN that says so and why; checks go on. nil
+// when p2 runs.
+func BudgetPause(st ratelimit.BudgetState) *Verdict {
+	if !st.PauseP2 {
+		return nil
+	}
+	why := st.Explanation
+	if why == "" {
+		why = "the day's traffic budget"
+	}
+	v := Verdict{Level: "WARN", Rule: "p2 paused by the budget (backfills, metrics walks and discovery pages wait; checks go on): " + why}
+	if !st.UpdatedAt.IsZero() {
+		v.Rule += fmt.Sprintf(" (as of %s)", st.UpdatedAt.In(Iraq).Format("2006-01-02 15:04"))
+	}
+	return &v
 }
 
 // readHeld counts the media files held now, by kind. A ready file's
@@ -256,7 +276,7 @@ func Check(r Rules, t *Traffic, s Store, perAccountUSD float64) []Verdict {
 		}
 	}
 	if r.BudgetPerAccount > 0 && perAccountUSD > r.BudgetPerAccount {
-		add("STOP", "cost per account $%.5f a day is over the budget $%.5f", perAccountUSD, r.BudgetPerAccount)
+		add("STOP", "cost per account $%.6f a day is over the budget $%.6f", perAccountUSD, r.BudgetPerAccount)
 	}
 	if s.NewPosts > 0 && s.Within3h < r.MinWithin3h {
 		add("WARN", "%.1f %% of new posts stored within 3 hours, under %.0f %%", 100*s.Within3h, 100*r.MinWithin3h)
@@ -414,7 +434,7 @@ func (r Report) Write(out io.Writer) error {
 				h.NextDeadline.In(Iraq).Format("2006-01-02 15:04"), h.LastDeadline.In(Iraq).Format("2006-01-02 15:04"))
 		}
 	}
-	fmt.Fprintf(w, "\nCost (last 24 hours, the owner's prices): $%.5f per account a day, $%.2f per 1,000 accounts a day\n", r.PerAccount, r.Per1000)
+	fmt.Fprintf(w, "\nCost (last 24 hours, the owner's prices): $%.6f per account a day, $%.2f per 1,000 accounts a day\n", r.PerAccount, r.Per1000)
 	if r.CostNote != "" {
 		fmt.Fprintf(w, "  %s\n", r.CostNote)
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/app"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/ratelimit"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/cost"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/halt"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/report"
@@ -106,6 +107,11 @@ func runReport(ctx context.Context, cfg *config.Config, args []string) (any, err
 	if st, err := halt.Get(ctx, rdb, cfg.Kafka.TopicPrefix); err == nil && st.Stopped {
 		rep.Verdicts = append(rep.Verdicts, report.Verdict{Level: "WARN",
 			Rule: fmt.Sprintf("tks is stopped since %s (%s): tksctl start resumes it", st.At.In(report.Iraq).Format("2006-01-02 15:04"), st.Reason)})
+	}
+	if st, err := ratelimit.LoadBudgetState(ctx, rdb, cfg.Kafka.TopicPrefix); err == nil {
+		if v := report.BudgetPause(st); v != nil {
+			rep.Verdicts = append(rep.Verdicts, *v)
+		}
 	}
 	if *asJSON {
 		printJSON(rep)

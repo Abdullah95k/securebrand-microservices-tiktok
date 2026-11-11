@@ -280,5 +280,5 @@ func (m *Meter) Over(_ context.Context, paused bool) (bool, string) {
 	if !over {
 		return false, ""
 	}
-	return true, fmt.Sprintf("cost $%.5f per account a day is over the budget $%.5f: backfill paused, checks go on", e.PerAccountUSD, budget)
+	return true, fmt.Sprintf("cost $%.6f per account a day is over the budget $%.6f: backfill paused, checks go on", e.PerAccountUSD, budget)
 }
