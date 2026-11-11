@@ -81,6 +81,9 @@ type walk struct {
 	stopBefore time.Time // an incremental check's boundary; zero: none
 	oldest     time.Time
 	stop       string
+	// windows are the account's comment windows: tt.freshness.
+	// comment_windows, or quiet_comment_windows for a quiet account.
+	windows []config.CommentWindow
 }
 
 func (s *AccountStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
@@ -454,7 +457,7 @@ func (s *AccountStage) listAccount(ctx context.Context, b *kafka.Batch, t *tksta
 // (REFRESH) to its age window whatever is stored.
 func (s *AccountStage) plan(ctx context.Context, t *tkstaskv1.Task, sc *tkstaskv1.AccountScope) (walk, error) {
 	d := s.D
-	w := walk{mode: t.Mode, cutoff: task.MaxAgeCutoff(t.Limits, d.now())}
+	w := walk{mode: t.Mode, cutoff: task.MaxAgeCutoff(t.Limits, d.now()), windows: d.commentWindows(ctx, sc.UserId)}
 	if w.mode != commonv1.CrawlMode_CRAWL_MODE_INCREMENTAL {
 		if w.mode == commonv1.CrawlMode_CRAWL_MODE_UNSPECIFIED {
 			w.mode = commonv1.CrawlMode_CRAWL_MODE_FULL
@@ -539,7 +542,7 @@ func (s *AccountStage) posts(ctx context.Context, b *kafka.Batch, t *tkstaskv1.T
 		c["posts"]++
 		c["media_queued"] += n
 		kept = append(kept, pb)
-		child, state := s.commentsTask(ctx, t, sc, w.mode, p)
+		child, state := s.commentsTask(ctx, t, sc, w.mode, w.windows, p)
 		if child == nil {
 			_, _ = d.Jobs.SetPost(ctx, t.JobId, p.PostId, created.Unix(), p.GetCounts().GetComments(), state)
 			if state == jobs.PostSkipped && t.Limits.GetIncludeComments() {
@@ -562,7 +565,8 @@ func (s *AccountStage) posts(ctx context.Context, b *kafka.Batch, t *tkstaskv1.T
 // §4, §5): never read, or its comment count went up since the last read
 // and its comment window allows another read. A post past the last window
 // is read again only on a metrics walk (REFRESH) that sees its count grow.
-func (s *AccountStage) commentsTask(ctx context.Context, t *tkstaskv1.Task, sc *tkstaskv1.AccountScope, mode commonv1.CrawlMode, p *ttv1.Post) (*tkstaskv1.Task, string) {
+func (s *AccountStage) commentsTask(ctx context.Context, t *tkstaskv1.Task, sc *tkstaskv1.AccountScope, mode commonv1.CrawlMode,
+	windows []config.CommentWindow, p *ttv1.Post) (*tkstaskv1.Task, string) {
 	d := s.D
 	if !t.Limits.GetIncludeComments() {
 		return nil, jobs.PostSkipped
@@ -576,7 +580,7 @@ func (s *AccountStage) commentsTask(ctx context.Context, t *tkstaskv1.Task, sc *
 		if count <= prev.Reported && prev.ThreadsComplete && d.Ckpt.Incomplete(ctx, p.PostId) == "" {
 			return nil, jobs.PostSkipped
 		}
-		if !commentsDue(d.Cfg.TT.Freshness.CommentWindows, d.now(), p.CreatedAt.AsTime(), prev.ReadAt, mode) {
+		if !commentsDue(windows, d.now(), p.CreatedAt.AsTime(), prev.ReadAt, mode) {
 			return nil, jobs.PostSkipped
 		}
 	}

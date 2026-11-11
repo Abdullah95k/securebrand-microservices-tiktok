@@ -122,6 +122,17 @@ config:
     # list first, then discovered accounts by score (2026-11-07).
     admission:
       per_hour: 12
+    # Quiet accounts' comments read less often (owner D-056, 2026-11-11):
+    # an account posting less than weekly (its last 30 days) has its posts'
+    # comments re-read daily under 2 days, every 3 days to a week, every 2
+    # weeks to 30 days (busier accounts: 6 h, daily, weekly). Its list is
+    # still checked every 2 h 45 min, so a new post lands within 3 h.
+    freshness:
+      quiet_below_posts_per_day: 0.142857
+      quiet_comment_windows:
+        - {max_age: 48h, interval: 24h}
+        - {max_age: 168h, interval: 72h}
+        - {max_age: 720h, interval: 336h}
     # Discovery (owner, 2026-11-07; runbook tks-discovery.md): part B (who
     # monitored accounts mention, answer, or who comments on them) and part
     # C (hashtags, sounds and related posts on isp; keyword search and the
