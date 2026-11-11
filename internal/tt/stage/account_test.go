@@ -2,6 +2,8 @@ package stage
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -370,5 +372,46 @@ func TestFirstReadIsBoundedByAge(t *testing.T) {
 	if err := h.d.DB.QueryRow(context.Background(), `SELECT count(*) FROM crawl_cursors WHERE scope_type = 'account_list' AND scope_id = $1`,
 		acc.UID).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("list cursor rows %d (%v), want 1: the next slot is a check", n, err)
+	}
+}
+
+// Quiet accounts' comment windows (owner D-056): an account posting less
+// than quiet_below_posts_per_day gets quiet_comment_windows; a busier one,
+// one with no rate yet, an unknown one, or any account with the setting off
+// keeps comment_windows.
+func TestQuietCommentWindows(t *testing.T) {
+	h := newHarness(t, tttest.Options{Spec: fakett.Spec{Seed: 3, Accounts: 1, PostsPerAccount: 1}})
+	ctx := context.Background()
+	f := &h.d.Cfg.TT.Freshness
+	quiet := []config.CommentWindow{{MaxAge: 48 * time.Hour, Interval: 24 * time.Hour}, {MaxAge: 168 * time.Hour, Interval: 72 * time.Hour},
+		{MaxAge: 720 * time.Hour, Interval: 336 * time.Hour}}
+	f.QuietCommentWindows, f.QuietBelowPostsPerDay = quiet, 1.0/7
+	for i, rate := range []any{0.05, 2.0, nil} {
+		uid := int64(700 + i)
+		if _, err := h.d.DB.Exec(ctx, `INSERT INTO account_schedule (account_ref, user_id, interval_seconds, next_run_at, admitted_at, posts_per_day)
+			VALUES ($1, $2, 9900, now(), now(), $3)`, fmt.Sprintf("id:%d", uid), uid, rate); err != nil {
+			t.Fatal(err)
+		}
+	}
+	isQuiet := func(uid int64) bool { return slices.Equal(h.d.commentWindows(ctx, uid), quiet) }
+	if !isQuiet(700) {
+		t.Error("an account posting 0.05 a day did not get the quiet windows")
+	}
+	for _, uid := range []int64{701, 702, 999} {
+		if isQuiet(uid) {
+			t.Errorf("account %d got the quiet windows (busy, no rate yet, or unknown)", uid)
+		}
+	}
+	f.QuietBelowPostsPerDay = 0
+	if isQuiet(700) {
+		t.Error("quiet windows applied with quiet_below_posts_per_day 0 (off)")
+	}
+	// The quiet windows read a quiet post's comments less often: a 30-hour
+	// old post read 7 h ago is due by the default windows, not the quiet ones.
+	now := time.Now()
+	read := now.Add(-7 * time.Hour).Unix()
+	if !commentsDue(f.CommentWindows, now, now.Add(-30*time.Hour), read, commonv1.CrawlMode_CRAWL_MODE_INCREMENTAL) ||
+		commentsDue(quiet, now, now.Add(-30*time.Hour), read, commonv1.CrawlMode_CRAWL_MODE_INCREMENTAL) {
+		t.Error("the quiet windows do not space a young post's re-reads")
 	}
 }

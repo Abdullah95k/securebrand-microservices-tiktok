@@ -193,6 +193,13 @@ tt:
       - {max_age: 48h, interval: 6h}
       - {max_age: 168h, interval: 24h}
       - {max_age: 720h, interval: 168h}
+    # Quiet accounts (owner D-056): an account posting less than
+    # quiet_below_posts_per_day (its last 30 days) gets these windows
+    # instead. Keep a last window as deep as comment_windows' (720h): a
+    # post past the last window is re-read by every metrics walk that sees
+    # its count grow, the daily 30-day walk included. 0: off.
+    quiet_below_posts_per_day: 0
+    quiet_comment_windows: []
     # The owner's accounts that went quiet (discovery-plan §5.4): a private
     # one daily for 7 days, then weekly; a banned or missing one weekly for
     # 30 days, then monthly. A check that finds one active puts it back on

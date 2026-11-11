@@ -125,6 +125,9 @@ var (
 	PersistRows        = counterVec("persist_rows_total", "Rows written by the persister.", "entity", "op")
 	ContentEvents      = counterVec("content_events_total", "The shared contract's content.* events by topic and result: sent; unchanged (the gate held it back); invalid (it broke the contract's conformance checks and was not sent).", "topic", "result")
 	PersistQuarantined = counterVec("persist_quarantined_total", "Records the persister set aside in its quarantine topic: undecodable, or refused by Postgres.", "entity", "reason")
+	// QuietCommentReads are account reads that applied the quiet accounts'
+	// comment windows (tt.freshness.quiet_comment_windows, owner D-056).
+	QuietCommentReads = counter("quiet_comment_reads_total", "Account reads that applied the quiet accounts' comment windows (tt.freshness.quiet_comment_windows).")
 	// PlannerSlots are due check slots that met the account's previous job
 	// still going: waited (tried again in 15 min), held_walk_cancelled (a
 	// walk the budget held in the paused p2 lane gave way to the check) or

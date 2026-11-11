@@ -297,3 +297,24 @@ func TestMediaKinds(t *testing.T) {
 		t.Errorf("negative max_age: %v", err)
 	}
 }
+
+// Quiet accounts' comment windows (owner D-056): off by default; a negative
+// threshold or unordered windows are refused.
+func TestQuietCommentWindowsConfig(t *testing.T) {
+	c, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.TT.Freshness.QuietBelowPostsPerDay != 0 || len(c.TT.Freshness.QuietCommentWindows) != 0 {
+		t.Fatalf("quiet windows on by default: %v %v", c.TT.Freshness.QuietBelowPostsPerDay, c.TT.Freshness.QuietCommentWindows)
+	}
+	c.TT.Freshness.QuietBelowPostsPerDay = -1
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "quiet_below_posts_per_day") {
+		t.Errorf("negative threshold: %v", err)
+	}
+	c.TT.Freshness.QuietBelowPostsPerDay = 0.14
+	c.TT.Freshness.QuietCommentWindows = []CommentWindow{{MaxAge: 168 * time.Hour, Interval: time.Hour}, {MaxAge: 48 * time.Hour, Interval: time.Hour}}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "quiet_comment_windows") {
+		t.Errorf("unordered windows: %v", err)
+	}
+}

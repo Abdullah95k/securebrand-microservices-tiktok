@@ -748,6 +748,13 @@ type Freshness struct {
 	MetricsWalks []MetricsWalk `koanf:"metrics_walks"`
 	// CommentWindows bound comment re-reads by post age (ascending MaxAge).
 	CommentWindows []CommentWindow `koanf:"comment_windows"`
+	// QuietCommentWindows replace CommentWindows for a quiet account's
+	// posts: one whose posting rate (account_schedule.posts_per_day, the
+	// last 30 days) is under QuietBelowPostsPerDay. 0 (or no windows)
+	// turns it off (owner D-056, 2026-11-11: read comments less often on
+	// quiet accounts).
+	QuietCommentWindows   []CommentWindow `koanf:"quiet_comment_windows"`
+	QuietBelowPostsPerDay float64         `koanf:"quiet_below_posts_per_day"`
 	// Inactive spaces the checks of the owner's accounts that went private,
 	// banned or missing (docs/tiktok/discovery-plan.md §5.4).
 	Inactive InactiveChecks `koanf:"inactive"`
@@ -1273,6 +1280,15 @@ func (t TT) validate() []error {
 			errs = append(errs, errors.New("tt.freshness.metrics_walks need every and back > 0, back ascending"))
 			break
 		}
+	}
+	for i, w := range f.QuietCommentWindows {
+		if w.Interval <= 0 || w.MaxAge <= 0 || (i > 0 && w.MaxAge <= f.QuietCommentWindows[i-1].MaxAge) {
+			errs = append(errs, errors.New("tt.freshness.quiet_comment_windows need intervals and ascending max_age"))
+			break
+		}
+	}
+	if f.QuietBelowPostsPerDay < 0 {
+		errs = append(errs, errors.New("tt.freshness.quiet_below_posts_per_day must be >= 0 (0: off)"))
 	}
 	for i, w := range f.CommentWindows {
 		if w.Interval <= 0 || w.MaxAge <= 0 || (i > 0 && w.MaxAge <= f.CommentWindows[i-1].MaxAge) {
