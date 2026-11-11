@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/iraq"
@@ -74,6 +75,36 @@ type Store struct {
 	CommentRatioReads int64   `json:"comment_ratio_reads"`
 	PostRatio         float64 `json:"post_ratio"` // median stored posts ÷ profile count
 	DatabaseGB        float64 `json:"database_gb"`
+	// MediaHeld are the media files tks holds now (ready, not yet
+	// deleted), by kind: when the report runs, not over the window.
+	MediaHeld []HeldMedia `json:"media_held"`
+}
+
+// HeldMedia is one kind's files held now: how many, their bytes, and the
+// soonest and latest deadline (delete_after, stored + 72 h by default),
+// past which the sweeper deletes a file whether or not it was acked.
+type HeldMedia struct {
+	Kind         string    `json:"kind"`
+	Files        int64     `json:"files"`
+	Bytes        int64     `json:"bytes"`
+	NextDeadline time.Time `json:"next_deadline"`
+	LastDeadline time.Time `json:"last_deadline"`
+}
+
+// readHeld counts the media files held now, by kind. A ready file's
+// delete_after is set when it becomes ready; a row without one counts
+// from stored_at with the default 72 h.
+func readHeld(ctx context.Context, db *pgxpool.Pool) ([]HeldMedia, error) {
+	rows, err := db.Query(ctx, `SELECT kind, count(*), coalesce(sum(size_bytes), 0)::bigint,
+			min(coalesce(delete_after, stored_at + interval '72 hours')), max(coalesce(delete_after, stored_at + interval '72 hours'))
+		FROM media WHERE status = 'ready' GROUP BY kind ORDER BY kind`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (HeldMedia, error) {
+		var h HeldMedia
+		return h, r.Scan(&h.Kind, &h.Files, &h.Bytes, &h.NextDeadline, &h.LastDeadline)
+	})
 }
 
 // NewPostAge is how long before the window a post may have been published
@@ -122,6 +153,9 @@ func ReadStore(ctx context.Context, db *pgxpool.Pool, w Window) (Store, error) {
 		WHERE first_mode IN ('incremental', 'refresh') AND stored_at >= $1 AND stored_at < $2
 		  AND created_at < $1 - $3::interval`, w.From, w.To, NewPostAge).Scan(&s.OlderFinds); err != nil {
 		return s, fmt.Errorf("report: older finds: %w", err)
+	}
+	if s.MediaHeld, err = readHeld(ctx, db); err != nil {
+		return s, fmt.Errorf("report: media held: %w", err)
 	}
 	rows, err = db.Query(ctx, `SELECT comments_state, count(*) FROM posts
 		WHERE comments_synced_at >= $1 AND comments_synced_at < $2 GROUP BY 1`, w.From, w.To)
@@ -371,6 +405,15 @@ func (r Report) Write(out io.Writer) error {
 	}
 	fmt.Fprintf(w, "Posts stored ÷ profile count (accounts younger than the backfill's year, median): %.2f\n", s.PostRatio)
 	fmt.Fprintf(w, "Database: %.2f GB\n", s.DatabaseGB)
+	if len(s.MediaHeld) == 0 {
+		fmt.Fprintln(w, "Media files held now: none")
+	} else {
+		fmt.Fprintln(w, "Media files held now (ready, not yet deleted; next and last deadline, Iraq time):")
+		for _, h := range s.MediaHeld {
+			fmt.Fprintf(w, "  %-14s %8d files %9.2f GB  next %s  last %s\n", h.Kind, h.Files, float64(h.Bytes)/1e9,
+				h.NextDeadline.In(Iraq).Format("2006-01-02 15:04"), h.LastDeadline.In(Iraq).Format("2006-01-02 15:04"))
+		}
+	}
 	fmt.Fprintf(w, "\nCost (last 24 hours, the owner's prices): $%.5f per account a day, $%.2f per 1,000 accounts a day\n", r.PerAccount, r.Per1000)
 	if r.CostNote != "" {
 		fmt.Fprintf(w, "  %s\n", r.CostNote)
