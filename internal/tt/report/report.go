@@ -65,8 +65,11 @@ type Store struct {
 	MedianDelayMin float64          `json:"median_delay_min"`
 	CommentReads   map[string]int64 `json:"comment_reads"` // comments_state of posts read in the window
 	CommentRatio   float64          `json:"comment_ratio"` // median collected ÷ count, complete reads
-	PostRatio      float64          `json:"post_ratio"`    // median stored posts ÷ profile count
-	DatabaseGB     float64          `json:"database_gb"`
+	// CommentRatioReads is how many complete reads of posts with a comment
+	// count the ratio is over (0: no ratio).
+	CommentRatioReads int64   `json:"comment_ratio_reads"`
+	PostRatio         float64 `json:"post_ratio"` // median stored posts ÷ profile count
+	DatabaseGB        float64 `json:"database_gb"`
 }
 
 // ReadStore reads the window's numbers from Postgres.
@@ -120,12 +123,16 @@ func ReadStore(ctx context.Context, db *pgxpool.Pool, w Window) (Store, error) {
 	if err := rows.Err(); err != nil {
 		return s, err
 	}
+	// The ratio is over the post's comment count as the finalizer had it
+	// when it counted the stored comments (the same count its completeness
+	// uses); comment_count_read is never written, so it is not used.
 	var cr, pr *float64
 	if err := db.QueryRow(ctx, `
 		SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY
-		       (coalesce(comments_collected, 0) + coalesce(replies_collected, 0))::float8 / comment_count_read)
-		FROM posts WHERE comments_state = 'complete' AND comment_count_read > 0
-		  AND comments_synced_at >= $1 AND comments_synced_at < $2`, w.From, w.To).Scan(&cr); err != nil {
+		       (coalesce(comments_collected, 0) + coalesce(replies_collected, 0))::float8 / comment_count),
+		       count(*)
+		FROM posts WHERE comments_state = 'complete' AND comment_count > 0
+		  AND comments_synced_at >= $1 AND comments_synced_at < $2`, w.From, w.To).Scan(&cr, &s.CommentRatioReads); err != nil {
 		return s, fmt.Errorf("report: comments: %w", err)
 	}
 	// Posts stored against the profile's count, for accounts whose
@@ -298,7 +305,7 @@ func (r Report) Write(out io.Writer) error {
 		fmt.Fprintf(w, "  %s: %s\n", v.Level, v.Rule)
 	}
 	s := r.Store
-	fmt.Fprintf(w, "\nAccounts: %d scheduled; by status:", s.Scheduled)
+	fmt.Fprintf(w, "\nAccounts: %d monitored (on the schedule); every stored account (monitored and found) by TikTok status:", s.Scheduled)
 	for _, k := range sortedKeys(s.Accounts) {
 		fmt.Fprintf(w, " %s %d", k, s.Accounts[k])
 	}
@@ -338,7 +345,11 @@ func (r Report) Write(out io.Writer) error {
 	for _, k := range sortedKeys(s.CommentReads) {
 		fmt.Fprintf(w, " %s %d", k, s.CommentReads[k])
 	}
-	fmt.Fprintf(w, "; collected ÷ count (complete reads, median) %.2f\n", s.CommentRatio)
+	if s.CommentRatioReads > 0 {
+		fmt.Fprintf(w, "; collected ÷ count (complete reads, median of %d) %.2f\n", s.CommentRatioReads, s.CommentRatio)
+	} else {
+		fmt.Fprintln(w, "; collected ÷ count: no complete read of a post with comments")
+	}
 	fmt.Fprintf(w, "Posts stored ÷ profile count (accounts younger than the backfill's year, median): %.2f\n", s.PostRatio)
 	fmt.Fprintf(w, "Database: %.2f GB\n", s.DatabaseGB)
 	fmt.Fprintf(w, "\nCost (last 24 hours, the owner's prices): $%.5f per account a day, $%.2f per 1,000 accounts a day\n", r.PerAccount, r.Per1000)
