@@ -9,6 +9,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"math"
 	"strconv"
@@ -26,6 +27,36 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/task"
 )
+
+// SlotRetry is how soon a check whose slot found the account's previous
+// job still going is tried again.
+const SlotRetry = 15 * time.Minute
+
+type slot int
+
+const (
+	slotGo         slot = iota // no job in the way: dispatch
+	slotWait                   // the previous job is still going: retry in SlotRetry
+	slotCancelWalk             // a metrics walk the budget holds in the paused p2 lane: cancel it, then check
+)
+
+// slotFor decides a due slot from the account's previous job. A walk held
+// in the paused backfill lane would leave the account unchecked until the
+// budget resumes p2 (hours, the 3-hour target missed), so it gives way to
+// the check, as a due walk does (request); a running check, a backfill (no
+// check can run before it) or a walk p2 is running wait.
+func slotFor(status, mode string, lane int16, p2Paused bool) slot {
+	switch status {
+	case "running", "finalizing":
+		if p2Paused && status == "running" && mode == dispatch.ModeRefresh && lane == int16(tkstaskv1.Lane_LANE_P2) {
+			return slotCancelWalk
+		}
+		return slotWait
+	case "cancelling":
+		return slotWait
+	}
+	return slotGo
+}
 
 // Planner starts the scheduled checks of registered accounts: an
 // incremental check of the post list every tt.freshness.list_interval, a
@@ -107,15 +138,36 @@ func (p *Planner) Tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	paused := budget != nil && budget.PauseP2
 	for _, d := range list {
 		if d.lastJob != nil {
-			var st string
-			if err := p.DB.QueryRow(ctx, `SELECT status FROM jobs WHERE job_id = $1`, *d.lastJob).Scan(&st); err == nil &&
-				(st == "running" || st == "finalizing" || st == "cancelling") {
-				continue // the previous check is still going; skip this slot
+			var st, mode string
+			var lane int16
+			if err := p.DB.QueryRow(ctx, `SELECT status, mode, lane FROM jobs WHERE job_id = $1`, *d.lastJob).Scan(&st, &mode, &lane); err == nil {
+				switch slotFor(st, mode, lane, paused) {
+				case slotWait:
+					// The previous job is still going: try again soon,
+					// not a whole interval later.
+					metrics.PlannerSlots.WithLabelValues("waited").Inc()
+					if _, err := p.DB.Exec(ctx, `UPDATE account_schedule SET next_run_at = least(next_run_at, $2::timestamptz + $3::interval)
+						WHERE account_ref = $1`, d.ref, p.now(), SlotRetry); err != nil {
+						return err
+					}
+					continue
+				case slotCancelWalk:
+					// A walk the budget holds in the paused p2 lane: it
+					// would keep the account unchecked until p2 resumes.
+					// Cancelled, it stays due (a cancelled job records no
+					// walk) and the check runs now.
+					metrics.PlannerSlots.WithLabelValues("held_walk_cancelled").Inc()
+					if err := p.Dispatch.Cancel(ctx, *d.lastJob); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+						slog.Warn("planner: cancel held walk", "account", d.ref, "err", err)
+						continue
+					}
+				}
 			}
 		}
-		req, err := p.request(ctx, d, budget != nil && budget.PauseP2)
+		req, err := p.request(ctx, d, paused)
 		if err != nil {
 			slog.Warn("planner: account", "account", d.ref, "err", err)
 			continue
