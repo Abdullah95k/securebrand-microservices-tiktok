@@ -40,14 +40,18 @@ func TestCheck(t *testing.T) {
 	if stops != 5 || warns != 1 {
 		t.Fatalf("verdicts %v", v)
 	}
+	bad.CommentsNew24h = []Count{{Labels: map[string]string{"post_age": "recent"}, Value: 1200},
+		{Labels: map[string]string{"post_age": "older"}, Value: 34000}}
 	rep := Report{Window: Window{From: time.Date(2026, 11, 7, 6, 0, 0, 0, time.UTC), To: time.Date(2026, 11, 8, 6, 0, 0, 0, time.UTC)},
-		Traffic: &bad, Verdicts: v, Projections: Project(0.00126, 1000, 10000)}
+		Traffic: &bad, Verdicts: v, Projections: Project(0.00126, 1000, 10000), Store: Store{PendingBackfills: 12}}
 	var b bytes.Buffer
 	if err := rep.Write(&b); err != nil {
 		t.Fatal(err)
 	}
 	out := b.String()
-	for _, want := range []string{"2026-11-07 09:00 to 2026-11-08 09:00 Iraq time", "VERDICT: STOP", "OOM kill", "   1000 accounts: $     1.26 a day"} {
+	for _, want := range []string{"2026-11-07 09:00 to 2026-11-08 09:00 Iraq time", "VERDICT: STOP", "OOM kill", "   1000 accounts: $     1.26 a day",
+		"New comments and replies stored, last 24 h: 35200 (posts up to 30 days old 1200, older posts 34000)",
+		"Backfills still to run (admitted accounts whose list was never read): 12"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report lacks %q:\n%s", want, out)
 		}
@@ -143,6 +147,22 @@ func TestReadStore(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Three admitted accounts, one read (its list's cursor), one never
+	// read, and a disabled one never read: one backfill to run.
+	for i, a := range []struct {
+		enabled, read bool
+	}{{true, true}, {true, false}, {false, false}} {
+		uid := int64(500 + i)
+		if _, err := db.Exec(ctx, `INSERT INTO account_schedule (account_ref, user_id, interval_seconds, next_run_at, admitted_at, enabled)
+			VALUES ($1, $2, 9900, now(), now(), $3)`, fmt.Sprintf("id:%d", uid), uid, a.enabled); err != nil {
+			t.Fatal(err)
+		}
+		if a.read {
+			if _, err := db.Exec(ctx, `INSERT INTO crawl_cursors (scope_type, scope_id, state) VALUES ('account_list', $1, 'complete')`, uid); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	s, err := ReadStore(ctx, db, Window{From: now.Add(-time.Hour), To: now})
 	if err != nil {
 		t.Fatal(err)
@@ -152,6 +172,9 @@ func TestReadStore(t *testing.T) {
 	}
 	if s.CommentRatioReads != 2 || s.CommentRatio < 0.699 || s.CommentRatio > 0.701 {
 		t.Fatalf("comment ratio %.3f over %d reads, want 0.70 over 2", s.CommentRatio, s.CommentRatioReads)
+	}
+	if s.PendingBackfills != 1 {
+		t.Errorf("pending backfills %d, want 1 (the enabled account never read)", s.PendingBackfills)
 	}
 	if len(s.MediaHeld) != 2 {
 		t.Fatalf("media held %+v, want cover and video", s.MediaHeld)

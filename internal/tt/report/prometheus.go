@@ -157,6 +157,9 @@ func ReadTraffic(ctx context.Context, p Prometheus, w Window) (*Traffic, error) 
 	}
 	// No OOM kill is the usual answer, not a missing metric.
 	t.Missing = removeName(t.Missing, "OOM kills")
+	if err := q("new comments (24 h)", "sum by (post_age) (increase(tks_comments_new_total"+sel("")+"[24h]))", &t.CommentsNew24h); err != nil {
+		return nil, err
+	}
 	if err := q("memory (cAdvisor)", "max by (container) (max_over_time(container_memory_working_set_bytes"+ns+r+")) / 1e6", &t.MemoryPeakMB); err != nil {
 		return nil, err
 	}

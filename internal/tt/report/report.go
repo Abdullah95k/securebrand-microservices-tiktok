@@ -42,18 +42,22 @@ type Count struct {
 
 // Traffic is what Prometheus counted in the window; nil without it.
 type Traffic struct {
-	Requests       []Count  `json:"requests"` // by query and class
-	RequestsTotal  float64  `json:"requests_total"`
-	Blocks         float64  `json:"blocks"`     // rate_limited, login_wall, checkpoint
-	Challenges     float64  `json:"challenges"` // checkpoint: captchas and challenges
-	Signs          []Count  `json:"signs"`      // tks-signer's signatures by result
-	SignedAnswered float64  `json:"signed_answered"`
-	SignedRefused  float64  `json:"signed_refused"`
-	ProxyGB        float64  `json:"proxy_gb"`
-	BrowserHours   float64  `json:"browser_hours"`
-	Restarts       []Count  `json:"restarts"`       // by container (kube-state-metrics)
-	OOMKills       []Count  `json:"oom_kills"`      // containers whose last end was an OOM kill
-	MemoryPeakMB   []Count  `json:"memory_peak_mb"` // by container (cAdvisor)
+	Requests       []Count `json:"requests"` // by query and class
+	RequestsTotal  float64 `json:"requests_total"`
+	Blocks         float64 `json:"blocks"`     // rate_limited, login_wall, checkpoint
+	Challenges     float64 `json:"challenges"` // checkpoint: captchas and challenges
+	Signs          []Count `json:"signs"`      // tks-signer's signatures by result
+	SignedAnswered float64 `json:"signed_answered"`
+	SignedRefused  float64 `json:"signed_refused"`
+	ProxyGB        float64 `json:"proxy_gb"`
+	BrowserHours   float64 `json:"browser_hours"`
+	Restarts       []Count `json:"restarts"`       // by container (kube-state-metrics)
+	OOMKills       []Count `json:"oom_kills"`      // containers whose last end was an OOM kill
+	MemoryPeakMB   []Count `json:"memory_peak_mb"` // by container (cAdvisor)
+	// CommentsNew24h are the comments and replies first stored in the 24
+	// hours before the window's end, by post_age (recent: posts up to 30
+	// days old; older: over 30 days, the backfills' catch-up).
+	CommentsNew24h []Count  `json:"comments_new_24h"`
 	Missing        []string `json:"missing,omitempty"`
 }
 
@@ -79,6 +83,10 @@ type Store struct {
 	// MediaHeld are the media files tks holds now (ready, not yet
 	// deleted), by kind: when the report runs, not over the window.
 	MediaHeld []HeldMedia `json:"media_held"`
+	// PendingBackfills are the admitted, enabled accounts whose post list
+	// was never read: each one's backfill is still to come (a year of
+	// posts and their comments).
+	PendingBackfills int64 `json:"pending_backfills"`
 }
 
 // HeldMedia is one kind's files held now: how many, their bytes, and the
@@ -173,6 +181,11 @@ func ReadStore(ctx context.Context, db *pgxpool.Pool, w Window) (Store, error) {
 		WHERE first_mode IN ('incremental', 'refresh') AND stored_at >= $1 AND stored_at < $2
 		  AND created_at < $1 - $3::interval`, w.From, w.To, NewPostAge).Scan(&s.OlderFinds); err != nil {
 		return s, fmt.Errorf("report: older finds: %w", err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM account_schedule s
+		WHERE s.enabled AND s.admitted_at IS NOT NULL AND NOT EXISTS (
+			SELECT 1 FROM crawl_cursors c WHERE c.scope_type = 'account_list' AND c.scope_id = s.user_id)`).Scan(&s.PendingBackfills); err != nil {
+		return s, fmt.Errorf("report: pending backfills: %w", err)
 	}
 	if s.MediaHeld, err = readHeld(ctx, db); err != nil {
 		return s, fmt.Errorf("report: media held: %w", err)
@@ -414,6 +427,19 @@ func (r Report) Write(out io.Writer) error {
 	if s.OlderFinds > 0 {
 		fmt.Fprintf(w, "Older posts first stored by checks (published over 7 days before the window; not counted above): %d\n", s.OlderFinds)
 	}
+	if t := r.Traffic; t != nil && len(t.CommentsNew24h) > 0 {
+		var recent, older float64
+		for _, c := range t.CommentsNew24h {
+			switch c.Labels["post_age"] {
+			case "recent":
+				recent = c.Value
+			case "older":
+				older = c.Value
+			}
+		}
+		fmt.Fprintf(w, "New comments and replies stored, last 24 h: %.0f (posts up to 30 days old %.0f, older posts %.0f)\n", recent+older, recent, older)
+	}
+	fmt.Fprintf(w, "Backfills still to run (admitted accounts whose list was never read): %d\n", s.PendingBackfills)
 	fmt.Fprint(w, "Comment reads:")
 	for _, k := range sortedKeys(s.CommentReads) {
 		fmt.Fprintf(w, " %s %d", k, s.CommentReads[k])
