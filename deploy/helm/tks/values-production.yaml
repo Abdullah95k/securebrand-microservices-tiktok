@@ -207,5 +207,10 @@ components:
   signer:
     enabled: true
     postgresRole: none
-    # Two replicas, 2 pages each in its own 2 GiB (the admission pace above).
+    # Two replicas, 2 pages each (the admission pace above). A page is
+    # closed past 800 MB when idle and killed past 1,200 MB while it signs,
+    # so two busy pages and the server can pass 2 GiB: the signer peaked at
+    # 2,136 MB of its 2 Gi on 2026-11-11 (report 3 on 46f39fe). The limit is
+    # 3 Gi; the request stays 2 Gi, so scheduling is unchanged.
     replicas: 2
+    resources: {requests: {cpu: 500m, memory: 2Gi}, limits: {cpu: "1", memory: 3Gi}}
