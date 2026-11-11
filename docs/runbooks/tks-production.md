@@ -98,6 +98,7 @@ What it shows:
 - each container's peak memory and restarts;
 - new posts stored within 3 hours and 6 hours, and the median delay;
 - comment reads by state, collected comments against TikTok's counts, posts stored against the profiles' counts;
+- new comments and replies stored in the last 24 hours, split by the post's age (up to 30 days old: new posts and their re-reads, about the steady rate; older: backfills' catch-up), from `tks_comments_new_total` (needs `--prometheus`), and how many backfills are still to run (admitted accounts whose post list was never read);
 - media files held now (ready, not yet deleted) by kind, with their size and the next and last deadline, past which the sweeper deletes a file whether or not analysis acknowledged it (this is the moment the report runs, not the window);
 - the cost per account and per 1,000 accounts a day at the owner's prices (one IP $3 a month, $0.017 a signer page-hour, $0.0002 compute per account a day, $0.10 per GB-month), and projected to 1,000, 10,000, 100,000 and 300,000 accounts.
 

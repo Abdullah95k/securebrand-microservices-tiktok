@@ -60,6 +60,12 @@ func commentRow(c *ttv1.Comment) []any {
 // a newer one with other text counts as an edit, and one newer than the
 // comment's deletion makes it (and the replies deleted with it) visible
 // again.
+// RecentPostAge splits tks_comments_new_total: a comment first stored
+// while its post is at most this old is "recent" (the comment windows reach
+// 30 days), an older post's is "older" (a backfill's, or a re-read the
+// weekly walk started).
+const RecentPostAge = 30 * 24 * time.Hour
+
 func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 	cs = latest(cs, func(c *ttv1.Comment) string { return strconv.FormatInt(c.CommentId, 10) })
 	kept := cs[:0]
@@ -87,10 +93,12 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 	}
 	var n, edited, restored, upserted int64
 	got := sightingCounts{}
+	var stored map[int64]bool // the last attempt's first-time comments
 	err := w.withPartitions(ctx, "comments", times, func() error {
 		n, edited, restored, upserted = 0, 0, 0, 0
 		clear(got)
 		fresh := map[int64]bool{} // comments written for the first time
+		stored = fresh
 		return pgx.BeginFunc(ctx, w.DB, func(tx pgx.Tx) error {
 			rows := make([][]any, 0, len(cs))
 			var dels []*ttv1.Comment
@@ -140,6 +148,19 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 	written("comment", n, start)
 	got.publish()
 	metrics.PersistRows.WithLabelValues("comment", "unchanged").Add(float64(upserted - n))
+	recent, older := 0, 0
+	for _, c := range cs {
+		if !stored[c.CommentId] {
+			continue
+		}
+		if start.Sub(c.PostCreatedAt.AsTime()) > RecentPostAge {
+			older++
+		} else {
+			recent++
+		}
+	}
+	metrics.CommentsNew.WithLabelValues("recent").Add(float64(recent))
+	metrics.CommentsNew.WithLabelValues("older").Add(float64(older))
 	metrics.CommentChanges.WithLabelValues("edited").Add(float64(edited))
 	metrics.CommentChanges.WithLabelValues("restored").Add(float64(restored))
 	return nil

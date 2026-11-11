@@ -495,3 +495,35 @@ func TestPostUnavailableAndBack(t *testing.T) {
 		t.Fatalf("post 2: %d status changes, want none", n)
 	}
 }
+
+// tks_comments_new_total counts a comment once, when first stored, by its
+// post's age: a recent post's (up to 30 days) and an older post's apart.
+func TestCommentsNewByPostAge(t *testing.T) {
+	w := newWriter(t)
+	ctx := context.Background()
+	value := func(age string) float64 {
+		t.Helper()
+		var m dto.Metric
+		if err := metrics.CommentsNew.WithLabelValues(age).Write(&m); err != nil {
+			t.Fatal(err)
+		}
+		return m.GetCounter().GetValue()
+	}
+	recent0, older0 := value("recent"), value("older")
+	now := time.Now().UTC().Truncate(time.Second)
+	fresh := comment(20, 0, now, "on a new post", 9010)
+	fresh.PostId, fresh.PostCreatedAt = 2, timestamppb.New(now.Add(-2*time.Hour))
+	old := comment(21, 0, now, "on a post from September", 9011) // its post: 2026-09-01
+	// The second write stores nothing new.
+	for range 2 {
+		if err := w.Comments(ctx, []*ttv1.Comment{fresh, old}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d := value("recent") - recent0; d != 1 {
+		t.Errorf("recent +%v, want +1", d)
+	}
+	if d := value("older") - older0; d != 1 {
+		t.Errorf("older +%v, want +1", d)
+	}
+}
