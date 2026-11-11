@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/ratelimit"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/accounts"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
 )
@@ -186,5 +187,76 @@ func TestImportTenThousand(t *testing.T) {
 		FROM jobs`).Scan(&checks, &backfills)
 	if checks != 20 || backfills != 25 {
 		t.Errorf("%d checks of monitored accounts (want 20) and %d new accounts started (want 25)", checks, backfills)
+	}
+}
+
+// A due check whose account's previous job is still going: a metrics walk
+// the budget holds in the paused p2 lane is cancelled and the check runs
+// now (the walk stays due); any other job still going makes the slot wait
+// SlotRetry, not a whole interval.
+func TestPlannerSlotsWithJobStillGoing(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	for i, ref := range []string{"u:walked", "u:checking"} {
+		uid := int64(90 + i)
+		e.exec(t, `INSERT INTO accounts (user_id, sec_uid, username, author_key, status, profile_refreshed_at, page_read_at)
+			VALUES ($1, $2, $3, '\x01', 'active', now(), now())`, uid, fmt.Sprintf("SEC%d", uid), ref[2:])
+		e.exec(t, `INSERT INTO account_usernames (user_id, username, first_seen_at, last_seen_at) VALUES ($1, $2, now(), now())`, uid, ref[2:])
+		e.exec(t, `INSERT INTO crawl_cursors (scope_type, scope_id, state) VALUES ('account_list', $1, 'complete')`, uid)
+	}
+	walk, check := uuid.New(), uuid.New()
+	e.exec(t, `INSERT INTO jobs (job_id, kind, lane, mode, account_ref, params, status, created_at)
+		VALUES ($1, 'scheduled', 3, 'refresh', 'u:walked', '{}', 'running', $3), ($2, 'scheduled', 2, 'incremental', 'u:checking', '{}', 'running', $3)`,
+		walk, check, now.Add(-time.Hour))
+	for ref, job := range map[string]uuid.UUID{"u:walked": walk, "u:checking": check} {
+		e.exec(t, `INSERT INTO account_schedule (account_ref, user_id, interval_seconds, next_run_at, admitted_at, last_job_id)
+			SELECT $1, user_id, 9900, $2, $3, $4 FROM account_usernames WHERE username = $5`, ref, now.Add(-time.Minute), now.Add(-30*24*time.Hour), job, ref[2:])
+	}
+	p := &Planner{DB: e.db, Dispatch: e.disp, Cfg: e.cfg, Now: func() time.Time { return now },
+		Budget: func(context.Context) ratelimit.BudgetState { return ratelimit.BudgetState{PauseP2: true, Stretch: 1} }}
+	if err := p.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var st string
+	if err := e.db.QueryRow(ctx, `SELECT status FROM jobs WHERE job_id = $1`, walk).Scan(&st); err != nil || st != "cancelling" {
+		t.Fatalf("held walk %q (%v), want cancelling", st, err)
+	}
+	var mode string
+	if err := e.db.QueryRow(ctx, `SELECT j.mode FROM account_schedule s JOIN jobs j ON j.job_id = s.last_job_id
+		WHERE s.account_ref = 'u:walked'`).Scan(&mode); err != nil || mode != dispatch.ModeIncremental {
+		t.Fatalf("u:walked's job %q (%v), want the check", mode, err)
+	}
+	var last uuid.UUID
+	var next time.Time
+	if err := e.db.QueryRow(ctx, `SELECT last_job_id, next_run_at FROM account_schedule WHERE account_ref = 'u:checking'`).Scan(&last, &next); err != nil {
+		t.Fatal(err)
+	}
+	if last != check {
+		t.Errorf("u:checking got a new job while its check runs")
+	}
+	if d := next.Sub(now); d <= 0 || d > SlotRetry+time.Second {
+		t.Errorf("u:checking next check in %s, want within %s", d, SlotRetry)
+	}
+}
+
+func TestSlotFor(t *testing.T) {
+	for _, c := range []struct {
+		status, mode string
+		lane         int16
+		paused       bool
+		want         slot
+	}{
+		{"completed", dispatch.ModeRefresh, 3, true, slotGo},
+		{"running", dispatch.ModeRefresh, 3, true, slotCancelWalk},
+		{"running", dispatch.ModeRefresh, 3, false, slotWait}, // p2 runs: the walk stands in for the check
+		{"running", dispatch.ModeFull, 3, true, slotWait},     // a backfill: no check before it
+		{"running", dispatch.ModeIncremental, 2, true, slotWait},
+		{"finalizing", dispatch.ModeRefresh, 3, true, slotWait},
+		{"cancelling", dispatch.ModeRefresh, 3, true, slotWait},
+	} {
+		if got := slotFor(c.status, c.mode, c.lane, c.paused); got != c.want {
+			t.Errorf("%+v: %v", c, got)
+		}
 	}
 }
