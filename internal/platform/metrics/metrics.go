@@ -134,6 +134,9 @@ var (
 	// replies included.
 	CheckDuration = histVec("check_duration_seconds", "tks scheduled jobs from dispatch to finish, by kind (check, walk, backfill), comments and replies included.",
 		[]float64{60, 300, 600, 1200, 1800, 3600, 5400, 7200, 9900, 14400, 21600, 43200}, "kind")
+	// QuietCommentReads are account reads that applied the quiet accounts'
+	// comment windows (tt.freshness.quiet_comment_windows, owner D-056).
+	QuietCommentReads = counter("quiet_comment_reads_total", "Account reads that applied the quiet accounts' comment windows (tt.freshness.quiet_comment_windows).")
 	// PlannerSlots are due check slots that met the account's previous job
 	// still going: waited (tried again in 15 min), held_walk_cancelled (a
 	// walk the budget held in the paused p2 lane gave way to the check) or

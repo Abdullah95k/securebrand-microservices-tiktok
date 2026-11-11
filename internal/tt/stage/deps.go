@@ -28,6 +28,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/checkpoint"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/jobs"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/detect"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/graphql"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/proxy"
@@ -278,6 +279,25 @@ func (d *Deps) media(ctx context.Context, b *kafka.Batch, t *tkstaskv1.Task, src
 		queued++
 	}
 	return queued, nil
+}
+
+// commentWindows are userID's comment windows: tt.freshness.
+// quiet_comment_windows when the account posts less than
+// quiet_below_posts_per_day (its schedule's last-30-days rate), else
+// comment_windows. An account with no rate yet (never checked to the end)
+// is not quiet.
+func (d *Deps) commentWindows(ctx context.Context, userID int64) []config.CommentWindow {
+	f := d.Cfg.TT.Freshness
+	if f.QuietBelowPostsPerDay <= 0 || len(f.QuietCommentWindows) == 0 || d.DB == nil || userID == 0 {
+		return f.CommentWindows
+	}
+	var rate *float64
+	if err := d.DB.QueryRow(ctx, `SELECT max(posts_per_day) FROM account_schedule WHERE user_id = $1 AND enabled`, userID).
+		Scan(&rate); err != nil || rate == nil || *rate >= f.QuietBelowPostsPerDay {
+		return f.CommentWindows
+	}
+	metrics.QuietCommentReads.Inc()
+	return f.QuietCommentWindows
 }
 
 // tooOld says a media file's post is past tt.media.max_age (its age by the
