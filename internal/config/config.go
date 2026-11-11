@@ -738,6 +738,12 @@ type Freshness struct {
 	PageRefresh    time.Duration `koanf:"page_refresh"`
 	// BackfillDays is how far back a new account is read.
 	BackfillDays int `koanf:"backfill_days"`
+	// FirstReadDays: while the budget pauses the backfill lane, an account
+	// never read gets a light first read of its last FirstReadDays days in
+	// the check lane, so its checks start; its year back comes later with
+	// the deepest metrics walk (the first read records none). 0 turns it
+	// off: the account waits for its backfill (the master, 2026-11-11).
+	FirstReadDays int `koanf:"first_read_days"`
 	// MetricsWalks walk the list deeper than the check, for metrics.
 	MetricsWalks []MetricsWalk `koanf:"metrics_walks"`
 	// CommentWindows bound comment re-reads by post age (ascending MaxAge).

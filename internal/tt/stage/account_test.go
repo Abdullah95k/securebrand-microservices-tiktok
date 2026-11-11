@@ -352,3 +352,23 @@ func TestCommentsDue(t *testing.T) {
 		}
 	}
 }
+
+// The planner's light first read (tt.freshness.first_read_days): an
+// incremental check of an account never read is a full read bounded by its
+// limits' age, so a 3-day limit stores the last 3 days' posts only and
+// leaves the list cursor that turns the next slot into a normal check.
+func TestFirstReadIsBoundedByAge(t *testing.T) {
+	h := newHarness(t, tttest.Options{Spec: fakett.Spec{Seed: 9, Accounts: 1, PostsPerAccount: 8, PostSpacing: 20 * time.Hour}})
+	acc := h.env.World.Accounts()[0]
+	h.d.Cfg.TT.Freshness.BackfillDays = 3 // DefaultLimits' age: the first read's 3 days
+	h.check("first-read", commonv1.CrawlMode_CRAWL_MODE_INCREMENTAL, task.ScopeFromRef("u:"+acc.Username))
+	got := records(h, topics.Post, "first-read", func() *ttv1.Post { return &ttv1.Post{} })
+	if want := len(inWindow(h.env.World, acc, 3)); len(got) != want || want == 0 || want == len(acc.Posts) {
+		t.Fatalf("%d posts stored, want the %d of the last 3 days (of %d)", len(got), want, len(acc.Posts))
+	}
+	var n int
+	if err := h.d.DB.QueryRow(context.Background(), `SELECT count(*) FROM crawl_cursors WHERE scope_type = 'account_list' AND scope_id = $1`,
+		acc.UID).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("list cursor rows %d (%v), want 1: the next slot is a check", n, err)
+	}
+}

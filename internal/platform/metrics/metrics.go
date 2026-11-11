@@ -126,9 +126,11 @@ var (
 	ContentEvents      = counterVec("content_events_total", "The shared contract's content.* events by topic and result: sent; unchanged (the gate held it back); invalid (it broke the contract's conformance checks and was not sent).", "topic", "result")
 	PersistQuarantined = counterVec("persist_quarantined_total", "Records the persister set aside in its quarantine topic: undecodable, or refused by Postgres.", "entity", "reason")
 	// PlannerSlots are due check slots that met the account's previous job
-	// still going: waited (tried again in 15 min) or held_walk_cancelled (a
-	// walk the budget held in the paused p2 lane gave way to the check).
-	PlannerSlots = counterVec("planner_slots_total", "Due check slots that met the account's previous job still going, by what the planner did (waited, held_walk_cancelled).", "outcome")
+	// still going: waited (tried again in 15 min), held_walk_cancelled (a
+	// walk the budget held in the paused p2 lane gave way to the check) or
+	// held_backfill_cancelled (a held backfill gave way to a light first
+	// read, tt.freshness.first_read_days).
+	PlannerSlots = counterVec("planner_slots_total", "Due check slots that met the account's previous job still going, by what the planner did (waited, held_walk_cancelled, held_backfill_cancelled).", "outcome")
 	// CommentsNew are comments and replies stored for the first time, by
 	// their post's age when stored: recent (up to 30 days, the comment
 	// windows: new posts and their re-reads) or older (backfills, and

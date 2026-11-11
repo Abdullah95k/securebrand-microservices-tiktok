@@ -174,3 +174,54 @@ func TestPausedBackfillKeepsChecks(t *testing.T) {
 		t.Fatalf("backfill paused: want the check, got %+v %v", r, err)
 	}
 }
+
+// An account never read: its backfill in p2, or, while the budget pauses
+// p2 and tt.freshness.first_read_days is on, a light first read of those
+// days in the check lane (no walk recorded by it, so the year-deep walk is
+// due afterwards).
+func TestFirstReadWhileBackfillPaused(t *testing.T) {
+	ctx := context.Background()
+	db, err := ttstore.Open(ctx, testenv.EmptyPostgres(t), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(db.Close)
+	if err := ttstore.MigrateUp(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TT.Freshness.FirstReadDays != 3 {
+		t.Fatalf("first_read_days default %d, want 3", cfg.TT.Freshness.FirstReadDays)
+	}
+	for _, q := range []string{
+		`INSERT INTO accounts (user_id, sec_uid, username, author_key, status, profile_refreshed_at, page_read_at)
+			VALUES (8, 'SEC8', 'eight', '\x01', 'active', now(), now())`,
+		`INSERT INTO account_usernames (user_id, username, first_seen_at, last_seen_at) VALUES (8, 'eight', now(), now())`,
+	} {
+		if _, err := db.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := &Planner{DB: db, Cfg: cfg}
+	d := due{ref: "u:eight"} // no list cursor: never read
+	r, err := p.request(ctx, d, false)
+	if err != nil || r.Kind != dispatch.KindBackfill || r.Lane != tkstaskv1.Lane_LANE_P2 || r.Mode != dispatch.ModeFull {
+		t.Fatalf("p2 running: want the backfill, got %+v %v", r, err)
+	}
+	r, err = p.request(ctx, d, true)
+	if err != nil || r.Lane != tkstaskv1.Lane_LANE_P1 || r.Mode != dispatch.ModeIncremental || r.Limits.GetMaxAgeSeconds() != 3*86400 ||
+		r.Params["first_read"] != true {
+		t.Fatalf("p2 paused: want the 3-day first read in p1, got %+v %v", r, err)
+	}
+	if done := WalksDone(cfg.TT.Freshness.MetricsWalks, r.Mode, "", time.Now()); len(done) != 0 {
+		t.Errorf("the first read records walks %v; the year-deep walk must stay due", done)
+	}
+	cfg.TT.Freshness.FirstReadDays = 0
+	r, err = p.request(ctx, d, true)
+	if err != nil || r.Mode != dispatch.ModeFull || r.Lane != tkstaskv1.Lane_LANE_P2 {
+		t.Fatalf("first reads off: want the backfill, got %+v %v", r, err)
+	}
+}
