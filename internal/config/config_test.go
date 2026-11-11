@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -265,5 +266,26 @@ func TestContentMediaSettings(t *testing.T) {
 		if err := c.Validate(); (err == nil) != tc.ok {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+// tt.media.kinds: every kind by default; an unknown name is refused, and so
+// is an empty list with downloads on.
+func TestMediaKinds(t *testing.T) {
+	c, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(c.TT.Media.Kinds, MediaKinds) || !c.TT.Media.KindOn("music_cover") {
+		t.Fatalf("default kinds %v, want %v", c.TT.Media.Kinds, MediaKinds)
+	}
+	c.TT.Media.Include = true
+	c.TT.Media.Kinds = []string{"cover", "audio_cover"}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "audio_cover") {
+		t.Errorf("unknown kind: %v", err)
+	}
+	c.TT.Media.Kinds = nil
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "tt.media.kinds") {
+		t.Errorf("no kind with include on: %v", err)
 	}
 }

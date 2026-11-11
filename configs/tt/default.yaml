@@ -245,6 +245,10 @@ tt:
     # tks-media-downloader stores the files and its sweeper deletes them
     # (tt.content.media: owner, 2026-11-10, replacing D5).
     cookie_domains: [tiktok.com]
+    # The kinds downloaded (the others' metadata is still published): every
+    # kind by default. The video policy still picks the renditions and
+    # whether covers come (none: no covers).
+    kinds: [cover, origin_cover, dynamic_cover, video, photo, avatar, music_cover, comment_image]
   # Videos' subtitle tracks (M17): TikTok's speech-to-text (ASR) of about
   # half the videos, mostly Arabic, and machine translations of it (MT), as
   # WebVTT files of a few KB behind links that expire in about two days. The
