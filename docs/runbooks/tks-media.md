@@ -2,6 +2,8 @@
 
 tks always publishes media **metadata** (`tt.media.v1`: covers, photos, video renditions, avatars, music covers, comment images) and stores it in `tt.media`. It downloads the **files** only when `tt.media.include` is on (`TKS_TT__MEDIA__INCLUDE=true`), which is **off by default** (build brief D5); production turns it on for the analysis service (owner, 2026-11-10). Design: [ADR 0007 §15](../tiktok/adr/0007-tks-data-model-and-contracts.md#15-settled-in-m6c-media-the-objectives-and-the-budget).
 
+**Which kinds.** `tt.media.kinds` lists the kinds downloaded (`cover`, `origin_cover`, `dynamic_cover`, `video`, `photo`, `avatar`, `music_cover`, `comment_image`): every kind by default. A kind left out is never queued; its metadata is still published. The video policy still picks the renditions, and `none` still means no covers. Production leaves out `music_cover` (the master, 2026-11-11), because sb-analysis skips music covers by policy (`policy:image/audio_cover`).
+
 ## What happens when it is on
 
 1. The crawler queues a download task (`tks.task.media`) for each post's cover, one video rendition (`sd`, or `hd` with the job's video policy) and each photo of a photo post; for comment images also when `limits.include_comment_media` is on. A video's task carries the `tt_chain_token` cookie and user agent of the identity that read its link: TikTok's video hosts refuse a video without that cookie (T18).

@@ -260,7 +260,7 @@ func (d *Deps) media(ctx context.Context, b *kafka.Batch, t *tkstaskv1.Task, src
 		if err := d.Emit.Media(ctx, b, src, m); err != nil {
 			return queued, err
 		}
-		if !include || !wanted(m, lim.GetVideoPolicy(), hasHD[m.GetPostId()]) {
+		if !include || !d.Cfg.TT.Media.KindOn(kindName(m.Kind)) || !wanted(m, lim.GetVideoPolicy(), hasHD[m.GetPostId()]) {
 			continue
 		}
 		mt := task.NewMedia(t.JobId, m)
@@ -276,6 +276,12 @@ func (d *Deps) media(ctx context.Context, b *kafka.Batch, t *tkstaskv1.Task, src
 		queued++
 	}
 	return queued, nil
+}
+
+// kindName is k's schema tt name (tt.media.kinds): MEDIA_KIND_MUSIC_COVER
+// is music_cover.
+func kindName(k ttv1.MediaKind) string {
+	return strings.ToLower(strings.TrimPrefix(k.String(), "MEDIA_KIND_"))
 }
 
 // wanted applies the video policy: one rendition per video (sd, or hd when

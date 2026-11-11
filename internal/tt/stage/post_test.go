@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -376,6 +377,35 @@ func TestMediaTasksOnlyWhenSwitchedOn(t *testing.T) {
 		if covers[p.ID] != 1 || (p.Kind == "video" && videos[p.ID] != 1) {
 			t.Errorf("post %d (%s): %d covers, %d videos queued", p.ID, p.Kind, covers[p.ID], videos[p.ID])
 		}
+	}
+}
+
+// tt.media.kinds: a kind left out is never queued, the others are; its
+// metadata is still published. Every kind tt.v1 has is a name the setting
+// takes.
+func TestMediaKinds(t *testing.T) {
+	for k := range ttv1.MediaKind_name {
+		if mk := ttv1.MediaKind(k); mk != ttv1.MediaKind_MEDIA_KIND_UNSPECIFIED && !slices.Contains(config.MediaKinds, kindName(mk)) {
+			t.Errorf("%s (%q) is not in config.MediaKinds", mk, kindName(mk))
+		}
+	}
+	h := newHarness(t, tttest.Options{Spec: fakett.Spec{Seed: 5, Accounts: 1, PostsPerAccount: 5, PostSpacing: 20 * time.Hour}})
+	h.d.Cfg.Limits.BackfillVideoPolicy = "sd"
+	h.d.Cfg.TT.Media.Include = true
+	h.d.Cfg.TT.Media.Kinds = slices.DeleteFunc(slices.Clone(config.MediaKinds), func(k string) bool { return k == "cover" })
+	acc := h.env.World.Accounts()[0]
+	h.check("kinds", commonv1.CrawlMode_CRAWL_MODE_FULL, task.ScopeFromRef("u:"+acc.Username))
+	var videos, covers int
+	for _, m := range records(h, topics.TaskMedia, "kinds", func() *tkstaskv1.Task { return &tkstaskv1.Task{} }) {
+		switch m.GetMedia().GetMedia().Kind {
+		case ttv1.MediaKind_MEDIA_KIND_VIDEO:
+			videos++
+		case ttv1.MediaKind_MEDIA_KIND_COVER:
+			covers++
+		}
+	}
+	if covers != 0 || videos == 0 {
+		t.Fatalf("%d cover and %d video tasks with cover left out of tt.media.kinds; want 0 and some", covers, videos)
 	}
 }
 

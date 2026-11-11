@@ -94,6 +94,10 @@ config:
     # (M20; tks-media.md). On together with the sweeper, in one pin.
     media:
       include: true
+      # Every kind but music_cover (the master, 2026-11-11): sb-analysis
+      # skips music covers by policy, so they only added about 10k files
+      # every 3 h to its backlog. Their metadata is still published.
+      kinds: [cover, origin_cover, dynamic_cover, video, photo, avatar, comment_image]
     canary:
       # The owner's canary accounts (public accounts that post often and get
       # comments with replies; tks-canary.md) are set by the platform as

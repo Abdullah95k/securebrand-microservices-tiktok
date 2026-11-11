@@ -601,6 +601,20 @@ type TTMedia struct {
 	// .tiktok.com, which reaches the video hosts (T18). Redirects to other
 	// hosts go without it.
 	CookieDomains []string `koanf:"cookie_domains"`
+	// Kinds are the media kinds downloaded (schema tt's names, MediaKinds):
+	// every kind by default; a kind left out is never queued, its metadata
+	// still published (the master, 2026-11-11: production drops
+	// music_cover, which sb-analysis skips by policy).
+	Kinds []string `koanf:"kinds"`
+}
+
+// MediaKinds are schema tt's media kind names (tt.v1.MediaKind without its
+// prefix, lower-cased), the values tt.media.kinds takes.
+var MediaKinds = []string{"cover", "origin_cover", "dynamic_cover", "video", "photo", "avatar", "music_cover", "comment_image"}
+
+// KindOn says whether tt.media.kinds lists kind (a MediaKinds name).
+func (m TTMedia) KindOn(kind string) bool {
+	return slices.Contains(m.Kinds, kind)
 }
 
 // TTSubtitles is tt.subtitles: videos' subtitle tracks (video.subtitleInfos:
@@ -1343,6 +1357,14 @@ func (t TT) validate() []error {
 	}
 	if t.Subtitles.Include && (t.Subtitles.MaxBytes < 1 || t.Subtitles.MaxTracks < 1 || t.Subtitles.Timeout <= 0) {
 		errs = append(errs, errors.New("tt.subtitles: max_bytes, max_tracks and timeout must be > 0 when include is on"))
+	}
+	for _, k := range t.Media.Kinds {
+		if !slices.Contains(MediaKinds, k) {
+			errs = append(errs, fmt.Errorf("tt.media.kinds: %q is not one of %v", k, MediaKinds))
+		}
+	}
+	if t.Media.Include && len(t.Media.Kinds) == 0 {
+		errs = append(errs, errors.New("tt.media.kinds must name at least one kind when tt.media.include is on (turn include off to download none)"))
 	}
 	if t.Media.Include && len(t.Media.CookieDomains) == 0 {
 		errs = append(errs, errors.New("tt.media.cookie_domains must name the video hosts' domain when tt.media.include is on"))
