@@ -280,11 +280,11 @@ func (d *Deps) media(ctx context.Context, b *kafka.Batch, t *tkstaskv1.Task, src
 	return queued, nil
 }
 
-// tooOld says a video file's post is past tt.media.video_max_age (its age
-// by the post id's time, T8); other kinds are never too old.
+// tooOld says a media file's post is past tt.media.max_age (its age by the
+// post id's time, T8); media of no post (avatars) is never too old.
 func (d *Deps) tooOld(m *ttv1.Media) bool {
-	limit := d.Cfg.TT.Media.VideoMaxAge
-	if limit <= 0 || m.Kind != ttv1.MediaKind_MEDIA_KIND_VIDEO || m.GetPostId() <= 0 {
+	limit := d.Cfg.TT.Media.MaxAge
+	if limit <= 0 || m.GetPostId() <= 0 {
 		return false
 	}
 	return d.now().Sub(parse.IDTime(m.GetPostId())) > limit

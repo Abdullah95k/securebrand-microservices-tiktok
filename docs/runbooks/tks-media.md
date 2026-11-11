@@ -4,7 +4,7 @@ tks always publishes media **metadata** (`tt.media.v1`: covers, photos, video re
 
 **Which kinds.** `tt.media.kinds` lists the kinds downloaded (`cover`, `origin_cover`, `dynamic_cover`, `video`, `photo`, `avatar`, `music_cover`, `comment_image`): every kind by default. A kind left out is never queued; its metadata is still published. The video policy still picks the renditions, and `none` still means no covers. Production leaves out `music_cover` (the master, 2026-11-11), because sb-analysis skips music covers by policy (`policy:image/audio_cover`).
 
-**How old a video.** `tt.media.video_max_age` downloads a post's video files only while the post is younger than it (its age by the post id's time, T8), from any job: a check, a backfill or a metrics walk; 0 is no limit. Covers, photos and the other kinds are not limited by it. Production sets 7 days (owner D-052, 2026-11-11): `backfill_video_policy` holds only for an account's first read, so without it the daily (30 days) and weekly (a year) metrics walks would download the videos of every older post once.
+**How old a post.** `tt.media.max_age` downloads a post's media files (its video, covers, photos, music cover and comment images) only while the post is younger than it (its age by the post id's time, T8), from any job: a check, a backfill or a metrics walk; 0 is no limit. Avatars belong to no post and are not limited. Production sets 7 days (owner D-052, 2026-11-11: "Download posts that are only 7 days old or newer"): `backfill_video_policy` holds only for an account's first read, so without it the daily (30 days) and weekly (a year) metrics walks would download every older post's files once.
 
 ## What happens when it is on
 

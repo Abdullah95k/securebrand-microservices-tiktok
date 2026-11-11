@@ -98,10 +98,11 @@ config:
       # skips music covers by policy, so they only added about 10k files
       # every 3 h to its backlog. Their metadata is still published.
       kinds: [cover, origin_cover, dynamic_cover, video, photo, avatar, comment_image]
-      # Videos only of posts 7 days old or newer (owner D-052, 2026-11-11):
-      # the metrics walks would otherwise download a year of old videos.
-      # Covers and photos are not limited.
-      video_max_age: 168h
+      # Media only of posts 7 days old or newer (owner D-052, 2026-11-11:
+      # "Download posts that are only 7 days old or newer"): videos, covers
+      # and photos alike; the metrics walks would otherwise download a year
+      # of older posts' files. Avatars are not limited.
+      max_age: 168h
     canary:
       # The owner's canary accounts (public accounts that post often and get
       # comments with replies; tks-canary.md) are set by the platform as
