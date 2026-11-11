@@ -285,6 +285,9 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 	metrics.Jobs.WithLabelValues(final, laneName).Inc()
 	if kind != dispatch.KindOnDemand && kind != dispatch.KindEntry && kind != dispatch.KindFollows && kind != dispatch.KindDiscover {
 		metrics.Checks.WithLabelValues(checkKind(kind, mode), final, f.window(ctx, jid, kind, mode, created, now)).Inc()
+		if final != "cancelled" {
+			metrics.CheckDuration.WithLabelValues(checkKind(kind, mode)).Observe(now.Sub(created).Seconds())
+		}
 	}
 	_ = f.Jobs.Expire(ctx, id, 24*time.Hour)
 	slog.Info("job finished", "job", id, "status", final, "mode", mode, "posts", st.Counters["posts"],

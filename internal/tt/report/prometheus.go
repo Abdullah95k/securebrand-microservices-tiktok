@@ -157,6 +157,32 @@ func ReadTraffic(ctx context.Context, p Prometheus, w Window) (*Traffic, error) 
 	}
 	// No OOM kill is the usual answer, not a missing metric.
 	t.Missing = removeName(t.Missing, "OOM kills")
+	for _, s := range []struct {
+		name, expr string
+		into       *[]Count
+	}{
+		{"planner slots", "sum by (outcome) (increase(tks_planner_slots_total" + sel("") + r + "))", &t.PlannerSlots},
+		{"scheduler loop errors", "sum by (loop) (increase(tks_scheduler_loop_errors_total" + sel("") + r + "))", &t.LoopErrors},
+	} {
+		if err := q(s.name, s.expr, s.into); err != nil {
+			return nil, err
+		}
+		t.Missing = removeName(t.Missing, s.name) // none is the usual answer
+	}
+	for _, s := range []struct {
+		name string
+		phi  float64
+		into *float64
+	}{{"check duration p50", 0.5, &t.CheckP50Min}, {"check duration p90", 0.9, &t.CheckP90Min}} {
+		if err := q(s.name, fmt.Sprintf(`histogram_quantile(%g, sum by (le) (increase(tks_check_duration_seconds_bucket%s%s)))`,
+			s.phi, sel(`kind="check"`), r), &scratch); err != nil {
+			return nil, err
+		}
+		t.Missing = removeName(t.Missing, s.name)
+		if v := sum(scratch); v == v { // not NaN (no check ended)
+			*s.into = v / 60
+		}
+	}
 	if err := q("new comments (24 h)", "sum by (post_age) (increase(tks_comments_new_total"+sel("")+"[24h]))", &t.CommentsNew24h); err != nil {
 		return nil, err
 	}

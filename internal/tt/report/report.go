@@ -57,8 +57,16 @@ type Traffic struct {
 	// CommentsNew24h are the comments and replies first stored in the 24
 	// hours before the window's end, by post_age (recent: posts up to 30
 	// days old; older: over 30 days, the backfills' catch-up).
-	CommentsNew24h []Count  `json:"comments_new_24h"`
-	Missing        []string `json:"missing,omitempty"`
+	CommentsNew24h []Count `json:"comments_new_24h"`
+	// CheckP50Min and CheckP90Min are the window's check jobs' durations,
+	// dispatch to finish, comments and replies included (0: none ended).
+	CheckP50Min float64 `json:"check_p50_min"`
+	CheckP90Min float64 `json:"check_p90_min"`
+	// PlannerSlots are the window's slots by planner outcome; LoopErrors the
+	// leader scheduler's failed loop ticks, by loop.
+	PlannerSlots []Count  `json:"planner_slots"`
+	LoopErrors   []Count  `json:"loop_errors"`
+	Missing      []string `json:"missing,omitempty"`
 }
 
 // Store is what Postgres holds for the window.
@@ -426,6 +434,25 @@ func (r Report) Write(out io.Writer) error {
 		s.NewPosts, pctShare(s.Within3h, s.NewPosts), pctShare(s.Within6h, s.NewPosts), s.MedianDelayMin)
 	if s.OlderFinds > 0 {
 		fmt.Fprintf(w, "Older posts first stored by checks (published over 7 days before the window; not counted above): %d\n", s.OlderFinds)
+	}
+	if t := r.Traffic; t != nil {
+		if t.CheckP50Min > 0 {
+			fmt.Fprintf(w, "Check jobs, dispatch to finish (comments and replies included): median %.0f min, p90 %.0f min\n", t.CheckP50Min, t.CheckP90Min)
+		}
+		if len(t.PlannerSlots) > 0 {
+			fmt.Fprint(w, "Planner slots:")
+			for _, c := range sorted(t.PlannerSlots, "outcome") {
+				fmt.Fprintf(w, " %s %.0f", c.Labels["outcome"], c.Value)
+			}
+			fmt.Fprintln(w)
+		}
+		if len(t.LoopErrors) > 0 {
+			fmt.Fprint(w, "Scheduler loop errors:")
+			for _, c := range sorted(t.LoopErrors, "loop") {
+				fmt.Fprintf(w, " %s %.0f", c.Labels["loop"], c.Value)
+			}
+			fmt.Fprintln(w)
+		}
 	}
 	if t := r.Traffic; t != nil && len(t.CommentsNew24h) > 0 {
 		var recent, older float64
