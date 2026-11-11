@@ -288,3 +288,42 @@ func TestRepostTargets(t *testing.T) {
 		t.Fatal("an admitted candidate's tab is not a monitored target with a next read")
 	}
 }
+
+// A claim shares the batch across the sources in turn: a backlog of
+// related posts never read and due longer cannot keep the reposts tabs
+// (due later) or a hashtag out of the batch; within a source the order
+// stays never read first, then the longest due.
+func TestClaimTargetsShared(t *testing.T) {
+	c := newCandidates(t)
+	ctx := context.Background()
+	d := c.d
+	for i := range 30 {
+		c.exec(`INSERT INTO discovery_targets (source, key, origin, item_id, next_read_at) VALUES ('related', $1, 'post', $2, $3)`,
+			strconv.Itoa(1000+i), int64(1000+i), c.now.Add(-48*time.Hour+time.Duration(i)*time.Minute))
+	}
+	for i := range 3 {
+		c.exec(`INSERT INTO discovery_targets (source, key, name, item_id, sec_uid, origin, next_read_at) VALUES ('repost', $1, $2, $3, $4, 'monitored', $5)`,
+			strconv.Itoa(i+1), "user"+strconv.Itoa(i+1), int64(i+1), secOf(int64(i+1)), c.now.Add(-time.Duration(i+1)*time.Minute))
+	}
+	c.exec(`INSERT INTO discovery_targets (source, key, name, origin, next_read_at, first_read_at) VALUES ('hashtag', 'read', 'read', 'monitored', $1, $1)`,
+		c.now.Add(-72*time.Hour))
+	c.exec(`INSERT INTO discovery_targets (source, key, name, origin, next_read_at) VALUES ('hashtag', 'new', 'new', 'monitored', $1)`, c.now)
+
+	got, err := d.ClaimTargets(ctx, []string{SourceRelated, SourceRepost, SourceHashtag}, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keys []string
+	for _, g := range got {
+		keys = append(keys, g.Source+":"+g.Key)
+	}
+	// Turn 1: each source's first (never read first, then the longest
+	// due); turn 2: each source's second (hashtag's read one last); turn
+	// 3: related's third, due longer than reposts' (an UPDATE's RETURNING
+	// has no order, so the set is compared).
+	want := []string{"hashtag:new", "hashtag:read", "related:1000", "related:1001", "related:1002", "repost:2", "repost:3"}
+	slices.Sort(keys)
+	if !slices.Equal(keys, want) {
+		t.Fatalf("claimed %v, want %v", keys, want)
+	}
+}

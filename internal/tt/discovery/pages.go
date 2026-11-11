@@ -272,19 +272,26 @@ type DueTarget struct {
 }
 
 // ClaimTargets takes up to n due targets of sources whose last read is not
-// still running, never read first, then the longest due; a claimed target
-// is due again after retry_after unless its read records sooner.
+// still running, shared across the sources in turn (each source's first,
+// then each source's second, ...), within a source never read first, then
+// the longest due, so one source's backlog (related's posts) cannot hold
+// the others back; a claimed target is due again after retry_after unless
+// its read records sooner.
 func (d *Discoverer) ClaimTargets(ctx context.Context, sources []string, n int) ([]DueTarget, error) {
 	if len(sources) == 0 || n <= 0 {
 		return nil, nil
 	}
 	now := d.now()
-	rows, err := d.DB.Query(ctx, `WITH due AS (
-			SELECT t.source, t.key FROM discovery_targets t
+	rows, err := d.DB.Query(ctx, `WITH ranked AS (
+			SELECT t.source, t.key, row_number() OVER (PARTITION BY t.source
+				ORDER BY t.first_read_at NULLS FIRST, t.next_read_at, t.key) AS turn
+			FROM discovery_targets t
 			WHERE t.source = ANY($1) AND t.enabled AND t.next_read_at <= $2
 			  AND (t.last_job_id IS NULL OR NOT EXISTS (SELECT 1 FROM jobs j WHERE j.job_id = t.last_job_id
-				AND j.status IN ('running', 'finalizing', 'cancelling')))
-			ORDER BY t.first_read_at NULLS FIRST, t.next_read_at, t.source, t.key
+				AND j.status IN ('running', 'finalizing', 'cancelling')))),
+		due AS (
+			SELECT t.source, t.key FROM discovery_targets t JOIN ranked r ON r.source = t.source AND r.key = t.key
+			ORDER BY r.turn, t.first_read_at NULLS FIRST, t.next_read_at, t.source, t.key
 			LIMIT $3 FOR UPDATE OF t SKIP LOCKED)
 		UPDATE discovery_targets t SET next_read_at = $2 + $4::interval, claimed_at = $2
 		FROM due WHERE t.source = due.source AND t.key = due.key
