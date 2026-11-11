@@ -57,9 +57,13 @@ type Traffic struct {
 
 // Store is what Postgres holds for the window.
 type Store struct {
-	Accounts       map[string]int64 `json:"accounts"` // by status
-	Scheduled      int64            `json:"scheduled"`
-	NewPosts       int64            `json:"new_posts"` // first read by a check in the window
+	Accounts  map[string]int64 `json:"accounts"` // by status
+	Scheduled int64            `json:"scheduled"`
+	NewPosts  int64            `json:"new_posts"` // first read by a check in the window, published at most NewPostAge before it
+	// OlderFinds are posts a check stored first in the window that were
+	// published earlier than that (made public again, or missed by the
+	// backfill): not new posts, so not in NewPosts or its delays.
+	OlderFinds     int64            `json:"older_finds"`
 	Within3h       float64          `json:"within_3h"` // share
 	Within6h       float64          `json:"within_6h"`
 	MedianDelayMin float64          `json:"median_delay_min"`
@@ -71,6 +75,12 @@ type Store struct {
 	PostRatio         float64 `json:"post_ratio"` // median stored posts ÷ profile count
 	DatabaseGB        float64 `json:"database_gb"`
 }
+
+// NewPostAge is how long before the window a post may have been published
+// and still count as a new post a check found: a check that first meets an
+// older post (made public again, or missed by the backfill) found no new
+// post, and its delay of months would say nothing of A2's 3 hours.
+const NewPostAge = 7 * 24 * time.Hour
 
 // ReadStore reads the window's numbers from Postgres.
 func ReadStore(ctx context.Context, db *pgxpool.Pool, w Window) (Store, error) {
@@ -99,13 +109,19 @@ func ReadStore(ctx context.Context, db *pgxpool.Pool, w Window) (Store, error) {
 		       percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM stored_at - created_at) / 60),
 		       pg_database_size(current_database()) / 1e9
 		FROM posts
-		WHERE first_mode IN ('incremental', 'refresh') AND stored_at >= $1 AND stored_at < $2`, w.From, w.To).
+		WHERE first_mode IN ('incremental', 'refresh') AND stored_at >= $1 AND stored_at < $2
+		  AND created_at >= $1 - $3::interval`, w.From, w.To, NewPostAge).
 		Scan(&s.Scheduled, &s.NewPosts, &s.Within3h, &s.Within6h, &med, &s.DatabaseGB)
 	if err != nil {
 		return s, fmt.Errorf("report: new posts: %w", err)
 	}
 	if med != nil {
 		s.MedianDelayMin = *med
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM posts
+		WHERE first_mode IN ('incremental', 'refresh') AND stored_at >= $1 AND stored_at < $2
+		  AND created_at < $1 - $3::interval`, w.From, w.To, NewPostAge).Scan(&s.OlderFinds); err != nil {
+		return s, fmt.Errorf("report: older finds: %w", err)
 	}
 	rows, err = db.Query(ctx, `SELECT comments_state, count(*) FROM posts
 		WHERE comments_synced_at >= $1 AND comments_synced_at < $2 GROUP BY 1`, w.From, w.To)
@@ -341,6 +357,9 @@ func (r Report) Write(out io.Writer) error {
 	}
 	fmt.Fprintf(w, "\nNew posts found by checks: %d; stored within 3 h %s, within 6 h %s, median %.0f min\n",
 		s.NewPosts, pctShare(s.Within3h, s.NewPosts), pctShare(s.Within6h, s.NewPosts), s.MedianDelayMin)
+	if s.OlderFinds > 0 {
+		fmt.Fprintf(w, "Older posts first stored by checks (published over 7 days before the window; not counted above): %d\n", s.OlderFinds)
+	}
 	fmt.Fprint(w, "Comment reads:")
 	for _, k := range sortedKeys(s.CommentReads) {
 		fmt.Fprintf(w, " %s %d", k, s.CommentReads[k])

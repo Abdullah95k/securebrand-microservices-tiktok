@@ -100,7 +100,7 @@ func TestReadStore(t *testing.T) {
 	// partial and one of a post without comments: the ratio is the median of
 	// the two complete reads of posts with a count.
 	now := time.Now()
-	if _, err := ttstore.EnsurePartitions(ctx, db, now, store.PartitionWindow{MonthsBack: 1, MonthsAhead: 1, DaysBack: 1, DaysAhead: 1}); err != nil {
+	if _, err := ttstore.EnsurePartitions(ctx, db, now, store.PartitionWindow{MonthsBack: 7, MonthsAhead: 1, DaysBack: 1, DaysAhead: 1}); err != nil {
 		t.Fatal(err)
 	}
 	for i, p := range []struct {
@@ -114,11 +114,20 @@ func TestReadStore(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Checks' first finds: one new post, stored 2 h after it was published,
+	// and one published 154 days ago, which is an older find, not new.
+	for i, created := range []time.Time{now.Add(-150 * time.Minute), now.Add(-154 * 24 * time.Hour)} {
+		if _, err := db.Exec(ctx, `INSERT INTO posts (created_at, post_id, user_id, kind, content_hash, first_seen_at, last_seen_at,
+			first_mode, stored_at) VALUES ($1, $2, 8, 'video', '\x00', $3, $3, 'incremental', $3)`,
+			created, 100+i, now.Add(-30*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	s, err := ReadStore(ctx, db, Window{From: now.Add(-time.Hour), To: now})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.NewPosts != 0 || s.DatabaseGB <= 0 {
+	if s.NewPosts != 1 || s.OlderFinds != 1 || s.Within3h != 1 || s.DatabaseGB <= 0 {
 		t.Fatalf("store %+v", s)
 	}
 	if s.CommentRatioReads != 2 || s.CommentRatio < 0.699 || s.CommentRatio > 0.701 {
