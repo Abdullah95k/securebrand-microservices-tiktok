@@ -90,7 +90,7 @@ kubectl -n tks exec deploy/tks-api -- /usr/local/bin/tksctl report --from "2026-
 ```
 
 What it shows:
-- **VERDICT: GO or STOP**, and every rule that fired;
+- **VERDICT: GO or STOP**, and every rule that fired, including a WARN `p2 paused by the budget` with the budget's reason while the budget holds the backfill lane (backfills, metrics walks and discovery pages wait; checks go on);
 - accounts by status;
 - requests to TikTok by operation and outcome, blocks, captchas and challenges per 1,000 requests;
 - signatures by result, and how many signed calls TikTok answered or refused;

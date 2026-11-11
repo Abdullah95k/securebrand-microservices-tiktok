@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/ratelimit"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/store"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/testenv"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/ttstore"
@@ -166,3 +167,21 @@ func TestReadStore(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// The budget's pause of the backfill lane shows as a WARN, not a STOP:
+// checks go on.
+func TestBudgetPause(t *testing.T) {
+	if v := BudgetPause(ratelimit.BudgetState{Stretch: 1}); v != nil {
+		t.Fatalf("p2 running: %+v", v)
+	}
+	at := time.Date(2026, 11, 11, 13, 0, 0, 0, time.UTC)
+	v := BudgetPause(ratelimit.BudgetState{PauseP2: true, UpdatedAt: at,
+		Explanation: "cost $0.001904 per account a day is over the budget $0.001900: backfill paused, checks go on"})
+	if v == nil || v.Level != "WARN" || !strings.Contains(v.Rule, "p2 paused by the budget") ||
+		!strings.Contains(v.Rule, "$0.001904") || !strings.Contains(v.Rule, "2026-11-11 16:00") {
+		t.Fatalf("verdict %+v", v)
+	}
+	if (Report{Verdicts: []Verdict{*v}}).Stop() {
+		t.Error("a budget pause made the report STOP")
+	}
+}
