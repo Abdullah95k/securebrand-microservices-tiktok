@@ -18,6 +18,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/fakett"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 	ttclient "github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/client"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/parse"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/task"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/topics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/tttest"
@@ -377,6 +378,51 @@ func TestMediaTasksOnlyWhenSwitchedOn(t *testing.T) {
 		if covers[p.ID] != 1 || (p.Kind == "video" && videos[p.ID] != 1) {
 			t.Errorf("post %d (%s): %d covers, %d videos queued", p.ID, p.Kind, covers[p.ID], videos[p.ID])
 		}
+	}
+}
+
+// tt.media.max_age (owner D-052): a post's media files (here its cover and
+// video) are queued only while the post is younger than the limit, from a
+// full read too; the account's avatar (no post) whatever the limit.
+func TestMediaMaxAge(t *testing.T) {
+	h := newHarness(t, tttest.Options{Spec: fakett.Spec{Seed: 5, Accounts: 1, PostsPerAccount: 5, PostSpacing: 20 * time.Hour}})
+	h.d.Cfg.Limits.BackfillVideoPolicy = "sd"
+	h.d.Cfg.TT.Media.Include = true
+	h.d.Cfg.TT.Media.MaxAge = 50 * time.Hour
+	acc := h.env.World.Accounts()[0]
+	h.check("max-age", commonv1.CrawlMode_CRAWL_MODE_FULL, task.ScopeFromRef("u:"+acc.Username))
+	videos, covers := map[int64]bool{}, map[int64]bool{}
+	avatars := 0
+	for _, m := range records(h, topics.TaskMedia, "max-age", func() *tkstaskv1.Task { return &tkstaskv1.Task{} }) {
+		switch mm := m.GetMedia().GetMedia(); mm.Kind {
+		case ttv1.MediaKind_MEDIA_KIND_VIDEO:
+			videos[mm.GetPostId()] = true
+		case ttv1.MediaKind_MEDIA_KIND_COVER:
+			covers[mm.GetPostId()] = true
+		case ttv1.MediaKind_MEDIA_KIND_AVATAR:
+			avatars++
+		}
+	}
+	young, old := 0, 0
+	for _, p := range acc.Posts {
+		age := h.env.World.Now.Sub(parse.IDTime(p.ID))
+		if age > 50*time.Hour {
+			old++
+			if covers[p.ID] || videos[p.ID] {
+				t.Errorf("post %d (%s old): cover %v, video %v queued past max_age", p.ID, age, covers[p.ID], videos[p.ID])
+			}
+			continue
+		}
+		young++
+		if !covers[p.ID] || (p.Kind == "video" && !videos[p.ID]) {
+			t.Errorf("post %d (%s old, %s): cover %v, video %v; want both queued", p.ID, age, p.Kind, covers[p.ID], videos[p.ID])
+		}
+	}
+	if young == 0 || old == 0 {
+		t.Fatalf("%d young and %d old posts: the world does not test both sides", young, old)
+	}
+	if avatars == 0 {
+		t.Error("no avatar queued: media of no post has no age limit")
 	}
 }
 
