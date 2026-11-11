@@ -123,6 +123,25 @@ func TestReadStore(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Media held now: two ready videos (one without delete_after: stored +
+	// 72 h), a ready cover, and a deleted video that is not held.
+	for i, m := range []struct {
+		kind, status string
+		size         int64
+		stored       time.Time
+		deleteAfter  *time.Time
+	}{
+		{"video", "ready", 3_000_000, now.Add(-70 * time.Hour), nil},
+		{"video", "ready", 2_000_000, now.Add(-time.Hour), ptr(now.Add(71 * time.Hour))},
+		{"cover", "ready", 50_000, now.Add(-time.Hour), ptr(now.Add(71 * time.Hour))},
+		{"video", "deleted", 9_000_000, now.Add(-80 * time.Hour), ptr(now.Add(-8 * time.Hour))},
+	} {
+		if _, err := db.Exec(ctx, `INSERT INTO media (media_id, source_media_id, kind, variant, post_id, status, size_bytes, stored_at, delete_after)
+			VALUES (gen_random_uuid(), $1::bigint::text, $2, 'original', $1::bigint, $3, $4, $5, $6)`,
+			int64(7_400_000_000_000_000_001+i), m.kind, m.status, m.size, m.stored, m.deleteAfter); err != nil {
+			t.Fatal(err)
+		}
+	}
 	s, err := ReadStore(ctx, db, Window{From: now.Add(-time.Hour), To: now})
 	if err != nil {
 		t.Fatal(err)
@@ -133,4 +152,17 @@ func TestReadStore(t *testing.T) {
 	if s.CommentRatioReads != 2 || s.CommentRatio < 0.699 || s.CommentRatio > 0.701 {
 		t.Fatalf("comment ratio %.3f over %d reads, want 0.70 over 2", s.CommentRatio, s.CommentRatioReads)
 	}
+	if len(s.MediaHeld) != 2 {
+		t.Fatalf("media held %+v, want cover and video", s.MediaHeld)
+	}
+	c, v := s.MediaHeld[0], s.MediaHeld[1]
+	if c.Kind != "cover" || c.Files != 1 || c.Bytes != 50_000 {
+		t.Errorf("cover held %+v", c)
+	}
+	if v.Kind != "video" || v.Files != 2 || v.Bytes != 5_000_000 ||
+		v.NextDeadline.Sub(now.Add(2*time.Hour)).Abs() > time.Second || v.LastDeadline.Sub(now.Add(71*time.Hour)).Abs() > time.Second {
+		t.Errorf("video held %+v: want 2 files, 5 MB, next in 2 h (stored + 72 h), last in 71 h", v)
+	}
 }
+
+func ptr[T any](v T) *T { return &v }

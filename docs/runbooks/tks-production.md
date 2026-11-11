@@ -98,6 +98,7 @@ What it shows:
 - each container's peak memory and restarts;
 - new posts stored within 3 hours and 6 hours, and the median delay;
 - comment reads by state, collected comments against TikTok's counts, posts stored against the profiles' counts;
+- media files held now (ready, not yet deleted) by kind, with their size and the next and last deadline, past which the sweeper deletes a file whether or not analysis acknowledged it (this is the moment the report runs, not the window);
 - the cost per account and per 1,000 accounts a day at the owner's prices (one IP $3 a month, $0.017 a signer page-hour, $0.0002 compute per account a day, $0.10 per GB-month), and projected to 1,000, 10,000, 100,000 and 300,000 accounts.
 
 `--json` prints the same as JSON; `--check` exits with code 3 when a stop rule fires (for an automated check).
