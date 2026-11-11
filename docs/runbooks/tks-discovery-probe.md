@@ -78,11 +78,11 @@ apt-get install -y git make tmux wget
 ```
 
 ```bash
-wget -q https://go.dev/dl/go1.27.2.linux-amd64.tar.gz
+wget -q https://go.dev/dl/go1.27.4.linux-amd64.tar.gz
 ```
 
 ```bash
-tar -C /usr/local -xzf go1.27.2.linux-amd64.tar.gz
+tar -C /usr/local -xzf go1.27.4.linux-amd64.tar.gz
 ```
 
 ```bash
@@ -97,7 +97,7 @@ source ~/.profile
 go version
 ```
 
-It must say `go1.27.2`.
+It must say `go1.27.4`.
 
 **Get the code** (if git asks for a password, use your GitHub token, as on the old droplet):
 

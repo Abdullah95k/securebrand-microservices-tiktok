@@ -1,6 +1,6 @@
 module github.com/abdullah95k/securebrand-microservices-tiktok
 
-go 1.27.2
+go 1.27.4
 
 require (
 	github.com/abdullah95k/securebrand-contracts v1.2.0
