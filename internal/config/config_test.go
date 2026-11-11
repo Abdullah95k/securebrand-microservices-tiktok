@@ -288,4 +288,12 @@ func TestMediaKinds(t *testing.T) {
 	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "tt.media.kinds") {
 		t.Errorf("no kind with include on: %v", err)
 	}
+	c.TT.Media.Kinds = MediaKinds
+	if c.TT.Media.VideoMaxAge != 0 {
+		t.Errorf("default video_max_age %s, want 0 (no limit)", c.TT.Media.VideoMaxAge)
+	}
+	c.TT.Media.VideoMaxAge = -time.Hour
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "video_max_age") {
+		t.Errorf("negative video_max_age: %v", err)
+	}
 }

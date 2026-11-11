@@ -33,6 +33,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/proxy"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/scrape/session"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/emit"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/parse"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/task"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/topics"
 )
@@ -260,7 +261,8 @@ func (d *Deps) media(ctx context.Context, b *kafka.Batch, t *tkstaskv1.Task, src
 		if err := d.Emit.Media(ctx, b, src, m); err != nil {
 			return queued, err
 		}
-		if !include || !d.Cfg.TT.Media.KindOn(kindName(m.Kind)) || !wanted(m, lim.GetVideoPolicy(), hasHD[m.GetPostId()]) {
+		if !include || !d.Cfg.TT.Media.KindOn(kindName(m.Kind)) || !wanted(m, lim.GetVideoPolicy(), hasHD[m.GetPostId()]) ||
+			d.tooOld(m) {
 			continue
 		}
 		mt := task.NewMedia(t.JobId, m)
@@ -276,6 +278,16 @@ func (d *Deps) media(ctx context.Context, b *kafka.Batch, t *tkstaskv1.Task, src
 		queued++
 	}
 	return queued, nil
+}
+
+// tooOld says a video file's post is past tt.media.video_max_age (its age
+// by the post id's time, T8); other kinds are never too old.
+func (d *Deps) tooOld(m *ttv1.Media) bool {
+	limit := d.Cfg.TT.Media.VideoMaxAge
+	if limit <= 0 || m.Kind != ttv1.MediaKind_MEDIA_KIND_VIDEO || m.GetPostId() <= 0 {
+		return false
+	}
+	return d.now().Sub(parse.IDTime(m.GetPostId())) > limit
 }
 
 // kindName is k's schema tt name (tt.media.kinds): MEDIA_KIND_MUSIC_COVER

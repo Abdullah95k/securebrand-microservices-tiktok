@@ -606,6 +606,12 @@ type TTMedia struct {
 	// still published (the master, 2026-11-11: production drops
 	// music_cover, which sb-analysis skips by policy).
 	Kinds []string `koanf:"kinds"`
+	// VideoMaxAge downloads a post's video files only while the post is
+	// younger than this (its age by the id's time, T8), from any job: a
+	// check, a backfill or a metrics walk; 0 means no limit. Covers,
+	// photos and the other kinds are not limited by it (owner D-052,
+	// 2026-11-11: 7 days in production).
+	VideoMaxAge time.Duration `koanf:"video_max_age"`
 }
 
 // MediaKinds are schema tt's media kind names (tt.v1.MediaKind without its
@@ -1357,6 +1363,9 @@ func (t TT) validate() []error {
 	}
 	if t.Subtitles.Include && (t.Subtitles.MaxBytes < 1 || t.Subtitles.MaxTracks < 1 || t.Subtitles.Timeout <= 0) {
 		errs = append(errs, errors.New("tt.subtitles: max_bytes, max_tracks and timeout must be > 0 when include is on"))
+	}
+	if t.Media.VideoMaxAge < 0 {
+		errs = append(errs, errors.New("tt.media.video_max_age must be >= 0 (0: no limit)"))
 	}
 	for _, k := range t.Media.Kinds {
 		if !slices.Contains(MediaKinds, k) {

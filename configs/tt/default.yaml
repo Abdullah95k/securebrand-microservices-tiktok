@@ -249,6 +249,9 @@ tt:
     # kind by default. The video policy still picks the renditions and
     # whether covers come (none: no covers).
     kinds: [cover, origin_cover, dynamic_cover, video, photo, avatar, music_cover, comment_image]
+    # Video files only of posts younger than this (by the post id's time),
+    # from any job; 0: no limit. Covers and photos are not limited by it.
+    video_max_age: 0s
   # Videos' subtitle tracks (M17): TikTok's speech-to-text (ASR) of about
   # half the videos, mostly Arabic, and machine translations of it (MT), as
   # WebVTT files of a few KB behind links that expire in about two days. The
