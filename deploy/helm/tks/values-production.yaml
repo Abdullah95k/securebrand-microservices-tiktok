@@ -60,6 +60,13 @@ config:
     # Dumps under tks/postgres/ in S3_BUCKET_BACKUPS (the backup job).
     backup_prefix: "tks/"
   tt:
+    # Lever 1 (D-054, the master's test 2026-11-11, report 4 against report
+    # 3): 50 comments and 20 replies a page instead of the web app's 20 and
+    # 3. Over 3 h, requests fell from 20,418 to 8,981 (replies 13,093 to
+    # 5,841, comments 6,313 to 2,618), signed refusals from 6.0 % to 3.9 %,
+    # collected / count rose from 0.97 to 1.00, with no block or captcha.
+    comments_page_size: 50
+    replies_page_size: 20
     # Page loads (an identity's bootstrap: its profile page, HTML) are
     # paced on each static exit (the ISP tier), and an exit whose page load
     # is walled (a checkpoint) loads no page for 30 min, doubling up to
