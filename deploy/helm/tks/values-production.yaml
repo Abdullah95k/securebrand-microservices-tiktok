@@ -104,7 +104,11 @@ config:
       # Every kind but music_cover (the master, 2026-11-11): sb-analysis
       # skips music covers by policy, so they only added about 10k files
       # every 3 h to its backlog. Their metadata is still published.
-      kinds: [cover, origin_cover, dynamic_cover, video, photo, avatar, comment_image]
+      # Downloads only, one cover a post (the master, 2026-11-13): origin_cover
+      # and dynamic_cover are no longer downloaded (about 18k of the 27k
+      # cover files held). All three covers' URLs and media metadata are
+      # still stored with the post and published, as before.
+      kinds: [cover, video, photo, avatar, comment_image]
       # Media only of posts 7 days old or newer (owner D-052, 2026-11-11:
       # "Download posts that are only 7 days old or newer"): videos, covers
       # and photos alike; the metrics walks would otherwise download a year
