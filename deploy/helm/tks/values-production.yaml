@@ -175,6 +175,13 @@ config:
         tier: res_iq
         every: 6h
         reads: 3
+    # Facebook links in monitored accounts' bios, sent once each to the
+    # Facebook collector (owner D-065, 2026-11-13). Off until the platform
+    # sets api_url (from fbs) and creates the Secret below; then enabled.
+    facebook_discovery:
+      enabled: false
+      api_url: ""
+      max_per_day: 200
     cost:
       # The owner's prices and budget (2026-11-05), for tks_cost_* and
       # tksctl report.
@@ -183,6 +190,12 @@ config:
       compute_usd_per_account_day: 0.0002
       storage_gb_month_usd: 0.10
       budget_per_account_usd: 0.0019
+
+# The Facebook collector's key (owner D-065): the platform creates this
+# Secret with a reviewed ops action.
+facebookDiscovery:
+  secretName: tks-fbs-api
+  secretKey: api_key
 
 # The platform owns the topics (REQ-020); tks registers no schema in a
 # shared registry (standing instruction 2). Migrations run as the owner and

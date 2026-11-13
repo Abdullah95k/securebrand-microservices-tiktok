@@ -151,6 +151,7 @@ var (
 	CommentChanges       = counterVec("comment_changes_total", "Stored comments edited, marked deleted or seen again after a deletion, by kind (edited, deleted, restored).", "kind")
 	PostStatusChanges    = counterVec("post_status_changes_total", "tks stored posts whose status changed, by new status (unavailable, visible, private).", "status")
 	DeletionChecks       = counterVec("deletion_checks_total", "Full comment reads of a post checked for deleted comments, by outcome (checked, skipped_partial).", "outcome")
+	FBCandidates         = counterVec("fb_candidates_total", "Facebook links sent to the Facebook collector, by its result (queued, on_list, added, public_waiting, checked_recently, ignored, accepted) or what went wrong (unavailable: its 503, tried again; error: no answer, tried again; refused: a 4xx, not again).", "result")
 	PersistBatchFailures = counterVec("persist_batch_failures_total", "Persister batches that failed to write (each is retried every 2 s and never committed past), by attempt (first, retry) and error class (a Postgres SQLSTATE class such as 40 or 57, or other: Kafka produce, timeouts, connections).", "attempt", "class")
 	PersistBatch         = histVec("persist_batch_seconds", "Persister batch flush duration.", prometheus.ExponentialBuckets(0.005, 2, 12), "entity")
 	Jobs                 = counterVec("jobs_total", "Jobs reaching a terminal state.", "status", "lane")
