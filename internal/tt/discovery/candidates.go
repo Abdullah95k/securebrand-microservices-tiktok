@@ -545,6 +545,23 @@ func (d *Discoverer) Recover(ctx context.Context, after time.Duration) (int64, e
 	return tag.RowsAffected(), nil
 }
 
+// Excess returns the jobs of the entry checks running beyond limit, the most
+// recently queued first, for the caller to cancel: a lower
+// tt.discovery.entry.max_running then holds at once instead of when the
+// checks already running end (2026-11-13: 500 entry checks waiting on the
+// ISP exits' page-load gate ended 4 an hour). A cancelled check's account
+// goes back to pending with no attempt counted (Decide); checks already
+// cancelling are not counted again.
+func (d *Discoverer) Excess(ctx context.Context, limit int) ([]uuid.UUID, error) {
+	rows, err := d.DB.Query(ctx, `SELECT c.job_id FROM discovery_candidates c JOIN jobs j ON j.job_id = c.job_id
+		WHERE c.state = 'checking' AND j.status IN ('queued', 'running')
+		ORDER BY c.queued_at, c.account_ref OFFSET $1`, max(limit, 0))
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+}
+
 // Running counts the entry checks running now.
 func (d *Discoverer) Running(ctx context.Context) (int, error) {
 	var n int

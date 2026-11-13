@@ -300,3 +300,55 @@ func TestRecover(t *testing.T) {
 		t.Errorf("recovered: %s", st)
 	}
 }
+
+// A lowered max_running holds at once: the checks beyond it, the most
+// recently queued, are returned to be cancelled, those already cancelling
+// are not counted, and a cancelled check's account goes back to pending
+// with no attempt counted.
+func TestExcess(t *testing.T) {
+	c := newCandidates(t)
+	ctx := context.Background()
+	jobs := map[string]uuid.UUID{}
+	var refs []string
+	for i := int64(31); i <= 35; i++ {
+		c.found(i)
+		claimed, err := c.d.Claim(ctx, 1)
+		if err != nil || len(claimed) != 1 {
+			t.Fatalf("claim: %v %v", claimed, err)
+		}
+		job := uuid.New()
+		if err := c.d.Started(ctx, claimed[0].Ref, job); err != nil {
+			t.Fatal(err)
+		}
+		status := "running"
+		if i == 32 {
+			status = "cancelling"
+		}
+		c.exec(`INSERT INTO jobs (job_id, kind, lane, mode, account_ref, params, status, created_at) VALUES ($1, 'entry', 3, 'entry', $2, '{}', $3, now())`,
+			job, claimed[0].Ref, status)
+		jobs[claimed[0].Ref] = job
+		refs = append(refs, claimed[0].Ref)
+		c.now = c.now.Add(time.Minute)
+	}
+	got, err := c.d.Excess(ctx, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Running, oldest first: 31, 33, 34, 35 (32 is cancelling); 2 kept.
+	want := []uuid.UUID{jobs[refs[3]], jobs[refs[4]]}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("excess %v, want %v", got, want)
+	}
+	if got, _ := c.d.Excess(ctx, 10); len(got) != 0 {
+		t.Fatalf("excess under the cap: %v", got)
+	}
+	if _, err := c.d.Decide(ctx, Entry{JobID: jobs[refs[4]], Final: "cancelled"}); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := c.state(refs[4]); st != StatePending {
+		t.Fatalf("cancelled check: %s, want pending", st)
+	}
+	if n := one[int](t, c, `SELECT attempts FROM discovery_candidates WHERE account_ref = $1`, refs[4]); n != 0 {
+		t.Fatalf("attempts %d after a cancel", n)
+	}
+}
