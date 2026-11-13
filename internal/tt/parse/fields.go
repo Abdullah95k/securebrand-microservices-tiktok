@@ -121,6 +121,36 @@ func MediaID(owner int64, kind ttv1.MediaKind, variant string) string {
 	return uuid.NewHash(sha1.New(), mediaNS, []byte(name), 5).String() //nolint:gosec
 }
 
+// AvatarMediaID is an account's profile picture's media id: one per
+// picture, from its image key (ImageKey), so a new picture is a new media
+// file, downloaded and handed over again (owner D-061: pictures analysed on
+// first sight and on change). A link without a key keeps the account's one
+// id.
+func AvatarMediaID(owner int64, src string) string {
+	variant := "original"
+	if k := ImageKey(src); k != "" {
+		variant += "|" + k
+	}
+	return MediaID(owner, ttv1.MediaKind_MEDIA_KIND_AVATAR, variant)
+}
+
+// ImageKey is a TikTok CDN image's own identity: its link's path without
+// the host (the CDN serves one picture from several), the signature and
+// expiry (the query, new on every read) and the rendering after "~" (size
+// and crop: tos-xx-avt-0068/<id>~tplv-…:1080:1080.jpeg). Empty when the
+// link does not parse.
+func ImageKey(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Path == "" || u.Path == "/" {
+		return ""
+	}
+	p := strings.TrimPrefix(u.Path, "/")
+	if i := strings.IndexByte(p, '~'); i > 0 {
+		p = p[:i]
+	}
+	return p
+}
+
 // URLExpiry reads the expiry of a signed TikTok CDN link: x-expires on
 // images, expire on video files (har-findings §6), both Unix seconds.
 func URLExpiry(raw string) *timestamppb.Timestamp {

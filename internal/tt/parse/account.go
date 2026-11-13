@@ -145,7 +145,7 @@ func account(u, stats, statsV2 gjson.Result, src ttv1.AccountSource, o Options, 
 	}
 	var media []*ttv1.Media
 	if av := firstOf(u, "avatarLarger", "avatarMedium", "avatarThumb").String(); av != "" {
-		m := &ttv1.Media{Obs: o.obs(), MediaId: MediaID(id, ttv1.MediaKind_MEDIA_KIND_AVATAR, "original"),
+		m := &ttv1.Media{Obs: o.obs(), MediaId: AvatarMediaID(id, av),
 			Kind: ttv1.MediaKind_MEDIA_KIND_AVATAR, Variant: "original", UserId: id, SourceUrl: av,
 			SourceExpiresAt: URLExpiry(av), AuthorKey: a.AuthorKey}
 		a.AvatarUrl, a.AvatarMediaId = av, m.MediaId

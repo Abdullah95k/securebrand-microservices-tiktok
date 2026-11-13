@@ -184,3 +184,27 @@ func TestMediaID(t *testing.T) {
 		t.Fatal("expiry")
 	}
 }
+
+// A profile picture's media id follows the picture, not the link: the same
+// image from another CDN host, in another size and with a fresh signature
+// keeps its id; a new picture gets a new one.
+func TestAvatarMediaID(t *testing.T) {
+	a := "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/abc123~tplv-tiktokx-cropcenter:1080:1080.jpeg?x-expires=1&x-signature=s1"
+	b := "https://p77-sign-va.tiktokcdn.com/tos-maliva-avt-0068/abc123~tplv-tiktokx-cropcenter:720:720.jpeg?x-expires=2&x-signature=s2"
+	c := "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/def456~tplv-tiktokx-cropcenter:1080:1080.jpeg?x-expires=1&x-signature=s1"
+	if k := parse.ImageKey(a); k != "tos-maliva-avt-0068/abc123" {
+		t.Fatalf("ImageKey = %q", k)
+	}
+	if parse.AvatarMediaID(7, a) != parse.AvatarMediaID(7, b) {
+		t.Error("the same picture got two ids")
+	}
+	if parse.AvatarMediaID(7, a) == parse.AvatarMediaID(7, c) {
+		t.Error("a new picture kept the old id")
+	}
+	if parse.AvatarMediaID(7, a) == parse.AvatarMediaID(8, a) {
+		t.Error("two accounts share a picture id")
+	}
+	if parse.ImageKey("::") != "" || parse.AvatarMediaID(7, "") != parse.MediaID(7, ttv1.MediaKind_MEDIA_KIND_AVATAR, "original") {
+		t.Error("a link without a key must keep the account's one id")
+	}
+}
