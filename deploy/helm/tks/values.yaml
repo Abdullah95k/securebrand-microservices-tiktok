@@ -89,6 +89,8 @@ backup:
   # Upload part size, held in memory: a dump is at most 10,000 parts.
   partMB: 64
   activeDeadlineSeconds: 21600
+  # Retries of a failed dump (a new pod each, within activeDeadlineSeconds).
+  backoffLimit: 1
   resources: {requests: {cpu: 250m, memory: 256Mi}, limits: {memory: 512Mi}}
 
 # The production platform's Secret (M18; values-production.yaml): its keys

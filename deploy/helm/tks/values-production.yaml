@@ -201,6 +201,10 @@ keda:
 backup:
   enabled: true
   postgresRole: reader
+  # Two retries: the 2026-11-11 dump failed twice inside one short
+  # PostgreSQL interruption (SSL connection closed); the next night's took
+  # about 2 h of the 6 h deadline.
+  backoffLimit: 2
 
 # Each component's role, and its maximum pods at most the partitions of
 # the topics it reads (the platform's starting sizes: account lanes 3 each,

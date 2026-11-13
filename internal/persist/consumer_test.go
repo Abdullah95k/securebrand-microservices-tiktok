@@ -3,6 +3,7 @@ package persist
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -172,6 +173,22 @@ func TestIsDataError(t *testing.T) {
 	} {
 		if got := isDataError(err); got != want {
 			t.Errorf("%v: %v, want %v", err, got, want)
+		}
+	}
+}
+
+func TestErrClass(t *testing.T) {
+	for _, c := range []struct {
+		err  error
+		want string
+	}{
+		{&pgconn.PgError{Code: "57014"}, "57"},
+		{fmt.Errorf("write comments: %w", &pgconn.PgError{Code: "40P01"}), "40"},
+		{errors.New("kafka: produce failed"), "other"},
+		{&pgconn.PgError{}, "other"},
+	} {
+		if got := errClass(c.err); got != c.want {
+			t.Errorf("errClass(%v) = %q, want %q", c.err, got, c.want)
 		}
 	}
 }
