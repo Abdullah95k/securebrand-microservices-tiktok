@@ -92,6 +92,7 @@ func (s *PostStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 			break
 		}
 		if d.Jobs.Cancelled(ctx, t.JobId) {
+			_ = d.Ckpt.ReleasePostRead(ctx, sc.PostId, t.JobId) // the next check may read it
 			return done(map[string]int64{"cancelled": 1})
 		}
 		cursor := offset(st.Cursor)
