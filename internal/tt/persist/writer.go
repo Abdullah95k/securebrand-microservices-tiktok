@@ -392,7 +392,7 @@ func (w *Writer) Music(ctx context.Context, ms []*ttv1.Music) error {
 			return err
 		}
 		tag, err := tx.Exec(ctx, `INSERT INTO music AS t (`+strings.Join(musicCols, ",")+`)
-			SELECT `+strings.Join(musicCols, ",")+` FROM tmp_music
+			SELECT `+strings.Join(musicCols, ",")+` FROM tmp_music ORDER BY music_id
 			ON CONFLICT (music_id) DO UPDATE SET `+set(musicCols, map[string]string{"music_id": "", "first_seen_at": ""})+`
 			WHERE t.last_seen_at <= EXCLUDED.last_seen_at
 			  AND (t.content_hash IS DISTINCT FROM EXCLUDED.content_hash OR t.last_seen_at < EXCLUDED.last_seen_at - interval '1 day')`)
@@ -445,7 +445,7 @@ func (w *Writer) Media(ctx context.Context, ms []*ttv1.Media) error {
 			return err
 		}
 		tag, err := tx.Exec(ctx, `INSERT INTO media AS t (`+strings.Join(mediaCols, ",")+`)
-			SELECT `+strings.Join(mediaCols, ",")+` FROM tmp_media
+			SELECT `+strings.Join(mediaCols, ",")+` FROM tmp_media ORDER BY media_id
 			ON CONFLICT (media_id) DO UPDATE SET source_url = EXCLUDED.source_url,
 				source_expires_at = EXCLUDED.source_expires_at, width = COALESCE(EXCLUDED.width, t.width),
 				height = COALESCE(EXCLUDED.height, t.height), duration_ms = COALESCE(EXCLUDED.duration_ms, t.duration_ms),

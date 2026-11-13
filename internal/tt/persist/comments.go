@@ -179,7 +179,7 @@ func writePeople(ctx context.Context, tx pgx.Tx, people map[string][]any) error 
 		return err
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO people AS p (`+strings.Join(peopleCols, ",")+`)
-		SELECT `+strings.Join(peopleCols, ",")+` FROM tmp_people
+		SELECT `+strings.Join(peopleCols, ",")+` FROM tmp_people ORDER BY author_key
 		ON CONFLICT (author_key) DO UPDATE SET `+set(peopleCols, map[string]string{"author_key": "", "first_seen_at": "",
 		"last_seen_at": "GREATEST(p.last_seen_at, EXCLUDED.last_seen_at)",
 		// The last band TikTok served stays when a read carries none.
@@ -207,7 +207,7 @@ func upsertComments(ctx context.Context, tx pgx.Tx, rows [][]any, written, edite
 		return err
 	}
 	r, err := tx.Query(ctx, `INSERT INTO comments AS t (`+strings.Join(commentCols, ",")+`)
-		SELECT `+strings.Join(commentCols, ",")+` FROM tmp_comments
+		SELECT `+strings.Join(commentCols, ",")+` FROM tmp_comments ORDER BY post_created_at, post_id, comment_id
 		ON CONFLICT (post_created_at, post_id, comment_id) DO UPDATE SET `+set(commentCols,
 		map[string]string{"post_created_at": "", "post_id": "", "comment_id": "", "first_seen_at": ""},
 		"edit_count = t.edit_count + CASE WHEN "+commentEdited+" THEN 1 ELSE 0 END",

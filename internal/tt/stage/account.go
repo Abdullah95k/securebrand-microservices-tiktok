@@ -550,6 +550,14 @@ func (s *AccountStage) posts(ctx context.Context, b *kafka.Batch, t *tkstaskv1.T
 			}
 			continue
 		}
+		// Not while another job reads the post's comments: a check can run
+		// beside an earlier one whose comment work is still going, and two
+		// reads of one post would sign every page twice.
+		if mine, err := d.Ckpt.ClaimPostRead(ctx, p.PostId, t.JobId, postReadClaim); err == nil && !mine {
+			_, _ = d.Jobs.SetPost(ctx, t.JobId, p.PostId, created.Unix(), p.GetCounts().GetComments(), jobs.PostSkipped)
+			c["comments_in_flight"]++
+			continue
+		}
 		// Not again when this job already collected the post.
 		if collected, _ := d.Jobs.SetPost(ctx, t.JobId, p.PostId, created.Unix(), p.GetCounts().GetComments(), jobs.PostPending); !collected {
 			children = append(children, child)
@@ -560,6 +568,10 @@ func (s *AccountStage) posts(ctx context.Context, b *kafka.Batch, t *tkstaskv1.T
 	}
 	return children, Outcome{}, false
 }
+
+// postReadClaim bounds a post read's claim (ClaimPostRead) when its task
+// never ends (a dead letter): the post can be read again after it.
+const postReadClaim = 6 * time.Hour
 
 // commentsTask decides whether a post's comments must be read (ADR 0007
 // §4, §5): never read, or its comment count went up since the last read

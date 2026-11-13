@@ -216,3 +216,29 @@ func (s *Store) GetThread(ctx context.Context, commentID int64) (int64, bool) {
 func (s *Store) SetThread(ctx context.Context, commentID, replies int64) error {
 	return s.r.Set(ctx, redisx.KeyPrefix+"tc:"+strconv.FormatInt(commentID, 10), replies, cacheTTL).Err()
 }
+
+// ClaimPostRead claims post's comment read for job, so a later job's check
+// that sees the count grow again does not start a second read of the same
+// post while this one runs (a check may start beside an earlier check whose
+// comment work is still going). It reports false when another job holds the
+// claim; the same job (a retried account task) may claim again. The claim
+// ends with ReleasePostRead when the read ends, or after ttl.
+func (s *Store) ClaimPostRead(ctx context.Context, postID int64, job string, ttl time.Duration) (bool, error) {
+	k := redisx.KeyPrefix + "pr:" + strconv.FormatInt(postID, 10)
+	ok, err := s.r.SetNX(ctx, k, job, ttl).Result()
+	if err != nil || ok {
+		return ok, err
+	}
+	holder, err := s.r.Get(ctx, k).Result()
+	if errors.Is(err, redis.Nil) {
+		return s.r.SetNX(ctx, k, job, ttl).Result()
+	}
+	return holder == job, err
+}
+
+// ReleasePostRead ends job's claim on post's comment read (a claim another
+// job took after this one's expired is left alone).
+func (s *Store) ReleasePostRead(ctx context.Context, postID int64, job string) error {
+	k := redisx.KeyPrefix + "pr:" + strconv.FormatInt(postID, 10)
+	return releaseScript.Run(ctx, s.r, []string{k}, job).Err()
+}
