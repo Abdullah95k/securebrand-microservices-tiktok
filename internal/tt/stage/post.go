@@ -92,6 +92,7 @@ func (s *PostStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 			break
 		}
 		if d.Jobs.Cancelled(ctx, t.JobId) {
+			_ = d.Ckpt.ReleasePostRead(ctx, sc.PostId, t.JobId) // the next check may read it
 			return done(map[string]int64{"cancelled": 1})
 		}
 		cursor := offset(st.Cursor)
@@ -187,6 +188,7 @@ func (s *PostStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 	if sc.IncompleteMark != "" && exhausted {
 		_ = d.Ckpt.ClearIncomplete(ctx, sc.PostId, sc.IncompleteMark)
 	}
+	_ = d.Ckpt.ReleasePostRead(ctx, sc.PostId, t.JobId)
 	return done(c)
 }
 
@@ -232,6 +234,7 @@ func (d *Deps) pageGone(ctx context.Context, t *tkstaskv1.Task, reason string, c
 	if t.Kind == tkstaskv1.Kind_KIND_POST {
 		kind, post = "post", t.GetPost().GetPostId()
 		_ = d.Jobs.UpdatePostState(ctx, t.JobId, post, jobs.PostSkipped)
+		_ = d.Ckpt.ReleasePostRead(ctx, post, t.JobId)
 	}
 	c["comment_pages_gone"]++
 	if err := d.Ckpt.MarkIncomplete(ctx, post); err != nil {

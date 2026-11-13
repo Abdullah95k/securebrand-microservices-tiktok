@@ -176,7 +176,7 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 				return err
 			}
 			tag, err := tx.Exec(ctx, `INSERT INTO posts AS t (`+strings.Join(postCols, ",")+`)
-				SELECT `+strings.Join(postCols, ",")+` FROM tmp_posts
+				SELECT `+strings.Join(postCols, ",")+` FROM tmp_posts ORDER BY created_at, post_id
 				ON CONFLICT (created_at, post_id) DO UPDATE SET `+set(postCols, map[string]string{
 				"created_at": "", "post_id": "", "first_seen_at": "", "discovered_via": "", "stored_at": "", "first_mode": "",
 				"is_pinned": "COALESCE(EXCLUDED.is_pinned, t.is_pinned)", "is_ad": "COALESCE(EXCLUDED.is_ad, t.is_ad)",
@@ -197,7 +197,7 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 			}
 			// post_index is written with the post, so a post new to it is new.
 			idx, err := tx.Query(ctx, `INSERT INTO post_index (post_id, user_id, created_at, kind)
-				SELECT post_id, user_id, created_at, kind FROM tmp_posts ON CONFLICT (post_id) DO NOTHING RETURNING post_id`)
+				SELECT post_id, user_id, created_at, kind FROM tmp_posts ORDER BY post_id ON CONFLICT (post_id) DO NOTHING RETURNING post_id`)
 			if err != nil {
 				return err
 			}
@@ -221,7 +221,7 @@ func (w *Writer) Posts(ctx context.Context, ps []*ttv1.Post) error {
 				return err
 			}
 			_, err = tx.Exec(ctx, `INSERT INTO post_mentions AS t (post_id, author_key, user_id, offsets, first_seen_at)
-				SELECT post_id, author_key, user_id, offsets, first_seen_at FROM tmp_mentions
+				SELECT post_id, author_key, user_id, offsets, first_seen_at FROM tmp_mentions ORDER BY post_id, author_key
 				ON CONFLICT (post_id, author_key) DO UPDATE SET user_id = EXCLUDED.user_id, offsets = EXCLUDED.offsets
 				WHERE t.offsets IS DISTINCT FROM EXCLUDED.offsets OR t.user_id IS DISTINCT FROM EXCLUDED.user_id`)
 			return err

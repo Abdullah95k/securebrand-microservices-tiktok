@@ -150,6 +150,7 @@ func (p *Planner) Tick(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		besideComments := false
 		if d.lastJob != nil {
 			var st, mode string
 			var lane int16
@@ -157,6 +158,18 @@ func (p *Planner) Tick(ctx context.Context) error {
 				s := slotFor(st, mode, lane, paused, p.Cfg.TT.Freshness.FirstReadDays > 0)
 				if s == slotWait && history && lane == int16(tkstaskv1.Lane_LANE_P2) && st != "cancelling" {
 					s = slotGo // the check beside the history, if the list was read (request)
+				}
+				if s == slotWait && st == "running" && lane == int16(tkstaskv1.Lane_LANE_P1) && mode == dispatch.ModeIncremental {
+					// A check whose list walk has ended waits only for its
+					// comment and reply reads, which can take hours: the next
+					// check runs beside it (at most two at once).
+					ok, err := p.listDoneBeside(ctx, *d.lastJob, d.ref)
+					if err != nil {
+						return err
+					}
+					if ok {
+						s, besideComments = slotGo, true
+					}
 				}
 				switch s {
 				case slotWait:
@@ -190,7 +203,7 @@ func (p *Planner) Tick(ctx context.Context) error {
 				}
 			}
 		}
-		req, err := p.request(ctx, d, paused, history)
+		req, err := p.request(ctx, d, paused, history || besideComments)
 		if errors.Is(err, errNotRead) {
 			// History is being read for an account whose list was never
 			// read: its first read is that job, so wait for it.
@@ -212,7 +225,10 @@ func (p *Planner) Tick(ctx context.Context) error {
 			metrics.PlannerSlots.WithLabelValues("dispatch_failed").Inc()
 			continue
 		}
-		if history {
+		switch {
+		case besideComments:
+			metrics.PlannerSlots.WithLabelValues("check_beside_comments").Inc()
+		case history:
 			metrics.PlannerSlots.WithLabelValues("check_beside_history").Inc()
 		}
 		if _, err := p.DB.Exec(ctx, `UPDATE account_schedule SET last_job_id = $2 WHERE account_ref = $1`, d.ref, j.ID); err != nil {
@@ -237,6 +253,24 @@ func (p *Planner) openHistory(ctx context.Context, ref string) (bool, error) {
 	err := p.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM jobs WHERE account_ref = $1 AND lane = $2
 		AND status IN ('running', 'finalizing'))`, ref, int16(tkstaskv1.Lane_LANE_P2)).Scan(&open)
 	return open, err
+}
+
+// maxOpenChecks is how many scheduled checks of one account may run at
+// once: a check whose comment work is still going, and the next.
+const maxOpenChecks = 2
+
+// listDoneBeside reports whether a new check may start beside the running
+// check job: its list walk has ended (the account's list cursor was saved
+// after the job began) and fewer than maxOpenChecks checks are open.
+func (p *Planner) listDoneBeside(ctx context.Context, job uuid.UUID, ref string) (bool, error) {
+	var ok bool
+	err := p.DB.QueryRow(ctx, `SELECT EXISTS (
+			SELECT 1 FROM jobs j JOIN account_schedule s ON s.account_ref = j.account_ref
+			JOIN crawl_cursors c ON c.scope_type = 'account_list' AND c.scope_id = s.user_id
+			WHERE j.job_id = $1 AND c.updated_at >= j.created_at)
+		AND (SELECT count(*) FROM jobs WHERE account_ref = $2 AND lane = $3 AND status IN ('running', 'finalizing')) < $4`,
+		job, ref, int16(tkstaskv1.Lane_LANE_P1), maxOpenChecks).Scan(&ok)
+	return ok, err
 }
 
 // request builds a due account's job: a backfill when the account was never
