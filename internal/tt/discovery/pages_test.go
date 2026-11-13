@@ -198,6 +198,29 @@ func TestPageFindsCounted(t *testing.T) {
 	}
 }
 
+// A repost's author is counted like any part C find: its source row is
+// how 'repost' via the reposting account (account_sources took no 'repost'
+// before 00019, which failed every sightings batch holding one).
+func TestRepostFindsCounted(t *testing.T) {
+	c := newCandidates(t)
+	ctx := context.Background()
+	d := c.d
+	d.Cfg.TT.Discovery.Enabled = true
+	d.Cfg.TT.Discovery.Sources = map[string]bool{"repost": true}
+	c.exec(`INSERT INTO discovery_sightings (how, found_in, via, user_id, sec_uid, username, post_id, seen_at)
+		VALUES ('repost', 'repost', '7', 8, $1, 'author', 7400000000000000001, $2)`, secOf(8), c.now)
+	n, err := d.Count(ctx, 100)
+	if err != nil || n != 1 {
+		t.Fatalf("counted %d (%v), want 1", n, err)
+	}
+	if n := one[int64](t, c, `SELECT count(*) FROM account_sources WHERE how = 'repost' AND via = '7'`); n != 1 {
+		t.Fatalf("%d repost sources, want 1", n)
+	}
+	if n := one[int64](t, c, `SELECT count(*) FROM discovery_sightings WHERE counted_at IS NULL`); n != 0 {
+		t.Fatalf("%d sightings left uncounted", n)
+	}
+}
+
 func one[T any](t *testing.T, c *candidates, q string, args ...any) T {
 	t.Helper()
 	var v T

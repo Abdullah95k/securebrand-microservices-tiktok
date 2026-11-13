@@ -414,6 +414,7 @@ M19 (2026-11-10) adds the owner's reposts source (decision D-047, 2026-11-10, re
 * **API.** `GET /v1/accounts/{account}/reposts` (data:read): the tab's read state and the reposts, newest first seen first, paged.
 * **Contracts (additions only).** `tt.v1` `DiscoveredVia.REPOST`; `tks.task.v1` `DiscoverScope.sec_uid` (11). No new topic.
 * **Tested.** `internal/tt/stage` (`TestDiscoverReposts`: one page read unsigned, every post's find, the authors, the target's next read and a candidate's none, a task without a secUid failing), `internal/tt/persist` (`TestReposts`: links kept, first and last seen, finds once, an author's own post, the source off), `internal/tt/discovery` (`TestRepostTargets`: monitored and candidate targets, one candidate a call, newest checked first, none unchecked or gone, a claim's secUid and first read, an admitted candidate read again), `internal/tt/scheduler` (`TestMaxPagesReposts`), the schema test, the API's OpenAPI parity, and the e2e suite unchanged.
+* **Its source row** (fixed 2026-11-13): a counted repost find is an `account_sources` row with `how` `repost`, via the reposting account's user id. `00017` left `repost` out of that table's check, so migration `00019` adds it.
 
 ## 29. Settled in M20 (tks deletes its own media files)
 
