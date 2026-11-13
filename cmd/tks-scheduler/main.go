@@ -31,6 +31,7 @@ import (
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/cost"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/discovery"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/dispatch"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/fbdisc"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/scheduler"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/ttstore"
 )
@@ -119,6 +120,16 @@ func runScheduler(ctx context.Context, cfg *config.Config) error {
 		func(ctx context.Context) error {
 			return sharedsched.Every(ctx, "discovery", cfg.Scheduler.PlannerInterval, disc.Tick)
 		},
+	}
+	if fc := cfg.TT.FacebookDiscovery; fc.Enabled {
+		// Facebook links in monitored accounts' bios, to the Facebook
+		// collector (owner D-065).
+		fb := &fbdisc.Sender{DB: db, Cfg: fc}
+		every := fc.Interval
+		if every <= 0 {
+			every = 5 * time.Minute
+		}
+		loops = append(loops, func(ctx context.Context) error { return sharedsched.Every(ctx, "fb-discovery", every, fb.Tick) })
 	}
 	if cands != nil {
 		// Discovery's candidates on discovery.candidate.v1, found and

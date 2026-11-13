@@ -342,6 +342,13 @@ components:
     terminationGracePeriodSeconds: 30
     resources: {requests: {cpu: 500m, memory: 2Gi}, limits: {cpu: "1", memory: 2Gi}}
 
+# The Facebook collector's API key for tt.facebook_discovery (owner D-065):
+# a Secret's key, mapped onto the scheduler only. Empty: no key, so the
+# hand-off stays off whatever config.tt.facebook_discovery.enabled says.
+facebookDiscovery:
+  secretName: ""
+  secretKey: api_key
+
 networkPolicy:
   # Restricts ingress to the API port and the metrics port, and tks-signer's
   # to the crawlers and the canary; with egress.enabled, egress too.

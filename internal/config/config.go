@@ -321,6 +321,9 @@ type TT struct {
 	// discovery-plan.md §5.3); Discovery switches account discovery.
 	Admission Admission `koanf:"admission"`
 	Discovery Discovery `koanf:"discovery"`
+	// FacebookDiscovery sends facebook.com links in monitored accounts'
+	// bios to the Facebook collector (owner D-065; internal/tt/fbdisc).
+	FacebookDiscovery FacebookDiscovery `koanf:"facebook_discovery"`
 	// Cost prices tks's day (build brief §8 A5) and holds the owner's
 	// budget per account (D9).
 	Cost TTCost `koanf:"cost"`
@@ -371,6 +374,21 @@ type Admission struct {
 	IPRequestsPerDay int     `koanf:"ip_requests_per_day"`
 	PageSignsPerDay  int     `koanf:"page_signs_per_day"`
 	SignedShare      float64 `koanf:"signed_share"`
+}
+
+// FacebookDiscovery is the hand-off of Facebook links to the Facebook
+// collector: off unless enabled with an address and a key. The key comes
+// from a Secret (TKS_TT__FACEBOOK_DISCOVERY__API_KEY) and is never logged.
+type FacebookDiscovery struct {
+	Enabled bool `koanf:"enabled"`
+	// APIURL is the collector's API base (…/v1/discovery/candidates is
+	// posted to).
+	APIURL string `koanf:"api_url"`
+	APIKey string `koanf:"api_key"`
+	// MaxPerDay caps the links sent a UTC day.
+	MaxPerDay int           `koanf:"max_per_day"`
+	Interval  time.Duration `koanf:"interval"`
+	Timeout   time.Duration `koanf:"timeout"`
 }
 
 // Discovery switches account discovery (docs/tiktok/discovery-plan.md

@@ -149,6 +149,15 @@ tt:
   # page of the canary accounts with each variant of the crawler's
   # operations, and promotes a working variant when the active one stops
   # answering (or an unsigned one answers where the active one is signed).
+  # Facebook links in monitored accounts' bios, sent once each to the
+  # Facebook collector (owner D-065; internal/tt/fbdisc). Off by default;
+  # the key comes from a Secret (TKS_TT__FACEBOOK_DISCOVERY__API_KEY).
+  facebook_discovery:
+    enabled: false
+    api_url: ""
+    max_per_day: 200
+    interval: 5m
+    timeout: 10s
   canary:
     interval: 1h
     # Public usernames with posts, comments and replies, set by the

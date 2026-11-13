@@ -49,6 +49,12 @@ passes hook=true. */}}
 {{- with $root.Values.platformSecret.name }}
 {{- include "tks.platformEnv" (dict "root" $root "c" $c "hook" $.hook "secret" .) }}
 {{- end }}
+{{- $fb := $root.Values.facebookDiscovery | default dict }}
+{{- if and $fb.secretName (eq (toString .name) "scheduler") }}
+# The Facebook collector's API key (owner D-065), for tt.facebook_discovery.
+- name: TKS_TT__FACEBOOK_DISCOVERY__API_KEY
+  valueFrom: {secretKeyRef: {name: {{ $fb.secretName }}, key: {{ $fb.secretKey | default "api_key" }}, optional: true}}
+{{- end }}
 {{- end -}}
 
 {{/* The production platform's Secret (platformSecret.name; M18) mapped
