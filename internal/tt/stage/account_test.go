@@ -419,3 +419,14 @@ func TestQuietCommentWindows(t *testing.T) {
 		t.Error("the quiet windows do not space a young post's re-reads")
 	}
 }
+
+// A check's list calls get their own per-account pace; a backfill's or a
+// walk's keep the account's shared one.
+func TestListBucket(t *testing.T) {
+	if listBucket(tkstaskv1.Lane_LANE_P1) != "list" || listBucket(tkstaskv1.Lane_LANE_P0) != "list" {
+		t.Error("a check's list calls share the comment pace")
+	}
+	if listBucket(tkstaskv1.Lane_LANE_P2) != "" {
+		t.Error("a backfill's list calls left the shared pace")
+	}
+}

@@ -27,12 +27,16 @@ type RawSink interface {
 
 // Request is one logical GraphQL call.
 type Request struct {
-	Query   string         // registry name
-	Vars    map[string]any // template values
-	PageID  int64          // fleet-wide per-page limit key; 0 = none
-	Fast    bool           // p0 per-page rate
-	Referer string
-	Lane    string // p0 | p1 | p2, for the traffic budget
+	Query  string         // registry name
+	Vars   map[string]any // template values
+	PageID int64          // fleet-wide per-page limit key; 0 = none
+	// PageBucket, when set, gives the call a per-page limit of its own
+	// beside PageID's (page:<id>:<bucket>), so a few calls of one kind are
+	// not queued behind many of another on the same page.
+	PageBucket string
+	Fast       bool // p0 per-page rate
+	Referer    string
+	Lane       string // p0 | p1 | p2, for the traffic budget
 }
 
 // Response is the decoded result.
@@ -312,6 +316,15 @@ func (c *Client) do(ctx context.Context, id *session.Identity, q registry.Query,
 		Reason: reason, Errors: errs, Elapsed: elapsed, Vars: req.Vars, BytesIn: tr.BytesIn, BytesOut: tr.BytesOut}, nil
 }
 
+// pageKey is a call's per-page limiter key.
+func pageKey(req Request) string {
+	key := "page:" + strconv.FormatInt(req.PageID, 10)
+	if req.PageBucket != "" {
+		key += ":" + req.PageBucket
+	}
+	return key
+}
+
 // pace applies identity pacing, then the per-page and global fleet limits.
 func (c *Client) pace(ctx context.Context, id *session.Identity, req Request) error {
 	if c.Halt != nil {
@@ -330,7 +343,7 @@ func (c *Client) pace(ctx context.Context, id *session.Identity, req Request) er
 		if req.Fast && c.PageRPSFast > 0 {
 			rps = c.PageRPSFast
 		}
-		if err := c.Limiter.Wait(ctx, "page:"+strconv.FormatInt(req.PageID, 10), rps); err != nil {
+		if err := c.Limiter.Wait(ctx, pageKey(req), rps); err != nil {
 			return err
 		}
 	}

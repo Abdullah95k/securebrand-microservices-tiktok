@@ -315,7 +315,7 @@ func TestPlannerCheckBesideHistory(t *testing.T) {
 
 // A running check whose list walk has ended (the list cursor saved after
 // it began) waits only for comment work: the next check runs beside it,
-// at most two at once. A check still walking its list waits.
+// at most three at once. A check still walking its list waits.
 func TestPlannerCheckBesideComments(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
@@ -335,8 +335,9 @@ func TestPlannerCheckBesideComments(t *testing.T) {
 		($1, 'scheduled', 2, 'incremental', 'u:listed', '{}', 'running', $5),
 		($2, 'scheduled', 2, 'incremental', 'u:listing', '{}', 'running', $6),
 		($3, 'scheduled', 2, 'incremental', 'u:twoopen', '{}', 'running', $5),
-		($4, 'scheduled', 2, 'incremental', 'u:twoopen', '{}', 'running', $5)`,
-		listed, listing, two1, two2, now.Add(-time.Hour), now.Add(-10*time.Minute))
+		($4, 'scheduled', 2, 'incremental', 'u:twoopen', '{}', 'running', $5),
+		($7, 'scheduled', 2, 'incremental', 'u:twoopen', '{}', 'running', $5)`,
+		listed, listing, two1, two2, now.Add(-time.Hour), now.Add(-10*time.Minute), uuid.New())
 	for ref, job := range map[string]uuid.UUID{"u:listed": listed, "u:listing": listing, "u:twoopen": two2} {
 		e.exec(t, `INSERT INTO account_schedule (account_ref, user_id, interval_seconds, next_run_at, admitted_at, last_job_id)
 			SELECT $1, user_id, 9900, $2, $3, $4 FROM account_usernames WHERE username = $5`, ref, now.Add(-time.Minute), now.Add(-30*24*time.Hour), job, ref[2:])

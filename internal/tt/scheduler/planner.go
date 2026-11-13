@@ -256,8 +256,12 @@ func (p *Planner) openHistory(ctx context.Context, ref string) (bool, error) {
 }
 
 // maxOpenChecks is how many scheduled checks of one account may run at
-// once: a check whose comment work is still going, and the next.
-const maxOpenChecks = 2
+// once: checks whose comment work is still going, and the next. Three
+// cover comment work of up to two check intervals (5 h 30 min); post read
+// claims keep them from reading the same post twice. Two held a busy
+// account's checks back after the first hour (2026-11-13: waited 70 in
+// the first hour, about 500 an hour after).
+const maxOpenChecks = 3
 
 // listDoneBeside reports whether a new check may start beside the running
 // check job: its list walk has ended (the account's list cursor was saved
