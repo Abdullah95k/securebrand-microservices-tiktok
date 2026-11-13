@@ -214,7 +214,11 @@ type Decision struct {
 //     the ceiling (multiplicative decrease);
 //   - below LowBlockRate while the fleet uses at least MinUtilization of the
 //     ceiling: cur + max(1, cur x Increase) (additive increase);
-//   - otherwise, or with fewer than MinSamples responses: hold.
+//   - otherwise, or with fewer than MinSamples responses: hold. A ceiling so
+//     low that a busy window cannot reach MinSamples (MinUtilization of it
+//     falls short) needs only that many: otherwise the floor holds for good
+//     (MinRPS 5 x a 10 s window is at most 50 responses, under 100; the
+//     production ceiling sat at 5 from 2026-11-07 to 2026-11-13).
 //
 // The result stays within [MinRPS, MaxRPS].
 func Decide(cfg config.AIMD, cur int, total, blocked int64, window time.Duration) Decision {
@@ -222,11 +226,15 @@ func Decide(cfg config.AIMD, cur int, total, blocked int64, window time.Duration
 	if total > 0 {
 		d.BlockRate = float64(blocked) / float64(total)
 	}
+	minSamples := int64(cfg.MinSamples)
 	if cur > 0 {
 		d.Utilization = float64(total) / (float64(cur) * window.Seconds())
+		if fit := int64(float64(cur) * window.Seconds() * cfg.MinUtilization); fit < minSamples {
+			minSamples = max(fit, 1)
+		}
 	}
 	switch {
-	case total < int64(cfg.MinSamples):
+	case total < minSamples:
 		d.Reason = "hold:few_samples"
 	case d.BlockRate > cfg.HighBlockRate:
 		sent := math.Min(float64(cur), float64(total)/window.Seconds())
