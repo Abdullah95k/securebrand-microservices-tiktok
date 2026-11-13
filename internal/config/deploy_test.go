@@ -196,6 +196,12 @@ func TestChartProductionConfigLoads(t *testing.T) {
 	if c.TT.CaptureRaw != "sample" || c.TT.CaptureRawSample != 0.01 || c.TT.Cost.BudgetPerAccountUSD != 0.0019 {
 		t.Errorf("tt: capture %q %v, budget %v", c.TT.CaptureRaw, c.TT.CaptureRawSample, c.TT.Cost.BudgetPerAccountUSD)
 	}
+	// Entry checks load profile pages on the exits the monitoring checks'
+	// identities wait on (2026-11-13): fewer at once, the rest of the
+	// entry settings still the defaults.
+	if e := c.TT.Discovery.Entry; e.MaxRunning != 50 || e.Batch != 200 || e.MaxAttempts != 3 {
+		t.Errorf("tt.discovery.entry %+v, want max_running 50 and the default batch and attempts", e)
+	}
 	// tt.subtitle.v1 is the platform's to make first (hand-over §6).
 	if c.TT.Subtitles.Include {
 		t.Error("tt.subtitles.include on in production before the platform has made tt.subtitle.v1")
