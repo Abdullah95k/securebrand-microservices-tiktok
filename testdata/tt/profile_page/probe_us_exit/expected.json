@@ -14,7 +14,7 @@
     "bio_link": "https://example.invalid/scrubbed",
     "bio_link_risk": 3,
     "avatar_url": "https://p16-common-sign.tiktokcdn-us.com/scrubbed/6c6688daa8bb.jpeg?x-expires=1793689200",
-    "avatar_media_id": "0372842e-76d5-5f4a-9d0f-46ec52433d17",
+    "avatar_media_id": "1286245c-1d31-5f5b-a45e-1643d8507ce8",
     "verified": true,
     "private": false,
     "organization": true,
@@ -44,7 +44,7 @@
         "parser_version": 1,
         "platform": "PLATFORM_TIKTOK"
       },
-      "media_id": "0372842e-76d5-5f4a-9d0f-46ec52433d17",
+      "media_id": "1286245c-1d31-5f5b-a45e-1643d8507ce8",
       "kind": "MEDIA_KIND_AVATAR",
       "variant": "original",
       "user_id": "7041539490274267691",
