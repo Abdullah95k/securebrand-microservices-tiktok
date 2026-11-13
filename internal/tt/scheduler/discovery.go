@@ -2,10 +2,12 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	tkstaskv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tks/task/v1"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
@@ -130,6 +132,20 @@ func (s *Discovery) count(ctx context.Context) error {
 // (which the budget pauses: discovery waits, monitoring does not).
 func (s *Discovery) start(ctx context.Context) error {
 	ec := s.D.Cfg.TT.Discovery.Entry
+	// Checks beyond the cap (it was lowered) are cancelled: they would
+	// hold the exits' page loads until they end.
+	excess, err := s.D.Excess(ctx, ec.MaxRunning)
+	if err != nil {
+		return err
+	}
+	for _, id := range excess {
+		if err := s.Dispatch.Cancel(ctx, id); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+	}
+	if len(excess) > 0 {
+		slog.Info("discovery: entry checks over the cap cancelled", "checks", len(excess), "max_running", ec.MaxRunning)
+	}
 	running, err := s.D.Running(ctx)
 	if err != nil {
 		return err
