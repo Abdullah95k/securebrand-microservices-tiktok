@@ -188,7 +188,7 @@ func (s *Sender) send(ctx context.Context, ref, username string) (string, bool) 
 		slog.Warn("fbdisc: send failed", "err", fmt.Sprintf("%T", err))
 		return "error", true
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	switch {
 	case resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusOK:
