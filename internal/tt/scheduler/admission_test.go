@@ -240,6 +240,76 @@ func TestPlannerSlotsWithJobStillGoing(t *testing.T) {
 	}
 }
 
+// While p2 runs (no budget pause) but a backfill or walk is still reading
+// an account's history there, its list checks go on beside it: a read
+// account whose walk runs gets a p1 incremental check (the walk keeps
+// running), and so does one whose last job ended while an older walk still
+// runs (never a second walk, though one is due); an account never read
+// waits for its backfill, which is its first read.
+func TestPlannerCheckBesideHistory(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	refs := []string{"u:walking", "u:after", "u:backfilling"}
+	for i, ref := range refs {
+		uid := int64(70 + i)
+		e.exec(t, `INSERT INTO accounts (user_id, sec_uid, username, author_key, status, profile_refreshed_at, page_read_at)
+			VALUES ($1, $2, $3, '\x01', 'active', now(), now())`, uid, fmt.Sprintf("SEC%d", uid), ref[2:])
+		e.exec(t, `INSERT INTO account_usernames (user_id, username, first_seen_at, last_seen_at) VALUES ($1, $2, now(), now())`, uid, ref[2:])
+		if ref != "u:backfilling" {
+			e.exec(t, `INSERT INTO crawl_cursors (scope_type, scope_id, state) VALUES ('account_list', $1, 'complete')`, uid)
+		}
+	}
+	walk, oldWalk, done, backfill := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	e.exec(t, `INSERT INTO jobs (job_id, kind, lane, mode, account_ref, params, status, created_at) VALUES
+		($1, 'scheduled', 3, 'refresh', 'u:walking', '{}', 'running', $5),
+		($2, 'scheduled', 3, 'refresh', 'u:after', '{}', 'running', $5),
+		($3, 'scheduled', 2, 'incremental', 'u:after', '{}', 'completed', $5),
+		($4, 'backfill', 3, 'full', 'u:backfilling', '{}', 'running', $5)`,
+		walk, oldWalk, done, backfill, now.Add(-time.Hour))
+	for ref, job := range map[string]uuid.UUID{"u:walking": walk, "u:after": done, "u:backfilling": backfill} {
+		e.exec(t, `INSERT INTO account_schedule (account_ref, user_id, interval_seconds, next_run_at, admitted_at, last_job_id)
+			SELECT $1, user_id, 9900, $2, $3, $4 FROM account_usernames WHERE username = $5`, ref, now.Add(-time.Minute), now.Add(-30*24*time.Hour), job, ref[2:])
+	}
+	p := &Planner{DB: e.db, Dispatch: e.disp, Cfg: e.cfg, Now: func() time.Time { return now },
+		Budget: func(context.Context) ratelimit.BudgetState { return ratelimit.BudgetState{Stretch: 1} }}
+	if err := p.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{"u:walking", "u:after"} {
+		var mode string
+		var lane int16
+		if err := e.db.QueryRow(ctx, `SELECT j.mode, j.lane FROM account_schedule s JOIN jobs j ON j.job_id = s.last_job_id
+			WHERE s.account_ref = $1`, ref).Scan(&mode, &lane); err != nil {
+			t.Fatal(err)
+		}
+		if mode != dispatch.ModeIncremental || lane != 2 {
+			t.Errorf("%s's new job %s in lane %d, want the p1 incremental check", ref, mode, lane)
+		}
+	}
+	var running int
+	_ = e.db.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE job_id IN ($1, $2) AND status = 'running'`, walk, oldWalk).Scan(&running)
+	if running != 2 {
+		t.Errorf("%d of the 2 walks still running, want both", running)
+	}
+	var walks int
+	_ = e.db.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE account_ref = 'u:after' AND mode = 'refresh'`).Scan(&walks)
+	if walks != 1 {
+		t.Errorf("u:after has %d walks, want its one running walk and no second", walks)
+	}
+	var last uuid.UUID
+	var next time.Time
+	if err := e.db.QueryRow(ctx, `SELECT last_job_id, next_run_at FROM account_schedule WHERE account_ref = 'u:backfilling'`).Scan(&last, &next); err != nil {
+		t.Fatal(err)
+	}
+	if last != backfill {
+		t.Errorf("u:backfilling, never read, got a job beside its backfill")
+	}
+	if d := next.Sub(now); d <= 0 || d > SlotRetry+time.Second {
+		t.Errorf("u:backfilling next check in %s, want within %s", d, SlotRetry)
+	}
+}
+
 func TestSlotFor(t *testing.T) {
 	for _, c := range []struct {
 		status, mode      string

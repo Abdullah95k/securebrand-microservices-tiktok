@@ -143,11 +143,22 @@ func (p *Planner) Tick(ctx context.Context) error {
 	}
 	paused := budget != nil && budget.PauseP2
 	for _, d := range list {
+		// A backfill or walk still reading the account's history in p2
+		// (hours or days behind a busy backfill lane) must not hold up its
+		// list checks: once the list has been read, a check runs beside it.
+		history, err := p.openHistory(ctx, d.ref)
+		if err != nil {
+			return err
+		}
 		if d.lastJob != nil {
 			var st, mode string
 			var lane int16
 			if err := p.DB.QueryRow(ctx, `SELECT status, mode, lane FROM jobs WHERE job_id = $1`, *d.lastJob).Scan(&st, &mode, &lane); err == nil {
-				switch slotFor(st, mode, lane, paused, p.Cfg.TT.Freshness.FirstReadDays > 0) {
+				s := slotFor(st, mode, lane, paused, p.Cfg.TT.Freshness.FirstReadDays > 0)
+				if s == slotWait && history && lane == int16(tkstaskv1.Lane_LANE_P2) && st != "cancelling" {
+					s = slotGo // the check beside the history, if the list was read (request)
+				}
+				switch s {
 				case slotWait:
 					// The previous job is still going: try again soon,
 					// not a whole interval later.
@@ -172,10 +183,24 @@ func (p *Planner) Tick(ctx context.Context) error {
 						slog.Warn("planner: cancel held walk", "account", d.ref, "err", err)
 						continue
 					}
+					// The cancelled job no longer counts as running history.
+					if history, err = p.openHistory(ctx, d.ref); err != nil {
+						return err
+					}
 				}
 			}
 		}
-		req, err := p.request(ctx, d, paused)
+		req, err := p.request(ctx, d, paused, history)
+		if errors.Is(err, errNotRead) {
+			// History is being read for an account whose list was never
+			// read: its first read is that job, so wait for it.
+			metrics.PlannerSlots.WithLabelValues("waited").Inc()
+			if _, err := p.DB.Exec(ctx, `UPDATE account_schedule SET next_run_at = least(next_run_at, $2::timestamptz + $3::interval)
+				WHERE account_ref = $1`, d.ref, p.now(), SlotRetry); err != nil {
+				return err
+			}
+			continue
+		}
 		if err != nil {
 			slog.Warn("planner: account", "account", d.ref, "err", err)
 			metrics.PlannerSlots.WithLabelValues("request_failed").Inc()
@@ -186,6 +211,9 @@ func (p *Planner) Tick(ctx context.Context) error {
 			slog.Warn("planner: dispatch failed", "account", d.ref, "err", err)
 			metrics.PlannerSlots.WithLabelValues("dispatch_failed").Inc()
 			continue
+		}
+		if history {
+			metrics.PlannerSlots.WithLabelValues("check_beside_history").Inc()
 		}
 		if _, err := p.DB.Exec(ctx, `UPDATE account_schedule SET last_job_id = $2 WHERE account_ref = $1`, d.ref, j.ID); err != nil {
 			return err
@@ -198,18 +226,36 @@ func (p *Planner) Tick(ctx context.Context) error {
 	return nil
 }
 
+// errNotRead is request's answer for a check beside running history when
+// the account's list was never read: the history job is its first read.
+var errNotRead = errors.New("planner: the account's list was never read")
+
+// openHistory reports whether a backfill or metrics walk is still running
+// (or finalizing) for the account in the backfill lane.
+func (p *Planner) openHistory(ctx context.Context, ref string) (bool, error) {
+	var open bool
+	err := p.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM jobs WHERE account_ref = $1 AND lane = $2
+		AND status IN ('running', 'finalizing'))`, ref, int16(tkstaskv1.Lane_LANE_P2)).Scan(&open)
+	return open, err
+}
+
 // request builds a due account's job: a backfill when the account was never
 // read, the deepest metrics walk that is due, or an incremental check.
 // While the budget pauses the backfill lane (p2), a due walk waits and the
 // check runs in its place: a walk stands in for the check, so a paused walk
 // would leave the account unchecked (the 3-hour target holds; owner,
-// 2026-11-05).
-func (p *Planner) request(ctx context.Context, d due, backfillPaused bool) (dispatch.Request, error) {
+// 2026-11-05). beside (a backfill or walk still running in p2) asks for the
+// incremental check alone, never a second walk or backfill; errNotRead when
+// the list was never read.
+func (p *Planner) request(ctx context.Context, d due, backfillPaused, beside bool) (dispatch.Request, error) {
 	acc, _, err := dispatch.Resolve(ctx, p.DB, d.ref)
 	if err != nil {
 		return dispatch.Request{}, err
 	}
 	read := acc != nil && acc.ListCheckedAt != nil
+	if beside && !read {
+		return dispatch.Request{}, errNotRead
+	}
 	lim := task.DefaultLimits(p.Cfg.Limits, p.Cfg.TT, !read)
 	applyOptions(lim, d.options)
 	if d.maxAge != nil && *d.maxAge > 0 {
@@ -237,6 +283,8 @@ func (p *Planner) request(ctx context.Context, d due, backfillPaused bool) (disp
 		// The account's first read: its year back (or to the first post), in
 		// the backfill lane, so it cannot hold up the 2 h 45 min checks.
 		r.Kind, r.Lane, r.Mode = dispatch.KindBackfill, tkstaskv1.Lane_LANE_P2, dispatch.ModeFull
+	case beside:
+		// The history job reads the older posts; this check, the new ones.
 	default:
 		if w, ok := DueWalk(p.Cfg.TT.Freshness.MetricsWalks, Walks(d.walks), p.now()); ok && !backfillPaused {
 			// A walk reads the list from the top, so it stands in for the

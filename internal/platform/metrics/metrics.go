@@ -142,7 +142,7 @@ var (
 	// walk the budget held in the paused p2 lane gave way to the check) or
 	// held_backfill_cancelled (a held backfill gave way to a light first
 	// read, tt.freshness.first_read_days).
-	PlannerSlots = counterVec("planner_slots_total", "Due check slots that met the account's previous job still going, by what the planner did (waited, held_walk_cancelled, held_backfill_cancelled), or that dispatched nothing (request_failed, dispatch_failed).", "outcome")
+	PlannerSlots = counterVec("planner_slots_total", "Due check slots that met the account's previous job still going, by what the planner did (waited, held_walk_cancelled, held_backfill_cancelled, check_beside_history: a check dispatched beside a backfill or walk still running in p2), or that dispatched nothing (request_failed, dispatch_failed).", "outcome")
 	// CommentsNew are comments and replies stored for the first time, by
 	// their post's age when stored: recent (up to 30 days, the comment
 	// windows: new posts and their re-reads) or older (backfills, and
