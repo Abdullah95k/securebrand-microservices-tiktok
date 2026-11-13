@@ -146,12 +146,16 @@ func TestIncrementalCheck(t *testing.T) {
 	w := h.env.World
 	acc := w.Accounts()[0]
 	h.check("first", commonv1.CrawlMode_CRAWL_MODE_FULL, task.ScopeFromRef("u:"+acc.Username))
-	// The post stage (M5b) records each read; here every post was read 7 h
-	// ago at its present count.
+	// The post stage (M5b) records each read and ends its claim on the
+	// post; here every post was read 7 h ago at its present count (the
+	// harness does not run the backfill's post tasks).
 	ctx := context.Background()
 	for _, p := range acc.Posts {
 		if err := h.d.Ckpt.SetPost(ctx, p.ID, checkpoint.PostCache{Reported: p.CommentCount(), ThreadsComplete: true,
 			ReadAt: w.Now.Add(-7 * time.Hour).Unix()}); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.d.Ckpt.ReleasePostRead(ctx, p.ID, "first"); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -209,6 +209,9 @@ func TestPlannerSlotsWithJobStillGoing(t *testing.T) {
 	e.exec(t, `INSERT INTO jobs (job_id, kind, lane, mode, account_ref, params, status, created_at)
 		VALUES ($1, 'scheduled', 3, 'refresh', 'u:walked', '{}', 'running', $3), ($2, 'scheduled', 2, 'incremental', 'u:checking', '{}', 'running', $3)`,
 		walk, check, now.Add(-time.Hour))
+	// u:checking's check is still walking its list (its cursor was saved
+	// before the check began), so it is not a check beside comment work.
+	e.exec(t, `UPDATE crawl_cursors SET updated_at = $1 WHERE scope_id = 91`, now.Add(-2*time.Hour))
 	for ref, job := range map[string]uuid.UUID{"u:walked": walk, "u:checking": check} {
 		e.exec(t, `INSERT INTO account_schedule (account_ref, user_id, interval_seconds, next_run_at, admitted_at, last_job_id)
 			SELECT $1, user_id, 9900, $2, $3, $4 FROM account_usernames WHERE username = $5`, ref, now.Add(-time.Minute), now.Add(-30*24*time.Hour), job, ref[2:])
@@ -307,6 +310,59 @@ func TestPlannerCheckBesideHistory(t *testing.T) {
 	}
 	if d := next.Sub(now); d <= 0 || d > SlotRetry+time.Second {
 		t.Errorf("u:backfilling next check in %s, want within %s", d, SlotRetry)
+	}
+}
+
+// A running check whose list walk has ended (the list cursor saved after
+// it began) waits only for comment work: the next check runs beside it,
+// at most two at once. A check still walking its list waits.
+func TestPlannerCheckBesideComments(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	refs := []string{"u:listed", "u:listing", "u:twoopen"}
+	for i, ref := range refs {
+		uid := int64(60 + i)
+		e.exec(t, `INSERT INTO accounts (user_id, sec_uid, username, author_key, status, profile_refreshed_at, page_read_at)
+			VALUES ($1, $2, $3, '\x01', 'active', now(), now())`, uid, fmt.Sprintf("SEC%d", uid), ref[2:])
+		e.exec(t, `INSERT INTO account_usernames (user_id, username, first_seen_at, last_seen_at) VALUES ($1, $2, now(), now())`, uid, ref[2:])
+		// The list cursor was saved 30 minutes ago.
+		e.exec(t, `INSERT INTO crawl_cursors (scope_type, scope_id, state, updated_at) VALUES ('account_list', $1, 'complete', $2)`,
+			uid, now.Add(-30*time.Minute))
+	}
+	listed, listing, two1, two2 := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	e.exec(t, `INSERT INTO jobs (job_id, kind, lane, mode, account_ref, params, status, created_at) VALUES
+		($1, 'scheduled', 2, 'incremental', 'u:listed', '{}', 'running', $5),
+		($2, 'scheduled', 2, 'incremental', 'u:listing', '{}', 'running', $6),
+		($3, 'scheduled', 2, 'incremental', 'u:twoopen', '{}', 'running', $5),
+		($4, 'scheduled', 2, 'incremental', 'u:twoopen', '{}', 'running', $5)`,
+		listed, listing, two1, two2, now.Add(-time.Hour), now.Add(-10*time.Minute))
+	for ref, job := range map[string]uuid.UUID{"u:listed": listed, "u:listing": listing, "u:twoopen": two2} {
+		e.exec(t, `INSERT INTO account_schedule (account_ref, user_id, interval_seconds, next_run_at, admitted_at, last_job_id)
+			SELECT $1, user_id, 9900, $2, $3, $4 FROM account_usernames WHERE username = $5`, ref, now.Add(-time.Minute), now.Add(-30*24*time.Hour), job, ref[2:])
+	}
+	p := &Planner{DB: e.db, Dispatch: e.disp, Cfg: e.cfg, Now: func() time.Time { return now },
+		Budget: func(context.Context) ratelimit.BudgetState { return ratelimit.BudgetState{Stretch: 1} }}
+	if err := p.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var last uuid.UUID
+	var mode string
+	var lane int16
+	if err := e.db.QueryRow(ctx, `SELECT s.last_job_id, j.mode, j.lane FROM account_schedule s JOIN jobs j ON j.job_id = s.last_job_id
+		WHERE s.account_ref = 'u:listed'`).Scan(&last, &mode, &lane); err != nil {
+		t.Fatal(err)
+	}
+	if last == listed || mode != dispatch.ModeIncremental || lane != 2 {
+		t.Errorf("u:listed: job %s %s lane %d, want a new p1 check beside the listed one", last, mode, lane)
+	}
+	for ref, job := range map[string]uuid.UUID{"u:listing": listing, "u:twoopen": two2} {
+		if err := e.db.QueryRow(ctx, `SELECT last_job_id FROM account_schedule WHERE account_ref = $1`, ref).Scan(&last); err != nil {
+			t.Fatal(err)
+		}
+		if last != job {
+			t.Errorf("%s got a new job; want it to wait", ref)
+		}
 	}
 }
 
