@@ -147,14 +147,15 @@ var (
 	// their post's age when stored: recent (up to 30 days, the comment
 	// windows: new posts and their re-reads) or older (backfills, and
 	// re-reads the weekly walk starts).
-	CommentsNew       = counterVec("comments_new_total", "Comments and replies stored for the first time, by the post's age when stored (recent: up to 30 days; older: over 30 days).", "post_age")
-	CommentChanges    = counterVec("comment_changes_total", "Stored comments edited, marked deleted or seen again after a deletion, by kind (edited, deleted, restored).", "kind")
-	PostStatusChanges = counterVec("post_status_changes_total", "tks stored posts whose status changed, by new status (unavailable, visible, private).", "status")
-	DeletionChecks    = counterVec("deletion_checks_total", "Full comment reads of a post checked for deleted comments, by outcome (checked, skipped_partial).", "outcome")
-	PersistBatch      = histVec("persist_batch_seconds", "Persister batch flush duration.", prometheus.ExponentialBuckets(0.005, 2, 12), "entity")
-	Jobs              = counterVec("jobs_total", "Jobs reaching a terminal state.", "status", "lane")
-	ScheduleLag       = gaugeVec("schedule_lag_seconds", "Age of the oldest due page in the schedule.", "tier")
-	PageTier          = gaugeVec("scheduled_pages", "Scheduled pages per adaptive tier.", "tier")
+	CommentsNew          = counterVec("comments_new_total", "Comments and replies stored for the first time, by the post's age when stored (recent: up to 30 days; older: over 30 days).", "post_age")
+	CommentChanges       = counterVec("comment_changes_total", "Stored comments edited, marked deleted or seen again after a deletion, by kind (edited, deleted, restored).", "kind")
+	PostStatusChanges    = counterVec("post_status_changes_total", "tks stored posts whose status changed, by new status (unavailable, visible, private).", "status")
+	DeletionChecks       = counterVec("deletion_checks_total", "Full comment reads of a post checked for deleted comments, by outcome (checked, skipped_partial).", "outcome")
+	PersistBatchFailures = counterVec("persist_batch_failures_total", "Persister batches that failed to write (each is retried every 2 s and never committed past), by attempt (first, retry) and error class (a Postgres SQLSTATE class such as 40 or 57, or other: Kafka produce, timeouts, connections).", "attempt", "class")
+	PersistBatch         = histVec("persist_batch_seconds", "Persister batch flush duration.", prometheus.ExponentialBuckets(0.005, 2, 12), "entity")
+	Jobs                 = counterVec("jobs_total", "Jobs reaching a terminal state.", "status", "lane")
+	ScheduleLag          = gaugeVec("schedule_lag_seconds", "Age of the oldest due page in the schedule.", "tier")
+	PageTier             = gaugeVec("scheduled_pages", "Scheduled pages per adaptive tier.", "tier")
 	// tks's scheduler (internal/tt/scheduler; build brief §8 A1).
 	Checks         = counterVec("checks_total", "tks scheduled account checks that ended, by kind (check, walk, backfill), job status and whether they ended within their interval of being started (window: in, late; build brief §8 A1).", "kind", "result", "window")
 	CheckOldest    = gauge("account_check_oldest_seconds", "Time since the active scheduled account with the oldest successful check was last checked well (leader scheduler).")

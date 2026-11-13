@@ -107,6 +107,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 				c.cl.AllowRebalance()
 				return nil
 			}
+			metrics.PersistBatchFailures.WithLabelValues("first", errClass(err)).Inc()
 			slog.Error("persist: batch failed; retrying", "records", len(recs), "err", err)
 			// Re-write the same batch until it succeeds: never commit past
 			// unwritten data.
@@ -115,6 +116,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 				if err = c.persist(ctx, b); err == nil {
 					break
 				}
+				metrics.PersistBatchFailures.WithLabelValues("retry", errClass(err)).Inc()
 				slog.Error("persist: batch retry failed", "err", err)
 			}
 			if ctx.Err() != nil {
@@ -127,6 +129,19 @@ func (c *Consumer) Run(ctx context.Context) error {
 		}
 		c.cl.AllowRebalance()
 	}
+}
+
+// errClass is a failed batch's error class for PersistBatchFailures: the
+// first two characters of a Postgres SQLSTATE (40 a serialization failure
+// or deadlock, 53 out of resources, 57 an operator intervention such as a
+// restart or a statement timeout, 08 a connection failure), or "other". No
+// value from the error's detail goes in a label.
+func errClass(err error) string {
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && len(pe.Code) >= 2 {
+		return pe.Code[:2]
+	}
+	return "other"
 }
 
 // entry is one record of a batch with its decoded message.
