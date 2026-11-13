@@ -151,7 +151,7 @@ func (s *AccountStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 		cursor, edgeIDs := s.cursor(st.Cursor)
 		resp, err := d.Client.Do(ctx, id, graphql.Request{Query: listQuery,
 			Vars:   map[string]any{"sec_uid": sc.SecUid, "count": d.Cfg.TT.ListPageSize, "cursor": cursor},
-			PageID: sc.UserId, Fast: t.Lane == tkstaskv1.Lane_LANE_P0, Lane: topics.LaneName(t.Lane),
+			PageID: sc.UserId, PageBucket: listBucket(t.Lane), Fast: t.Lane == tkstaskv1.Lane_LANE_P0, Lane: topics.LaneName(t.Lane),
 			Referer: profileURL(id, sc.Username)})
 		c["requests"]++
 		if err != nil {
@@ -567,6 +567,19 @@ func (s *AccountStage) posts(ctx context.Context, b *kafka.Batch, t *tkstaskv1.T
 		return nil, retry(t, st.Cursor, "30s", "subtitles: "+err.Error(), c), true
 	}
 	return children, Outcome{}, false
+}
+
+// listBucket keeps a check's list calls (p0, p1: a page or two each 2 h
+// 45 min) off the account's comment and reply pace (tt.account_rps), where
+// they queued behind the account's own comment work for hours and the 3 h
+// target was missed (2026-11-13: 35.8 % within 3 h while comment reads of
+// newly admitted accounts filled the account's 1 request a second).
+// Backfills and walks (p2) read long lists and keep the shared pace.
+func listBucket(lane tkstaskv1.Lane) string {
+	if lane == tkstaskv1.Lane_LANE_P2 {
+		return ""
+	}
+	return "list"
 }
 
 // postReadClaim bounds a post read's claim (ClaimPostRead) when its task
