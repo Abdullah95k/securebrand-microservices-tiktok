@@ -24,6 +24,11 @@ func TestDecide(t *testing.T) {
 		reason         string
 	}{
 		{"few samples", 50, 99, 99, 50, "hold:few_samples"},
+		// At the floor a busy window holds at most 50 responses, under
+		// MinSamples: 80 % of the ceiling's window is enough there.
+		{"at the floor, busy", 5, 45, 0, 6, "increase"},
+		{"at the floor, quiet", 5, 30, 0, 5, "hold:few_samples"},
+		{"at the floor, blocked", 6, 50, 10, 5, "decrease"},
 		{"high blocks", 50, 500, 40, 35, "decrease"},
 		{"floor", 6, 100, 50, 5, "decrease"},
 		{"low blocks, busy", 50, 450, 0, 51, "increase"}, // 450 / (50 x 10s) = 0.9

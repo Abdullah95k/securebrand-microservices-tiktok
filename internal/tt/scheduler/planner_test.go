@@ -165,11 +165,11 @@ func TestPausedBackfillKeepsChecks(t *testing.T) {
 	}
 	p := &Planner{DB: db, Cfg: cfg}
 	d := due{ref: "u:nine"} // no walk recorded: the deepest is due
-	r, err := p.request(ctx, d, false)
+	r, err := p.request(ctx, d, false, false)
 	if err != nil || r.Lane != tkstaskv1.Lane_LANE_P2 || r.Mode != dispatch.ModeRefresh {
 		t.Fatalf("a due walk: %+v %v", r, err)
 	}
-	r, err = p.request(ctx, d, true)
+	r, err = p.request(ctx, d, true, false)
 	if err != nil || r.Lane != tkstaskv1.Lane_LANE_P1 || r.Mode != dispatch.ModeIncremental || r.Params != nil {
 		t.Fatalf("backfill paused: want the check, got %+v %v", r, err)
 	}
@@ -207,11 +207,11 @@ func TestFirstReadWhileBackfillPaused(t *testing.T) {
 	}
 	p := &Planner{DB: db, Cfg: cfg}
 	d := due{ref: "u:eight"} // no list cursor: never read
-	r, err := p.request(ctx, d, false)
+	r, err := p.request(ctx, d, false, false)
 	if err != nil || r.Kind != dispatch.KindBackfill || r.Lane != tkstaskv1.Lane_LANE_P2 || r.Mode != dispatch.ModeFull {
 		t.Fatalf("p2 running: want the backfill, got %+v %v", r, err)
 	}
-	r, err = p.request(ctx, d, true)
+	r, err = p.request(ctx, d, true, false)
 	if err != nil || r.Lane != tkstaskv1.Lane_LANE_P1 || r.Mode != dispatch.ModeIncremental || r.Limits.GetMaxAgeSeconds() != 3*86400 ||
 		r.Params["first_read"] != true {
 		t.Fatalf("p2 paused: want the 3-day first read in p1, got %+v %v", r, err)
@@ -220,7 +220,7 @@ func TestFirstReadWhileBackfillPaused(t *testing.T) {
 		t.Errorf("the first read records walks %v; the year-deep walk must stay due", done)
 	}
 	cfg.TT.Freshness.FirstReadDays = 0
-	r, err = p.request(ctx, d, true)
+	r, err = p.request(ctx, d, true, false)
 	if err != nil || r.Mode != dispatch.ModeFull || r.Lane != tkstaskv1.Lane_LANE_P2 {
 		t.Fatalf("first reads off: want the backfill, got %+v %v", r, err)
 	}
