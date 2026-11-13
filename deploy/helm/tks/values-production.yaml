@@ -158,6 +158,15 @@ config:
     discovery:
       enabled: true
       max_new_per_day: 100
+      # Entry checks running fleet-wide (default 500). Each loads a profile
+      # page on the ISP tier's exits, whose page-load gate the monitoring
+      # checks' identities also wait on: with 500 running (2026-11-13,
+      # after 00019 unblocked counting) page loads put off went from 35,107
+      # to 254,654 in 3 h and checks' list walks ending at the watermark
+      # from 1,642 to 353. Admission takes 100 a day and 14,261 accounts
+      # already wait qualified, so 50 loses no admissions.
+      entry:
+        max_running: 50
       # Search and feed are off (2026-11-07 STOP): on res_iq, each of their
       # tasks bootstrapped a new identity with a profile page through the
       # residential gateway (a new exit each time), TikTok checkpointed
