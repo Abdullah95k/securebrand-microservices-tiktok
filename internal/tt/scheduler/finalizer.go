@@ -137,7 +137,13 @@ func (f *Finalizer) Tick(ctx context.Context) error {
 		ready = append(ready, b.jobs...)
 	}
 	f.pending = keep
-	f.finalizeAll(ctx, f.byLane(ctx, ready))
+	ready = f.byLane(ctx, ready)
+	// The rest stay in the set; having waited, they are taken at once on a
+	// later tick.
+	if n := f.batch(); len(ready) > n {
+		ready = ready[:n]
+	}
+	f.finalizeAll(ctx, ready)
 	return nil
 }
 
@@ -148,11 +154,27 @@ func (f *Finalizer) waited(ctx context.Context, job string) bool {
 	return err == nil && !st.LastActivity.IsZero() && f.now().Sub(st.LastActivity) > f.Timeout
 }
 
-// finalizeWorkers is how many jobs are finalised at once. One at a time,
-// a backfill's finalisation (the coverage of hundreds of posts) held up
-// the checks behind it (2026-11-14: 5,324 checks open with no task left,
-// the median check 546 minutes from dispatch to finish).
-const finalizeWorkers = 8
+// workers is scheduler.finalize_workers (at least 1). Eight at once over a
+// backlog of 7,435 jobs overloaded the shared PostgreSQL (2026-11-14).
+func (f *Finalizer) workers() int {
+	if f.Cfg != nil && f.Cfg.Scheduler.FinalizeWorkers > 0 {
+		return f.Cfg.Scheduler.FinalizeWorkers
+	}
+	return 1
+}
+
+// batch is scheduler.finalize_batch, the most jobs finalised a tick (50
+// when unset), checks first.
+func (f *Finalizer) batch() int {
+	if f.Cfg != nil && f.Cfg.Scheduler.FinalizeBatch > 0 {
+		return f.Cfg.Scheduler.FinalizeBatch
+	}
+	return 50
+}
+
+// coverageChunk bounds the posts one coverage statement counts comments
+// for: a backfill reads hundreds or thousands of posts.
+const coverageChunk = 200
 
 // byLane orders jobs on-demand first, then checks, then the backfill lane,
 // so a check is never finalised behind a batch of backfills. Jobs it
@@ -190,12 +212,12 @@ func (f *Finalizer) byLane(ctx context.Context, ids []string) []string {
 	return out
 }
 
-// finalizeAll finalises ids, finalizeWorkers at a time, in their order.
+// finalizeAll finalises ids, workers() at a time, in their order.
 // A job that fails stays in the set and is taken again on a later tick.
 func (f *Finalizer) finalizeAll(ctx context.Context, ids []string) {
 	work := make(chan string)
 	var wg sync.WaitGroup
-	for range min(finalizeWorkers, len(ids)) {
+	for range min(f.workers(), len(ids)) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -634,6 +656,31 @@ func (f *Finalizer) coverage(ctx context.Context, posts []jobs.PostState, lane s
 		return c, nil, nil
 	}
 	synced := f.now().UTC()
+	var ratios []float64
+	for lo := 0; lo < len(ids); lo += coverageChunk {
+		hi := min(lo+coverageChunk, len(ids))
+		got, err := f.coverageChunk(ctx, ids[lo:hi], created[lo:hi], states[lo:hi], synced, failed, lane, &c)
+		if err != nil {
+			return c, nil, err
+		}
+		out = append(out, got...)
+		for _, pc := range got {
+			ratios = append(ratios, pc.Completeness)
+		}
+	}
+	if len(ratios) > 0 {
+		sort.Float64s(ratios)
+		c.MinRatio = math.Round(ratios[0]*1000) / 1000
+		c.MedianRatio = math.Round(ratios[len(ratios)/2]*1000) / 1000
+	}
+	return c, out, nil
+}
+
+// coverageChunk writes the coverage of some of a job's posts in one
+// statement and adds their counts to c.
+func (f *Finalizer) coverageChunk(ctx context.Context, ids []int64, created []time.Time, states []string, synced time.Time,
+	failed map[int64]bool, lane string, c *Completeness) ([]content.PostComments, error) {
+	var out []content.PostComments
 	rows, err := f.DB.Query(ctx, `
 		WITH t AS (
 			SELECT unnest($1::bigint[]) AS post_id, unnest($2::timestamptz[]) AS created, unnest($3::text[]) AS state
@@ -653,9 +700,8 @@ func (f *Finalizer) coverage(ctx context.Context, posts []jobs.PostState, lane s
 		RETURNING coalesce(p.comment_count, 0), counts.top + counts.replies, p.completeness, p.post_id, p.user_id, counts.state,
 			coalesce(p.comments_disabled, false), counts.top, counts.replies`, ids, created, states, synced)
 	if err != nil {
-		return c, nil, fmt.Errorf("coverage: %w", err)
+		return nil, fmt.Errorf("coverage: %w", err)
 	}
-	var ratios []float64
 	for rows.Next() {
 		var reported, collected, top, replies, postID, userID int64
 		var ratio float32
@@ -663,7 +709,7 @@ func (f *Finalizer) coverage(ctx context.Context, posts []jobs.PostState, lane s
 		var disabled bool
 		if err := rows.Scan(&reported, &collected, &ratio, &postID, &userID, &state, &disabled, &top, &replies); err != nil {
 			rows.Close()
-			return c, nil, err
+			return nil, err
 		}
 		pc := content.PostComments{PostID: postID, UserID: userID, State: state, CommentsDisabled: disabled, Reported: reported,
 			Collected: top, RepliesCollected: replies, Completeness: float64(ratio), SyncedAt: synced}
@@ -674,19 +720,10 @@ func (f *Finalizer) coverage(ctx context.Context, posts []jobs.PostState, lane s
 		out = append(out, pc)
 		c.CommentsReported += reported
 		c.CommentsCollected += collected
-		ratios = append(ratios, float64(ratio))
 		metrics.CommentCompleteness.WithLabelValues(lane).Observe(float64(ratio))
 	}
 	rows.Close()
-	if err := rows.Err(); err != nil {
-		return c, nil, err
-	}
-	if len(ratios) > 0 {
-		sort.Float64s(ratios)
-		c.MinRatio = math.Round(ratios[0]*1000) / 1000
-		c.MedianRatio = math.Round(ratios[len(ratios)/2]*1000) / 1000
-	}
-	return c, out, nil
+	return out, rows.Err()
 }
 
 // addCoverage puts the job's JobCoverage on collection.coverage.v1 in b,

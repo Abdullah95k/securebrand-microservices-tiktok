@@ -269,6 +269,10 @@ scheduler:
   jitter: 0.1
   finalizer_interval: 2s
   finalize_timeout: 10m
+  # Jobs finalised at once, and at most this many a tick (checks first):
+  # each counts the stored comments of every post it read.
+  finalize_workers: 1
+  finalize_batch: 50
   # A job without progress for reaper_after is closed as partial, unless
   # tasks wait in its lane's topics (its own are queued behind them, as in a
   # burst of backfills); then only once it is older than reaper_max_age.

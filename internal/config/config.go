@@ -996,12 +996,19 @@ type Limits struct {
 }
 
 type Scheduler struct {
-	PlannerInterval      time.Duration `koanf:"planner_interval"`
-	PlannerBatch         int           `koanf:"planner_batch"`
-	DefaultInterval      time.Duration `koanf:"default_interval"`
-	Jitter               float64       `koanf:"jitter"`
-	FinalizerInterval    time.Duration `koanf:"finalizer_interval"`
-	FinalizeTimeout      time.Duration `koanf:"finalize_timeout"`
+	PlannerInterval   time.Duration `koanf:"planner_interval"`
+	PlannerBatch      int           `koanf:"planner_batch"`
+	DefaultInterval   time.Duration `koanf:"default_interval"`
+	Jitter            float64       `koanf:"jitter"`
+	FinalizerInterval time.Duration `koanf:"finalizer_interval"`
+	FinalizeTimeout   time.Duration `koanf:"finalize_timeout"`
+	// FinalizeWorkers jobs are finalised at once, and at most
+	// FinalizeBatch a tick (checks first): a backfill's finalisation
+	// counts the comments of every post it read, and 8 at once over a
+	// backlog of 7,435 jobs overloaded the shared PostgreSQL
+	// (2026-11-14). 0: 1 and 50.
+	FinalizeWorkers      int           `koanf:"finalize_workers"`
+	FinalizeBatch        int           `koanf:"finalize_batch"`
 	ReaperAfter          time.Duration `koanf:"reaper_after"`
 	ReaperMaxAge         time.Duration `koanf:"reaper_max_age"`
 	PartitionMonthsAhead int           `koanf:"partition_months_ahead"`
