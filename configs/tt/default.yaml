@@ -340,6 +340,11 @@ tt:
     sources: {}
     # Accounts discovery adds a day, for testing; 0 = no cap (production).
     max_new_per_day: 0
+    # Move discovered accounts that went quiet (private, banned, gone, or
+    # no post within entry.active_for) to the dormant list. Off: they stay
+    # monitored like the owner's, with tt.freshness.inactive's lighter
+    # checks, and accounts moved before come back (owner D-076).
+    quiet_moves: true
     # The API client discovered accounts are registered to (created by tks
     # with no usable key).
     client: discovery

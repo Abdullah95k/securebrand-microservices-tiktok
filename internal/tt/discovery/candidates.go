@@ -753,6 +753,41 @@ func (d *Discoverer) Quiet(ctx context.Context, n int) (int, error) {
 	return moved, nil
 }
 
+// Restore puts back under monitoring, with the checks every monitored
+// account gets (an inactive one the lighter checks of
+// tt.freshness.inactive), the discovered accounts Quiet moved to the
+// dormant list, while tt.discovery.quiet_moves is off (owner D-076: a
+// discovered account is treated the same way as the owner's). An account a
+// client removed (blocked) is not one of them. It returns how many it put
+// back, at most n.
+func (d *Discoverer) Restore(ctx context.Context, n int) (int64, error) {
+	if n <= 0 {
+		return 0, nil
+	}
+	now := d.now()
+	var restored int64
+	err := pgx.BeginFunc(ctx, d.DB, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `UPDATE account_schedule s SET enabled = true, next_run_at = least(s.next_run_at, $2)
+			FROM (SELECT c.schedule_ref FROM discovery_candidates c JOIN account_schedule s2 ON s2.account_ref = c.schedule_ref
+				WHERE c.state = 'dormant' AND c.schedule_ref IS NOT NULL AND s2.origin = 'discovery' AND NOT s2.enabled
+				ORDER BY c.schedule_ref LIMIT $1 FOR UPDATE OF c SKIP LOCKED) q
+			WHERE s.account_ref = q.schedule_ref
+			RETURNING s.account_ref`, n, now)
+		if err != nil {
+			return err
+		}
+		refs, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil || len(refs) == 0 {
+			return err
+		}
+		tag, err := tx.Exec(ctx, `UPDATE discovery_candidates SET state = 'added', reason = NULL, next_check_at = NULL,
+			updated_at = now() WHERE state = 'dormant' AND schedule_ref = ANY($1)`, refs)
+		restored = tag.RowsAffected()
+		return err
+	})
+	return restored, err
+}
+
 // EnsureClient returns the API client discovered accounts are registered
 // to (tt.discovery.client), creating it with no usable key when missing.
 func EnsureClient(ctx context.Context, db DB, name string) (uuid.UUID, error) {

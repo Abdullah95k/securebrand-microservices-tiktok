@@ -279,6 +279,27 @@ func TestAdmitAndQuiet(t *testing.T) {
 	if o := c.found(12); o.State != StatePending {
 		t.Errorf("found after its date: %+v", o)
 	}
+
+	// quiet_moves off (owner D-076): the account Quiet moved (11, still
+	// dormant) is monitored again; one waiting for its check (12) and one
+	// a client removed (13) are not.
+	n64, err := c.d.Restore(ctx, 100)
+	if err != nil || n64 != 1 {
+		t.Fatalf("restored %d: %v", n64, err)
+	}
+	if st, _ := c.state("sec:" + secOf(11)); st != StateAdded {
+		t.Errorf("restored account: %s, want added", st)
+	}
+	var enabled bool
+	if err := c.db.QueryRow(ctx, `SELECT enabled FROM account_schedule WHERE user_id = 11`).Scan(&enabled); err != nil || !enabled {
+		t.Errorf("restored schedule enabled %v (%v)", enabled, err)
+	}
+	if st, _ := c.state("sec:" + secOf(13)); st != StateBlocked {
+		t.Errorf("removed account: %s", st)
+	}
+	if n64, err := c.d.Restore(ctx, 100); err != nil || n64 != 0 {
+		t.Errorf("restored again %d: %v", n64, err)
+	}
 }
 
 // Recover puts back a check whose job ended without a decision.
