@@ -199,6 +199,11 @@ func TestChartProductionConfigLoads(t *testing.T) {
 	// Entry checks load profile pages on the exits the monitoring checks'
 	// identities wait on (2026-11-13): fewer at once, the rest of the
 	// entry settings still the defaults.
+	// Discovered accounts are treated as the owner's (D-076) and admitted
+	// with no daily cap (D-008).
+	if d := c.TT.Discovery; d.QuietMoves || d.MaxNewPerDay != 0 {
+		t.Errorf("tt.discovery: quiet_moves %v, max_new_per_day %d, want false and 0", d.QuietMoves, d.MaxNewPerDay)
+	}
 	if e := c.TT.Discovery.Entry; e.MaxRunning != 50 || e.Batch != 200 || e.MaxAttempts != 3 {
 		t.Errorf("tt.discovery.entry %+v, want max_running 50 and the default batch and attempts", e)
 	}

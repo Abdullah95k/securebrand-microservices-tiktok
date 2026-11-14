@@ -56,10 +56,17 @@ func (s *Discovery) Tick(ctx context.Context) error {
 		s.client = id
 	}
 	batch := cfg.Scheduler.PlannerBatch
-	if n, err := s.D.Quiet(ctx, batch); err != nil {
+	if cfg.TT.Discovery.QuietMoves {
+		if n, err := s.D.Quiet(ctx, batch); err != nil {
+			return err
+		} else if n > 0 {
+			slog.Info("discovery: quiet accounts moved to the dormant list", "accounts", n)
+		}
+	} else if n, err := s.D.Restore(ctx, batch); err != nil {
+		// Discovered accounts stay monitored like the owner's (D-076).
 		return err
 	} else if n > 0 {
-		slog.Info("discovery: quiet accounts moved to the dormant list", "accounts", n)
+		slog.Info("discovery: dormant accounts back under monitoring", "accounts", n)
 	}
 	if n, err := s.D.Admit(ctx, s.client, batch); err != nil {
 		return err

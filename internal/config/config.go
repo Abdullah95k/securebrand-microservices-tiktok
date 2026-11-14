@@ -403,6 +403,13 @@ type Discovery struct {
 	// MaxNewPerDay caps accounts discovery adds a day, for testing; 0 is no
 	// cap (the owner's decision for production: the budget paces them).
 	MaxNewPerDay int `koanf:"max_new_per_day"`
+	// QuietMoves moves a discovered account that went quiet (private,
+	// banned, gone, or no post within entry.active_for) from monitoring to
+	// the dormant list. Off, it stays monitored like an owner's account,
+	// with the lighter checks of tt.freshness.inactive, and accounts moved
+	// before come back (owner D-076, 2026-11-14: discovered accounts are
+	// treated the same way as the owner's).
+	QuietMoves bool `koanf:"quiet_moves"`
 	// Client names the API client that holds discovered accounts'
 	// registrations; tks creates it (with no usable key) when it is missing.
 	Client string `koanf:"client"`

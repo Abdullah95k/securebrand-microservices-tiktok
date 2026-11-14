@@ -152,12 +152,19 @@ config:
     # 2 pages a keyword and the feed 4 times a day at 3 reads keep it near
     # 1.5 GB a month (tks_proxy_bytes_total{tier="res_iq"} gives the real
     # figure). Found accounts are checked once and those that pass join the
-    # admission queue behind the owner's; at most 100 a day while the first
-    # list settles. Load the keyword list once: tksctl discovery keywords
-    # seed.
+    # admission queue behind the owner's, paced by admission.per_hour, and
+    # are then treated as the owner's accounts (D-076). Load the keyword
+    # list once: tksctl discovery keywords seed.
     discovery:
       enabled: true
-      max_new_per_day: 100
+      # No cap on admissions (owner D-008: no discovery caps in production);
+      # the paced admission queue (admission.per_hour) is the only brake.
+      max_new_per_day: 0
+      # Discovered accounts are treated the same way as the owner's (owner
+      # D-076, 2026-11-14): one that goes quiet stays monitored with the
+      # lighter inactive checks, and those moved to the dormant list before
+      # come back.
+      quiet_moves: false
       # Entry checks running fleet-wide (default 500). Each loads a profile
       # page on the ISP tier's exits, whose page-load gate the monitoring
       # checks' identities also wait on: with 500 running (2026-11-13,
