@@ -233,37 +233,44 @@ func (f *Finalizer) recountAfter() time.Duration {
 const coverageChunk = 200
 
 // byLane orders jobs on-demand first, then checks, then the backfill lane,
-// so a check is never finalised behind a batch of backfills. Jobs it
-// cannot place keep their order, last.
+// so a check is never finalised behind a batch of backfills, and within a
+// lane the oldest first: only finalize_batch are taken a tick, and taking
+// them at random left some checks ready for days (2026-11-14: five, open
+// 65 h, sampled every 26 s and never taken). Jobs it cannot place keep
+// their order, last.
 func (f *Finalizer) byLane(ctx context.Context, ids []string) []string {
 	if len(ids) < 2 {
 		return ids
 	}
-	lane := map[string]int16{}
-	rows, err := f.DB.Query(ctx, `SELECT job_id::text, lane FROM jobs WHERE job_id = ANY($1::uuid[])`, ids)
+	type place struct {
+		lane    int16
+		created time.Time
+	}
+	at := map[string]place{}
+	rows, err := f.DB.Query(ctx, `SELECT job_id::text, lane, created_at FROM jobs WHERE job_id = ANY($1::uuid[])`, ids)
 	if err != nil {
 		slog.Warn("finalizer: job lanes", "err", err)
 		return ids
 	}
 	for rows.Next() {
 		var id string
-		var l int16
-		if rows.Scan(&id, &l) == nil {
-			lane[id] = l
+		var p place
+		if rows.Scan(&id, &p.lane, &p.created) == nil {
+			at[id] = p
 		}
 	}
 	rows.Close()
 	out := append([]string(nil), ids...)
 	sort.SliceStable(out, func(i, j int) bool {
-		li, ok := lane[out[i]]
-		if !ok {
-			li = math.MaxInt16
+		pi, oki := at[out[i]]
+		pj, okj := at[out[j]]
+		switch {
+		case !oki || !okj:
+			return oki && !okj
+		case pi.lane != pj.lane:
+			return pi.lane < pj.lane
 		}
-		lj, ok := lane[out[j]]
-		if !ok {
-			lj = math.MaxInt16
-		}
-		return li < lj
+		return pi.created.Before(pj.created)
 	})
 	return out
 }
