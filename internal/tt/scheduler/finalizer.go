@@ -82,11 +82,21 @@ func (f *Finalizer) Tick(ctx context.Context) error {
 	if f.held == nil {
 		f.held = map[string]bool{}
 	}
-	var fresh []string
+	var fresh, waited []string
 	for _, id := range ids {
-		if !f.held[id] {
-			fresh = append(fresh, id)
+		if f.held[id] {
+			continue
 		}
+		// A job that has been ready longer than Timeout (its tasks' last
+		// activity) has given the persister its time already: a finalise
+		// that failed (a leader change cancels the whole batch in hand) or
+		// a new leader would otherwise make it wait Timeout again, every
+		// time (2026-11-14: 7,435 jobs in the set, some ready for 54 h).
+		if f.waited(ctx, id) {
+			waited = append(waited, id)
+			continue
+		}
+		fresh = append(fresh, id)
 	}
 	if len(fresh) > 0 {
 		ts := make([]string, len(topics.Entity))
@@ -107,7 +117,7 @@ func (f *Finalizer) Tick(ctx context.Context) error {
 		group = f.Producer.Topic(ttpersist.Group)
 	}
 	keep := f.pending[:0]
-	var ready []string
+	ready := waited
 	for _, b := range f.pending {
 		caught, err := kafka.GroupCaughtUp(ctx, f.Producer.Client(), group, b.ends)
 		if err != nil {
@@ -129,6 +139,13 @@ func (f *Finalizer) Tick(ctx context.Context) error {
 	f.pending = keep
 	f.finalizeAll(ctx, f.byLane(ctx, ready))
 	return nil
+}
+
+// waited reports whether job has been ready (its tasks' last activity)
+// longer than Timeout.
+func (f *Finalizer) waited(ctx context.Context, job string) bool {
+	st, err := f.Jobs.Status(ctx, job)
+	return err == nil && !st.LastActivity.IsZero() && f.now().Sub(st.LastActivity) > f.Timeout
 }
 
 // finalizeWorkers is how many jobs are finalised at once. One at a time,
@@ -184,7 +201,9 @@ func (f *Finalizer) finalizeAll(ctx context.Context, ids []string) {
 			defer wg.Done()
 			for id := range work {
 				if err := f.finalize(ctx, id); err != nil {
-					slog.Error("finalizer: job failed to finalise", "job", id, "err", err)
+					if ctx.Err() == nil {
+						slog.Error("finalizer: job failed to finalise", "job", id, "err", err)
+					}
 					continue
 				}
 				if err := f.Jobs.Finalized(ctx, id); err != nil {
@@ -195,7 +214,7 @@ func (f *Finalizer) finalizeAll(ctx context.Context, ids []string) {
 	}
 	for _, id := range ids {
 		if ctx.Err() != nil {
-			break
+			break // the rest stay in the set
 		}
 		work <- id
 	}
