@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -81,11 +82,21 @@ func (f *Finalizer) Tick(ctx context.Context) error {
 	if f.held == nil {
 		f.held = map[string]bool{}
 	}
-	var fresh []string
+	var fresh, waited []string
 	for _, id := range ids {
-		if !f.held[id] {
-			fresh = append(fresh, id)
+		if f.held[id] {
+			continue
 		}
+		// A job that has been ready longer than Timeout (its tasks' last
+		// activity) has given the persister its time already: a finalise
+		// that failed (a leader change cancels the whole batch in hand) or
+		// a new leader would otherwise make it wait Timeout again, every
+		// time (2026-11-14: 7,435 jobs in the set, some ready for 54 h).
+		if f.waited(ctx, id) {
+			waited = append(waited, id)
+			continue
+		}
+		fresh = append(fresh, id)
 	}
 	if len(fresh) > 0 {
 		ts := make([]string, len(topics.Entity))
@@ -106,6 +117,7 @@ func (f *Finalizer) Tick(ctx context.Context) error {
 		group = f.Producer.Topic(ttpersist.Group)
 	}
 	keep := f.pending[:0]
+	ready := waited
 	for _, b := range f.pending {
 		caught, err := kafka.GroupCaughtUp(ctx, f.Producer.Client(), group, b.ends)
 		if err != nil {
@@ -121,18 +133,93 @@ func (f *Finalizer) Tick(ctx context.Context) error {
 		}
 		for _, id := range b.jobs {
 			delete(f.held, id)
-			if err := f.finalize(ctx, id); err != nil {
-				// Still in the set: taken again on the next tick.
-				slog.Error("finalizer: job failed to finalise", "job", id, "err", err)
-				continue
-			}
-			if err := f.Jobs.Finalized(ctx, id); err != nil {
-				slog.Warn("finalizer: could not clear a finalised job", "job", id, "err", err)
-			}
 		}
+		ready = append(ready, b.jobs...)
 	}
 	f.pending = keep
+	f.finalizeAll(ctx, f.byLane(ctx, ready))
 	return nil
+}
+
+// waited reports whether job has been ready (its tasks' last activity)
+// longer than Timeout.
+func (f *Finalizer) waited(ctx context.Context, job string) bool {
+	st, err := f.Jobs.Status(ctx, job)
+	return err == nil && !st.LastActivity.IsZero() && f.now().Sub(st.LastActivity) > f.Timeout
+}
+
+// finalizeWorkers is how many jobs are finalised at once. One at a time,
+// a backfill's finalisation (the coverage of hundreds of posts) held up
+// the checks behind it (2026-11-14: 5,324 checks open with no task left,
+// the median check 546 minutes from dispatch to finish).
+const finalizeWorkers = 8
+
+// byLane orders jobs on-demand first, then checks, then the backfill lane,
+// so a check is never finalised behind a batch of backfills. Jobs it
+// cannot place keep their order, last.
+func (f *Finalizer) byLane(ctx context.Context, ids []string) []string {
+	if len(ids) < 2 {
+		return ids
+	}
+	lane := map[string]int16{}
+	rows, err := f.DB.Query(ctx, `SELECT job_id::text, lane FROM jobs WHERE job_id = ANY($1::uuid[])`, ids)
+	if err != nil {
+		slog.Warn("finalizer: job lanes", "err", err)
+		return ids
+	}
+	for rows.Next() {
+		var id string
+		var l int16
+		if rows.Scan(&id, &l) == nil {
+			lane[id] = l
+		}
+	}
+	rows.Close()
+	out := append([]string(nil), ids...)
+	sort.SliceStable(out, func(i, j int) bool {
+		li, ok := lane[out[i]]
+		if !ok {
+			li = math.MaxInt16
+		}
+		lj, ok := lane[out[j]]
+		if !ok {
+			lj = math.MaxInt16
+		}
+		return li < lj
+	})
+	return out
+}
+
+// finalizeAll finalises ids, finalizeWorkers at a time, in their order.
+// A job that fails stays in the set and is taken again on a later tick.
+func (f *Finalizer) finalizeAll(ctx context.Context, ids []string) {
+	work := make(chan string)
+	var wg sync.WaitGroup
+	for range min(finalizeWorkers, len(ids)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for id := range work {
+				if err := f.finalize(ctx, id); err != nil {
+					if ctx.Err() == nil {
+						slog.Error("finalizer: job failed to finalise", "job", id, "err", err)
+					}
+					continue
+				}
+				if err := f.Jobs.Finalized(ctx, id); err != nil {
+					slog.Warn("finalizer: could not clear a finalised job", "job", id, "err", err)
+				}
+			}
+		}()
+	}
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			break // the rest stay in the set
+		}
+		work <- id
+	}
+	close(work)
+	wg.Wait()
 }
 
 // Completeness summary stored on the job.
@@ -515,6 +602,10 @@ func (f *Finalizer) coverage(ctx context.Context, posts []jobs.PostState, lane s
 	var ids []int64
 	var created []time.Time
 	var states []string
+	// One order for every job: several finalise at once, and posts updated
+	// in different orders deadlock.
+	posts = append([]jobs.PostState(nil), posts...)
+	sort.Slice(posts, func(i, j int) bool { return posts[i].PostID < posts[j].PostID })
 	for _, p := range posts {
 		state := p.State
 		switch p.State {

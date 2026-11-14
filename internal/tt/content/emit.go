@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -117,6 +118,9 @@ func (e *Emitter) Send(ctx context.Context, all []*Event) error {
 	if len(evs) == 0 {
 		return nil
 	}
+	// One order for every sender: the finalizer sends several jobs'
+	// coverage at once, and gate rows locked in different orders deadlock.
+	sort.SliceStable(evs, func(i, j int) bool { return evs[i].Gate < evs[j].Gate })
 	return pgx.BeginFunc(ctx, e.DB, func(tx pgx.Tx) error {
 		passed, err := gate(ctx, tx, evs)
 		if err != nil {

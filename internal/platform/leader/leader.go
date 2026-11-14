@@ -90,14 +90,21 @@ func Hold(ctx context.Context, pool *pgxpool.Pool, name string, fn func(ctx cont
 	go func() { done <- fn(lctx) }()
 	tick := time.NewTicker(Renew)
 	defer tick.Stop()
+	// The lease holds at least TTL from the start of the last renewal that
+	// succeeded (the database sets until = now() + TTL during the call).
+	held := time.Now()
 	for {
 		select {
 		case err := <-done:
 			return true, err
 		case <-tick.C:
-			ok, err := acquire(ctx, pool, name)
+			start := time.Now()
+			ok, err := renew(ctx, pool, name, held)
 			if err == nil && !ok {
 				err = errors.New("leader: lease taken by another process")
+			}
+			if err == nil {
+				held = start
 			}
 			if err != nil {
 				// The work stops before the lease can expire for another
@@ -108,6 +115,38 @@ func Hold(ctx context.Context, pool *pgxpool.Pool, name string, fn func(ctx cont
 				}
 				return true, err
 			}
+		}
+	}
+}
+
+// acquireLease is acquire; tests replace it.
+var acquireLease = acquire
+
+// renewRetry is the pause between renewal attempts after one failed.
+var renewRetry = 500 * time.Millisecond
+
+// renew renews the lease, trying again on a new connection while an error
+// leaves time to: a connection the database or PgBouncer dropped (SQLSTATE
+// 08P01, 57P01) failed about 47 renewals an hour on 2026-11-14, and each
+// cancelled the leader's work (the finalizer's batches with it) though the
+// lease still held. An attempt starts only if it ends, at callTimeout, a
+// second before the lease held since held could expire; a lease another
+// process holds is answered at once.
+func renew(ctx context.Context, pool *pgxpool.Pool, name string, held time.Time) (bool, error) {
+	deadline := held.Add(TTL - time.Second)
+	for {
+		ok, err := acquireLease(ctx, pool, name)
+		if err == nil || ctx.Err() != nil {
+			return ok, err
+		}
+		if time.Now().Add(renewRetry + callTimeout).After(deadline) {
+			return false, err
+		}
+		slog.Info("leader: renewal failed; trying again", "lease", name, "err", err)
+		select {
+		case <-ctx.Done():
+			return false, err
+		case <-time.After(renewRetry):
 		}
 	}
 }
