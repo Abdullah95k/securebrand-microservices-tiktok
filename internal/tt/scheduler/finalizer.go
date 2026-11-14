@@ -220,6 +220,14 @@ func (f *Finalizer) batch() int {
 	return 50
 }
 
+// recountAfter is scheduler.coverage_recount_after (6 h when unset).
+func (f *Finalizer) recountAfter() time.Duration {
+	if f.Cfg != nil && f.Cfg.Scheduler.CoverageRecountAfter > 0 {
+		return f.Cfg.Scheduler.CoverageRecountAfter
+	}
+	return 6 * time.Hour
+}
+
 // coverageChunk bounds the posts one coverage statement counts comments
 // for: a backfill reads hundreds or thousands of posts.
 const coverageChunk = 200
@@ -739,24 +747,39 @@ func (f *Finalizer) coverage(ctx context.Context, posts []jobs.PostState, lane s
 func (f *Finalizer) coverageChunk(ctx context.Context, ids []int64, created []time.Time, states []string, synced time.Time,
 	failed map[int64]bool, lane string, c *Completeness) ([]content.PostComments, error) {
 	var out []content.PostComments
+	// A post counted within coverage_recount_after keeps its counts (its
+	// state and read time are still written): counting every stored
+	// comment of every post read, on each check, took 40-65 s a statement
+	// (2026-11-14). One scan a post counts both depths.
+	recountBefore := synced.Add(-f.recountAfter())
 	rows, err := f.DB.Query(ctx, `
 		WITH t AS (
 			SELECT unnest($1::bigint[]) AS post_id, unnest($2::timestamptz[]) AS created, unnest($3::text[]) AS state
-		), counts AS (
+		), cur AS (
 			SELECT t.post_id, t.created, t.state,
-				(SELECT count(*) FROM comments c WHERE c.post_created_at = t.created AND c.post_id = t.post_id AND c.depth = 0
-					AND c.status = 'visible') AS top,
-				(SELECT count(*) FROM comments c WHERE c.post_created_at = t.created AND c.post_id = t.post_id AND c.depth > 0
-					AND c.status = 'visible') AS replies
-			FROM t
+				coalesce(p.comments_counted_at, p.comments_synced_at) IS NULL
+					OR coalesce(p.comments_counted_at, p.comments_synced_at) < $5 AS recount
+			FROM t JOIN posts p ON p.created_at = t.created AND p.post_id = t.post_id
+		), counts AS (
+			SELECT cur.post_id, cur.created, cur.state, cur.recount, x.top, x.replies
+			FROM cur LEFT JOIN LATERAL (
+				SELECT count(*) FILTER (WHERE c.depth = 0) AS top, count(*) FILTER (WHERE c.depth > 0) AS replies
+				FROM comments c WHERE cur.recount AND c.post_created_at = cur.created AND c.post_id = cur.post_id
+					AND c.status = 'visible'
+			) x ON cur.recount
 		)
-		UPDATE posts p SET comments_collected = counts.top, replies_collected = counts.replies,
+		UPDATE posts p SET
+			comments_collected = CASE WHEN counts.recount THEN counts.top ELSE p.comments_collected END,
+			replies_collected = CASE WHEN counts.recount THEN counts.replies ELSE p.replies_collected END,
 			completeness = CASE WHEN coalesce(p.comment_count, 0) = 0 THEN 1
-				ELSE least(1.0, (counts.top + counts.replies)::real / p.comment_count) END,
-			comments_state = counts.state, comments_synced_at = $4
+				ELSE least(1.0, (CASE WHEN counts.recount THEN counts.top + counts.replies
+					ELSE coalesce(p.comments_collected, 0) + coalesce(p.replies_collected, 0) END)::real / p.comment_count) END,
+			comments_state = counts.state, comments_synced_at = $4,
+			comments_counted_at = CASE WHEN counts.recount THEN $4 ELSE coalesce(p.comments_counted_at, p.comments_synced_at) END
 		FROM counts WHERE p.created_at = counts.created AND p.post_id = counts.post_id
-		RETURNING coalesce(p.comment_count, 0), counts.top + counts.replies, p.completeness, p.post_id, p.user_id, counts.state,
-			coalesce(p.comments_disabled, false), counts.top, counts.replies`, ids, created, states, synced)
+		RETURNING coalesce(p.comment_count, 0), coalesce(p.comments_collected, 0) + coalesce(p.replies_collected, 0), p.completeness,
+			p.post_id, p.user_id, counts.state, coalesce(p.comments_disabled, false), coalesce(p.comments_collected, 0),
+			coalesce(p.replies_collected, 0)`, ids, created, states, synced, recountBefore)
 	if err != nil {
 		return nil, fmt.Errorf("coverage: %w", err)
 	}

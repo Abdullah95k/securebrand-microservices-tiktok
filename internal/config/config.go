@@ -1007,8 +1007,12 @@ type Scheduler struct {
 	// counts the comments of every post it read, and 8 at once over a
 	// backlog of 7,435 jobs overloaded the shared PostgreSQL
 	// (2026-11-14). 0: 1 and 50.
-	FinalizeWorkers      int           `koanf:"finalize_workers"`
-	FinalizeBatch        int           `koanf:"finalize_batch"`
+	FinalizeWorkers int `koanf:"finalize_workers"`
+	FinalizeBatch   int `koanf:"finalize_batch"`
+	// CoverageRecountAfter: a post whose stored comments were counted this
+	// recently keeps its counts when a job reads it again (its comments
+	// state and read time are still written). 0: 6 h.
+	CoverageRecountAfter time.Duration `koanf:"coverage_recount_after"`
 	ReaperAfter          time.Duration `koanf:"reaper_after"`
 	ReaperMaxAge         time.Duration `koanf:"reaper_max_age"`
 	PartitionMonthsAhead int           `koanf:"partition_months_ahead"`

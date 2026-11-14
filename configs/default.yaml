@@ -273,6 +273,9 @@ scheduler:
   # each counts the stored comments of every post it read.
   finalize_workers: 1
   finalize_batch: 50
+  # A post whose stored comments were counted this recently keeps its
+  # counts when read again (state and read time are still written).
+  coverage_recount_after: 6h
   # A job without progress for reaper_after is closed as partial, unless
   # tasks wait in its lane's topics (its own are queued behind them, as in a
   # burst of backfills); then only once it is older than reaper_max_age.
