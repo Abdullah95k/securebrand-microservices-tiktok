@@ -134,6 +134,16 @@ var (
 	// replies included.
 	CheckDuration = histVec("check_duration_seconds", "tks scheduled jobs from dispatch to finish, by kind (check, walk, backfill), comments and replies included.",
 		[]float64{60, 300, 600, 1200, 1800, 3600, 5400, 7200, 9900, 14400, 21600, 43200}, "kind")
+	// FinalizeStep is the finalizer's time per job by step (load, deletions,
+	// coverage, content, event, schedule, update, and the whole job: total)
+	// and lane: 139 jobs an hour finished on 2026-11-14 with no error and no
+	// way to see where the time went.
+	FinalizeStep = histVec("finalize_step_seconds", "tks finalizer time per job by step and lane.",
+		[]float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120}, "step", "lane")
+	// FinalizerTick is a finalizer tick's time by phase (sample, batches,
+	// finalize).
+	FinalizerTick = histVec("finalizer_tick_seconds", "tks finalizer tick time by phase.",
+		[]float64{0.01, 0.05, 0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900}, "phase")
 	// QuietCommentReads are account reads that applied the quiet accounts'
 	// comment windows (tt.freshness.quiet_comment_windows, owner D-056).
 	QuietCommentReads = counter("quiet_comment_reads_total", "Account reads that applied the quiet accounts' comment windows (tt.freshness.quiet_comment_windows).")

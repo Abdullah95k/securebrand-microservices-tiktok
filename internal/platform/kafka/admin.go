@@ -72,11 +72,22 @@ func EnsureTopics(ctx context.Context, cl *kgo.Client, prefix string, specs []To
 // GroupCaughtUp reports whether group has committed offsets at or beyond the
 // given end offsets for every listed partition.
 func GroupCaughtUp(ctx context.Context, cl *kgo.Client, group string, ends kadm.ListedOffsets) (bool, error) {
-	adm := kadm.NewClient(cl)
-	committed, err := adm.FetchOffsets(ctx, group)
+	committed, err := kadm.NewClient(cl).FetchOffsets(ctx, group)
 	if err != nil {
 		return false, err
 	}
+	return CaughtUp(committed, ends), nil
+}
+
+// CommittedOffsets returns group's committed offsets, for CaughtUp: one
+// fetch can answer for several sets of end offsets.
+func CommittedOffsets(ctx context.Context, cl *kgo.Client, group string) (kadm.OffsetResponses, error) {
+	return kadm.NewClient(cl).FetchOffsets(ctx, group)
+}
+
+// CaughtUp reports whether committed is at or beyond ends for every listed
+// partition.
+func CaughtUp(committed kadm.OffsetResponses, ends kadm.ListedOffsets) bool {
 	caught := true
 	ends.Each(func(lo kadm.ListedOffset) {
 		if lo.Err != nil || lo.Offset <= 0 {
@@ -87,7 +98,7 @@ func GroupCaughtUp(ctx context.Context, cl *kgo.Client, group string, ends kadm.
 			caught = false
 		}
 	})
-	return caught, nil
+	return caught
 }
 
 // EndOffsets returns the current end offsets of topics.

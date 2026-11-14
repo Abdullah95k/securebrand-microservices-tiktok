@@ -75,6 +75,12 @@ func (f *Finalizer) now() time.Time {
 // on. A job leaves the finalize set only once it is finalised, so jobs held
 // here while the persister catches up are not lost when the leader changes.
 func (f *Finalizer) Tick(ctx context.Context) error {
+	phase := time.Now()
+	lap := func(name string) {
+		now := time.Now()
+		metrics.FinalizerTick.WithLabelValues(name).Observe(now.Sub(phase).Seconds())
+		phase = now
+	}
 	ids, err := f.Jobs.ReadyToFinalize(ctx, 500)
 	if err != nil {
 		return err
@@ -116,13 +122,18 @@ func (f *Finalizer) Tick(ctx context.Context) error {
 	if group == "" {
 		group = f.Producer.Topic(ttpersist.Group)
 	}
+	lap("sample")
 	keep := f.pending[:0]
 	ready := waited
-	for _, b := range f.pending {
-		caught, err := kafka.GroupCaughtUp(ctx, f.Producer.Client(), group, b.ends)
-		if err != nil {
+	// One fetch of the persister's offsets answers for every batch held.
+	var committed kadm.OffsetResponses
+	if len(f.pending) > 0 {
+		if committed, err = kafka.CommittedOffsets(ctx, f.Producer.Client(), group); err != nil {
 			slog.Warn("finalizer: offset check failed", "err", err)
 		}
+	}
+	for _, b := range f.pending {
+		caught := err == nil && kafka.CaughtUp(committed, b.ends)
 		timedOut := time.Since(b.since) > f.Timeout
 		if !caught && !timedOut {
 			keep = append(keep, b)
@@ -137,6 +148,7 @@ func (f *Finalizer) Tick(ctx context.Context) error {
 		ready = append(ready, b.jobs...)
 	}
 	f.pending = keep
+	lap("batches")
 	ready = f.byLane(ctx, ready)
 	// The rest stay in the set; having waited, they are taken at once on a
 	// later tick.
@@ -144,7 +156,43 @@ func (f *Finalizer) Tick(ctx context.Context) error {
 		ready = ready[:n]
 	}
 	f.finalizeAll(ctx, ready)
+	lap("finalize")
 	return nil
+}
+
+// stepClock times a job's finalisation by step.
+type stepClock struct {
+	start, last time.Time
+	steps       []string
+	took        map[string]time.Duration
+}
+
+func newStepClock() *stepClock {
+	now := time.Now()
+	return &stepClock{start: now, last: now, took: map[string]time.Duration{}}
+}
+
+// mark ends step.
+func (c *stepClock) mark(step string) {
+	now := time.Now()
+	if _, ok := c.took[step]; !ok {
+		c.steps = append(c.steps, step)
+	}
+	c.took[step] += now.Sub(c.last)
+	c.last = now
+}
+
+// observe records the steps and the total in FinalizeStep and returns them
+// as log attributes (milliseconds).
+func (c *stepClock) observe(lane string) []any {
+	out := make([]any, 0, 2*len(c.steps)+2)
+	for _, s := range c.steps {
+		metrics.FinalizeStep.WithLabelValues(s, lane).Observe(c.took[s].Seconds())
+		out = append(out, s+"_ms", c.took[s].Milliseconds())
+	}
+	total := time.Since(c.start)
+	metrics.FinalizeStep.WithLabelValues("total", lane).Observe(total.Seconds())
+	return append(out, "total_ms", total.Milliseconds())
 }
 
 // waited reports whether job has been ready (its tasks' last activity)
@@ -275,6 +323,7 @@ func Status(cancelling bool, counters map[string]int64, comp Completeness) strin
 }
 
 func (f *Finalizer) finalize(ctx context.Context, id string) error {
+	clock := newStepClock()
 	jid, err := uuid.Parse(id)
 	if err != nil {
 		return nil // not ours
@@ -305,10 +354,12 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	clock.mark("load")
 	deleted, err := f.deletions(ctx, id, status == "cancelling")
 	if err != nil {
 		return fmt.Errorf("deletions: %w", err)
 	}
+	clock.mark("deletions")
 	if deleted > 0 {
 		st.Counters["comments_deleted"] += deleted
 	}
@@ -317,6 +368,7 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	clock.mark("coverage")
 	if f.Content != nil {
 		evs := make([]*content.Event, 0, len(covered))
 		for _, c := range covered {
@@ -329,6 +381,7 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 			return fmt.Errorf("post coverage: %w", err)
 		}
 	}
+	clock.mark("content")
 	final := Status(status == "cancelling", st.Counters, comp)
 	// The account as stored now that its records are written: its user id
 	// for a job that started from a username, and its status.
@@ -367,6 +420,7 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 	if err := b.Wait(ctx); err != nil {
 		return err
 	}
+	clock.mark("event")
 	switch kind {
 	case dispatch.KindEntry:
 		// An entry check moves no schedule: discovery decides the account.
@@ -383,6 +437,7 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 			return err
 		}
 	}
+	clock.mark("schedule")
 	cb, _ := json.Marshal(st.Counters)
 	compb, _ := json.Marshal(comp)
 	// Guarded: a job something else made terminal meanwhile keeps that.
@@ -399,8 +454,11 @@ func (f *Finalizer) finalize(ctx context.Context, id string) error {
 		}
 	}
 	_ = f.Jobs.Expire(ctx, id, 24*time.Hour)
-	slog.Info("job finished", "job", id, "status", final, "mode", mode, "posts", st.Counters["posts"],
-		"comments", st.Counters["comments"], "replies", st.Counters["replies"], "median_completeness", comp.MedianRatio)
+	clock.mark("update")
+	attrs := append([]any{"job", id, "status", final, "mode", mode, "lane", laneName, "posts", st.Counters["posts"],
+		"comments", st.Counters["comments"], "replies", st.Counters["replies"], "median_completeness", comp.MedianRatio,
+		"posts_covered", comp.Posts}, clock.observe(laneName)...)
+	slog.Info("job finished", attrs...)
 	return nil
 }
 
