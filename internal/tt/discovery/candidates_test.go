@@ -351,4 +351,26 @@ func TestExcess(t *testing.T) {
 	if n := one[int](t, c, `SELECT attempts FROM discovery_candidates WHERE account_ref = $1`, refs[4]); n != 0 {
 		t.Fatalf("attempts %d after a cancel", n)
 	}
+	// A check whose job is still cancelling goes back to the queue at once
+	// (32 was cancelling, 35 now is); the job's later decision changes
+	// nothing; running checks are left alone.
+	c.exec(`UPDATE jobs SET status = 'cancelling' WHERE job_id = $1`, jobs[refs[3]])
+	n, err := c.d.ReleaseCancelled(ctx)
+	if err != nil || n != 2 {
+		t.Fatalf("released %d (%v), want 2", n, err)
+	}
+	for _, i := range []int{1, 3} {
+		if st, _ := c.state(refs[i]); st != StatePending {
+			t.Fatalf("%s: %s, want pending", refs[i], st)
+		}
+	}
+	if running, err := c.d.Running(ctx); err != nil || running != 2 {
+		t.Fatalf("running %d (%v), want 2", running, err)
+	}
+	if st, err := c.d.Decide(ctx, Entry{JobID: jobs[refs[3]], Final: "cancelled"}); err != nil || st != "" {
+		t.Fatalf("decision after the release: %q (%v)", st, err)
+	}
+	if n := one[int](t, c, `SELECT attempts FROM discovery_candidates WHERE account_ref = $1`, refs[3]); n != 0 {
+		t.Fatalf("attempts %d after a release", n)
+	}
 }
