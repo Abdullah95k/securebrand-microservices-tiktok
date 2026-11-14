@@ -6,6 +6,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/jobs"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/store"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/ttstore"
 )
 
 // The finalizer takes on-demand jobs first, then checks, then the backfill
@@ -126,5 +130,60 @@ func TestFinalizerBatch(t *testing.T) {
 		if v {
 			t.Fatalf("%s still running after the second tick", id)
 		}
+	}
+}
+
+// A post's stored comments are counted when it is first read, and again
+// only once coverage_recount_after has passed; in between a read keeps the
+// counts and still writes the state and the read time.
+func TestCoverageRecount(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	created := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Second)
+	if _, err := ttstore.EnsurePartitions(ctx, e.db, time.Now(), store.PartitionWindow{MonthsBack: 1, MonthsAhead: 1, DaysBack: 3, DaysAhead: 1}); err != nil {
+		t.Fatal(err)
+	}
+	e.exec(t, `INSERT INTO posts (created_at, post_id, user_id, kind, content_hash, first_seen_at, last_seen_at, comment_count)
+		VALUES ($1, 77, 1, 'video', '\x00', now(), now(), 4)`, created)
+	addComment := func(id int64, depth int) {
+		var parent *int64
+		if depth > 0 {
+			p := int64(1)
+			parent = &p
+		}
+		e.exec(t, `INSERT INTO comments (post_created_at, post_id, comment_id, user_id, depth, parent_comment_id, author_key,
+			content_hash, first_seen_at, last_seen_at) VALUES ($1, 77, $2, 1, $3, $4, '\x00', '\x00', now(), now())`, created, id, depth, parent)
+	}
+	addComment(1, 0)
+	addComment(2, 1)
+	at := time.Now()
+	cfg := *e.cfg
+	cfg.Scheduler.CoverageRecountAfter = 6 * time.Hour
+	f := &Finalizer{DB: e.db, Cfg: &cfg, Now: func() time.Time { return at }}
+	posts := []jobs.PostState{{PostID: 77, CreatedAt: created, Reported: 4, State: jobs.PostComplete}}
+	read := func() (top, replies int64, ratio float64) {
+		t.Helper()
+		_, out, err := f.coverage(ctx, posts, "p1")
+		if err != nil || len(out) != 1 {
+			t.Fatalf("coverage: %v %v", out, err)
+		}
+		return out[0].Collected, out[0].RepliesCollected, out[0].Completeness
+	}
+	if top, rep, ratio := read(); top != 1 || rep != 1 || ratio != 0.5 {
+		t.Fatalf("first read: %d top, %d replies, %v", top, rep, ratio)
+	}
+	addComment(3, 0)
+	at = at.Add(time.Hour)
+	if top, rep, ratio := read(); top != 1 || rep != 1 || ratio != 0.5 {
+		t.Fatalf("read within the window: %d top, %d replies, %v (want the kept counts)", top, rep, ratio)
+	}
+	var synced time.Time
+	if err := e.db.QueryRow(ctx, `SELECT comments_synced_at FROM posts WHERE post_id = 77`).Scan(&synced); err != nil ||
+		!synced.Equal(at.UTC().Truncate(time.Microsecond)) {
+		t.Fatalf("synced %v (%v), want the second read's time", synced, err)
+	}
+	at = at.Add(6 * time.Hour)
+	if top, rep, ratio := read(); top != 2 || rep != 1 || ratio != 0.75 {
+		t.Fatalf("read after the window: %d top, %d replies, %v", top, rep, ratio)
 	}
 }
