@@ -188,9 +188,17 @@ func TestReadStore(t *testing.T) {
 			}
 		}
 	}
+	// One registered and waiting for admission: on the schedule, not monitored.
+	if _, err := db.Exec(ctx, `INSERT INTO account_schedule (account_ref, user_id, interval_seconds, next_run_at, enabled)
+		VALUES ('id:599', 599, 9900, now(), true)`); err != nil {
+		t.Fatal(err)
+	}
 	s, err := ReadStore(ctx, db, Window{From: now.Add(-time.Hour), To: now})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if s.Scheduled != 3 || s.Monitored != 2 || s.Waiting != 1 {
+		t.Errorf("accounts: scheduled %d, monitored %d, waiting %d; want 3, 2, 1", s.Scheduled, s.Monitored, s.Waiting)
 	}
 	if s.NewPosts != 1 || s.OlderFinds != 1 || s.Within3h != 1 || s.DatabaseGB <= 0 {
 		t.Fatalf("store %+v", s)
