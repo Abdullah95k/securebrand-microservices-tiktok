@@ -83,9 +83,18 @@ func (s *Store) IsDone(ctx context.Context, taskID string) (bool, error) {
 	return n > 0, err
 }
 
-// MarkDone records task completion (7d TTL).
+// DoneTTL is how long a completed-task marker lives. It only has to
+// outlast a copy of the task arriving again: a record produced twice or
+// redelivered after a rebalance (next to the original, minutes), a retry
+// (tks.task.retry.* at most 1 h, plus lag), and a job's life (the reaper
+// closes one by scheduler.reaper_max_age, 24 h). A dead letter replayed on
+// purpose clears its marker (ClearDone). At 7 days these markers were half
+// of tks's Valkey keys and filled it (2026-11-14, OOM under noeviction).
+const DoneTTL = 48 * time.Hour
+
+// MarkDone records task completion (DoneTTL).
 func (s *Store) MarkDone(ctx context.Context, taskID string) error {
-	return s.r.Set(ctx, redisx.KeyPrefix+"done:"+taskID, "1", 7*24*time.Hour).Err()
+	return s.r.Set(ctx, redisx.KeyPrefix+"done:"+taskID, "1", DoneTTL).Err()
 }
 
 // ClearDone forgets a task's completion, for a dead-lettered task replayed
