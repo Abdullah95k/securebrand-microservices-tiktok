@@ -146,6 +146,13 @@ func (s *Discovery) start(ctx context.Context) error {
 	if len(excess) > 0 {
 		slog.Info("discovery: entry checks over the cap cancelled", "checks", len(excess), "max_running", ec.MaxRunning)
 	}
+	// A cancelled check's account goes back to the queue now, not when its
+	// job's tasks are next taken from their queue.
+	if n, err := s.D.ReleaseCancelled(ctx); err != nil {
+		return err
+	} else if n > 0 {
+		slog.Info("discovery: cancelled entry checks released", "checks", n)
+	}
 	running, err := s.D.Running(ctx)
 	if err != nil {
 		return err
