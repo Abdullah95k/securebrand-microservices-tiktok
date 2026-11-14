@@ -192,7 +192,10 @@ func (m *Meter) Measure(ctx context.Context) (Estimate, error) {
 	if in.IPs == 0 {
 		in.IPs = IPs(m.Cfg.TT.Proxy.Tiers)
 	}
-	if err := m.DB.QueryRow(ctx, `SELECT count(*) FROM account_schedule WHERE enabled`).Scan(&in.Accounts); err != nil {
+	// The accounts being monitored: admitted ones. Those registered and
+	// waiting for paced admission cost nothing yet, and counting them
+	// (about 14,000 on 2026-11-14) divided the day's cost by six.
+	if err := m.DB.QueryRow(ctx, `SELECT count(*) FROM account_schedule WHERE enabled AND admitted_at IS NOT NULL`).Scan(&in.Accounts); err != nil {
 		return Estimate{}, fmt.Errorf("cost: accounts: %w", err)
 	}
 	var dbBytes, mediaBytes int64

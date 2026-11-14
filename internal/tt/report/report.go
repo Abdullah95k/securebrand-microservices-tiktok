@@ -73,7 +73,11 @@ type Traffic struct {
 type Store struct {
 	Accounts  map[string]int64 `json:"accounts"` // by status
 	Scheduled int64            `json:"scheduled"`
-	NewPosts  int64            `json:"new_posts"` // first read by a check in the window, published at most NewPostAge before it
+	// Monitored are the admitted accounts the planner checks; Waiting the
+	// ones registered and waiting for paced admission (Scheduled is both).
+	Monitored int64 `json:"monitored"`
+	Waiting   int64 `json:"waiting_admission"`
+	NewPosts  int64 `json:"new_posts"` // first read by a check in the window, published at most NewPostAge before it
 	// OlderFinds are posts a check stored first in the window that were
 	// published earlier than that (made public again, or missed by the
 	// backfill): not new posts, so not in NewPosts or its delays.
@@ -170,6 +174,7 @@ func ReadStore(ctx context.Context, db *pgxpool.Pool, w Window) (Store, error) {
 	var med *float64
 	err = db.QueryRow(ctx, `
 		SELECT (SELECT count(*) FROM account_schedule WHERE enabled),
+		       (SELECT count(*) FROM account_schedule WHERE enabled AND admitted_at IS NOT NULL),
 		       count(*),
 		       coalesce(avg((stored_at - created_at <= interval '3 hours')::int), 0),
 		       coalesce(avg((stored_at - created_at <= interval '6 hours')::int), 0),
@@ -178,10 +183,11 @@ func ReadStore(ctx context.Context, db *pgxpool.Pool, w Window) (Store, error) {
 		FROM posts
 		WHERE first_mode IN ('incremental', 'refresh') AND stored_at >= $1 AND stored_at < $2
 		  AND created_at >= $1 - $3::interval`, w.From, w.To, NewPostAge).
-		Scan(&s.Scheduled, &s.NewPosts, &s.Within3h, &s.Within6h, &med, &s.DatabaseGB)
+		Scan(&s.Scheduled, &s.Monitored, &s.NewPosts, &s.Within3h, &s.Within6h, &med, &s.DatabaseGB)
 	if err != nil {
 		return s, fmt.Errorf("report: new posts: %w", err)
 	}
+	s.Waiting = s.Scheduled - s.Monitored
 	if med != nil {
 		s.MedianDelayMin = *med
 	}
@@ -396,7 +402,7 @@ func (r Report) Write(out io.Writer) error {
 		fmt.Fprintf(w, "  %s: %s\n", v.Level, v.Rule)
 	}
 	s := r.Store
-	fmt.Fprintf(w, "\nAccounts: %d monitored (on the schedule); every stored account (monitored and found) by TikTok status:", s.Scheduled)
+	fmt.Fprintf(w, "\nAccounts: %d monitored (admitted), %d waiting for admission; every stored account (monitored and found) by TikTok status:", s.Monitored, s.Waiting)
 	for _, k := range sortedKeys(s.Accounts) {
 		fmt.Fprintf(w, " %s %d", k, s.Accounts[k])
 	}

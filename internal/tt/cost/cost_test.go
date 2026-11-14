@@ -77,6 +77,11 @@ func TestMeter(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Registered and waiting for admission: not monitored, not counted.
+	if _, err := db.Exec(ctx, `INSERT INTO account_schedule (account_ref, interval_seconds, next_run_at, enabled)
+		VALUES ('u:waiting', 9900, now(), true)`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(ctx, `INSERT INTO media (media_id, source_media_id, kind, variant, status, size_bytes) VALUES
 		('00000000-0000-0000-0000-000000000001', '1', 'video', 'hd', 'stored', 2000000000),
 		('00000000-0000-0000-0000-000000000002', '2', 'video', 'hd', 'deleted', 9000000000)`); err != nil {
