@@ -40,3 +40,31 @@ func TestClaimPostRead(t *testing.T) {
 		t.Error("an expired claim still held the read")
 	}
 }
+
+// A done marker lives DoneTTL (48 h), not the week it used to, which
+// filled Valkey; it still answers IsDone and ClearDone drops it.
+func TestDoneMarkerTTL(t *testing.T) {
+	ctx := context.Background()
+	r := testenv.Redis(t)
+	s := New(r)
+	task := "done-ttl-" + time.Now().Format(time.RFC3339Nano)
+	if err := s.MarkDone(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.IsDone(ctx, task); err != nil || !ok {
+		t.Fatalf("IsDone after MarkDone: %v %v", ok, err)
+	}
+	ttl, err := r.TTL(ctx, "tks:done:"+task).Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ttl <= 0 || ttl > DoneTTL || DoneTTL != 48*time.Hour {
+		t.Errorf("done marker TTL %v (DoneTTL %v), want at most 48h", ttl, DoneTTL)
+	}
+	if err := s.ClearDone(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := s.IsDone(ctx, task); ok {
+		t.Error("marker still there after ClearDone")
+	}
+}
