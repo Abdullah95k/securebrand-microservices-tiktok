@@ -204,6 +204,10 @@ func TestChartProductionConfigLoads(t *testing.T) {
 	if d := c.TT.Discovery; d.QuietMoves || d.MaxNewPerDay != 0 {
 		t.Errorf("tt.discovery: quiet_moves %v, max_new_per_day %d, want false and 0", d.QuietMoves, d.MaxNewPerDay)
 	}
+	// New accounts' first reads at 60 an hour (D-078).
+	if a := c.TT.Admission; a.PerHour != 60 {
+		t.Errorf("tt.admission.per_hour %d, want 60", a.PerHour)
+	}
 	if e := c.TT.Discovery.Entry; e.MaxRunning != 50 || e.Batch != 200 || e.MaxAttempts != 3 {
 		t.Errorf("tt.discovery.entry %+v, want max_running 50 and the default batch and attempts", e)
 	}

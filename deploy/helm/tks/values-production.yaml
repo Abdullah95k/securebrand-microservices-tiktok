@@ -131,8 +131,13 @@ config:
     # 12 an hour (about 18,000 requests an hour) with two tks-signer
     # replicas (4 pages; C4: 2 pages sign about 322,000 a day), the owner's
     # list first, then discovered accounts by score (2026-11-07).
+    # 60 an hour (owner D-078, 2026-11-14, with D-008's no daily cap):
+    # about 90,000 requests an hour, 85,500 signed, about 6.4 tks-signer
+    # replicas' worth beside the monitoring; the platform runs 9 replicas
+    # (platform #204). The ~14,000 qualified accounts waiting take about
+    # 10 days at this pace.
     admission:
-      per_hour: 12
+      per_hour: 60
     # Quiet accounts' comments read less often (owner D-056, 2026-11-11):
     # an account posting less than weekly (its last 30 days) has its posts'
     # comments re-read daily under 2 days, every 3 days to a week, every 2
