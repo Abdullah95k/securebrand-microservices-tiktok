@@ -562,6 +562,22 @@ func (d *Discoverer) Excess(ctx context.Context, limit int) ([]uuid.UUID, error)
 	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 }
 
+// ReleaseCancelled puts back in the queue, with no attempt counted, the
+// accounts whose entry check's job is being cancelled. A cancelled job ends
+// only when each of its tasks is next taken from its queue, which in a
+// busy backfill lane can take hours (2026-11-14: 441 of 444 still
+// cancelling after 70 minutes), and until then the account would count as
+// checking and hold a place under max_running. The job's later decision
+// finds no candidate and changes nothing. It returns how many it released.
+func (d *Discoverer) ReleaseCancelled(ctx context.Context) (int64, error) {
+	tag, err := d.DB.Exec(ctx, `UPDATE discovery_candidates c SET state = 'pending', job_id = NULL, updated_at = now()
+		FROM jobs j WHERE j.job_id = c.job_id AND c.state = 'checking' AND j.status = 'cancelling'`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // Running counts the entry checks running now.
 func (d *Discoverer) Running(ctx context.Context) (int, error) {
 	var n int
