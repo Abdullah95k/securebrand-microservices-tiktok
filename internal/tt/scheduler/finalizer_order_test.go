@@ -70,3 +70,61 @@ func TestFinalizerWaitedJob(t *testing.T) {
 		t.Fatalf("held %v, pending %d", f.held, len(f.pending))
 	}
 }
+
+// At most finalize_batch jobs are finalised a tick, checks first; the rest
+// stay in the set for the next tick.
+func TestFinalizerBatch(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	cfg := *e.cfg
+	cfg.Scheduler.FinalizeBatch, cfg.Scheduler.FinalizeWorkers = 2, 1
+	var ids []uuid.UUID
+	for _, lane := range []int{3, 2, 3} {
+		id := uuid.New()
+		ids = append(ids, id)
+		e.exec(t, `INSERT INTO jobs (job_id, kind, lane, mode, account_ref, params, status, created_at)
+			VALUES ($1, 'scheduled', $2, 'incremental', 'id:1', '{}', 'running', now())`, id, lane)
+		if err := e.trk.Spawn(ctx, id.String(), "t1"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.trk.Done(ctx, id.String(), "t1", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	at := time.Now().Add(11 * time.Minute) // all three have waited
+	f := &Finalizer{DB: e.db, Jobs: e.trk, Producer: e.prod, Cfg: &cfg, Timeout: 10 * time.Minute, Now: func() time.Time { return at }}
+	running := func() map[uuid.UUID]bool {
+		out := map[uuid.UUID]bool{}
+		for _, id := range ids {
+			var st string
+			if err := e.db.QueryRow(ctx, `SELECT status FROM jobs WHERE job_id = $1`, id).Scan(&st); err != nil {
+				t.Fatal(err)
+			}
+			out[id] = st == "running"
+		}
+		return out
+	}
+	if err := f.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	r := running()
+	if r[ids[1]] {
+		t.Fatal("the check was not finalised first")
+	}
+	if n := map[bool]int{}; true {
+		for _, v := range r {
+			n[v]++
+		}
+		if n[true] != 1 {
+			t.Fatalf("running after one tick: %v, want one of three", r)
+		}
+	}
+	if err := f.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for id, v := range running() {
+		if v {
+			t.Fatalf("%s still running after the second tick", id)
+		}
+	}
+}
