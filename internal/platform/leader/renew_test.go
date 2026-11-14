@@ -44,7 +44,7 @@ func TestRenewRetries(t *testing.T) {
 	if ok, err := renew(ctx, nil, "l", start); ok || !errors.Is(err, dropped) || calls < 2 {
 		t.Fatalf("renew always failing: %v %v after %d calls", ok, err, calls)
 	}
-	if left := start.Add(TTL).Sub(time.Now()); left < time.Second {
+	if left := time.Until(start.Add(TTL)); left < time.Second {
 		t.Fatalf("gave up %v before the lease ends, want at least 1 s", left)
 	}
 
