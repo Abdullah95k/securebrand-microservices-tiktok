@@ -527,3 +527,30 @@ func TestCommentsNewByPostAge(t *testing.T) {
 		t.Errorf("older +%v, want +1", d)
 	}
 }
+
+// A comment write times its steps (tks_persist_step_seconds): upsert,
+// people and the transaction's commit, each once per write.
+func TestCommentSteps(t *testing.T) {
+	w := newWriter(t)
+	ctx := context.Background()
+	count := func(step string) uint64 {
+		var m dto.Metric
+		if err := metrics.PersistStep.WithLabelValues("comment", step).(prometheus.Histogram).Write(&m); err != nil {
+			t.Fatal(err)
+		}
+		return m.GetHistogram().GetSampleCount()
+	}
+	before := map[string]uint64{}
+	for _, s := range []string{"upsert", "people", "commit"} {
+		before[s] = count(s)
+	}
+	t0 := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	if err := w.Comments(ctx, []*ttv1.Comment{comment(20, 0, t0, "timed", 9010)}); err != nil {
+		t.Fatal(err)
+	}
+	for s, n := range before {
+		if got := count(s); got != n+1 {
+			t.Errorf("step %s observed %d times, want %d", s, got, n+1)
+		}
+	}
+}

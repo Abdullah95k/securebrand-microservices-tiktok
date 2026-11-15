@@ -163,10 +163,16 @@ var (
 	DeletionChecks       = counterVec("deletion_checks_total", "Full comment reads of a post checked for deleted comments, by outcome (checked, skipped_partial).", "outcome")
 	FBCandidates         = counterVec("fb_candidates_total", "Facebook links sent to the Facebook collector, by its result (queued, on_list, added, public_waiting, checked_recently, ignored, accepted) or what went wrong (unavailable: its 503, tried again; error: no answer, tried again; refused: a 4xx, not again).", "result")
 	PersistBatchFailures = counterVec("persist_batch_failures_total", "Persister batches that failed to write (each is retried every 2 s and never committed past), by attempt (first, retry) and error class (a Postgres SQLSTATE class such as 40 or 57, or other: Kafka produce, timeouts, connections).", "attempt", "class")
-	PersistBatch         = histVec("persist_batch_seconds", "Persister batch flush duration.", prometheus.ExponentialBuckets(0.005, 2, 12), "entity")
-	Jobs                 = counterVec("jobs_total", "Jobs reaching a terminal state.", "status", "lane")
-	ScheduleLag          = gaugeVec("schedule_lag_seconds", "Age of the oldest due page in the schedule.", "tier")
-	PageTier             = gaugeVec("scheduled_pages", "Scheduled pages per adaptive tier.", "tier")
+	// Up to 0.005 × 2^16 ≈ 328 s: comment batches ran past the old top
+	// bucket of 10.24 s (2026-11-15).
+	PersistBatch = histVec("persist_batch_seconds", "Persister batch flush duration.", prometheus.ExponentialBuckets(0.005, 2, 17), "entity")
+	// PersistStep times the steps of an entity's write in a batch (comment:
+	// upsert, deleted, people, sightings, commit) and the content.* events
+	// after it (entity all, step content), to show where a slow batch goes.
+	PersistStep = histVec("persist_step_seconds", "Persister batch steps, by entity and step (comment: upsert, deleted, people, sightings, commit; all: content).", prometheus.ExponentialBuckets(0.005, 2, 17), "entity", "step")
+	Jobs        = counterVec("jobs_total", "Jobs reaching a terminal state.", "status", "lane")
+	ScheduleLag = gaugeVec("schedule_lag_seconds", "Age of the oldest due page in the schedule.", "tier")
+	PageTier    = gaugeVec("scheduled_pages", "Scheduled pages per adaptive tier.", "tier")
 	// tks's scheduler (internal/tt/scheduler; build brief §8 A1).
 	Checks         = counterVec("checks_total", "tks scheduled account checks that ended, by kind (check, walk, backfill), job status and whether they ended within their interval of being started (window: in, late; build brief §8 A1).", "kind", "result", "window")
 	CheckOldest    = gauge("account_check_oldest_seconds", "Time since the active scheduled account with the oldest successful check was last checked well (leader scheduler).")

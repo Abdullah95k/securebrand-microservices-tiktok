@@ -9,6 +9,7 @@ import (
 	ttv1 "github.com/abdullah95k/securebrand-microservices-tiktok/gen/go/securebrand/tt/v1"
 	sharedpersist "github.com/abdullah95k/securebrand-microservices-tiktok/internal/persist"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/kafka"
+	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/platform/metrics"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/tt/topics"
 )
 
@@ -149,5 +150,10 @@ func (s Sink) Write(ctx context.Context, msgs []proto.Message) error {
 	if s.Content == nil {
 		return nil
 	}
-	return s.Content.Emit(ctx, msgs)
+	start := time.Now()
+	if err := s.Content.Emit(ctx, msgs); err != nil {
+		return err
+	}
+	metrics.PersistStep.WithLabelValues("all", "content").Observe(time.Since(start).Seconds())
+	return nil
 }
