@@ -249,7 +249,7 @@ func (s *DiscoverStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 		}
 		if resp.Class != detect.OK {
 			metrics.DiscoverPages.WithLabelValues(sc.Source, "error").Inc()
-			return classOutcome(t, resp.Class, resp.Reason, st.Cursor, c)
+			return respOutcome(t, resp, st.Cursor, c)
 		}
 		softRetried = false
 		res, rep := parse.Found(resp.Body, op.via, popt)
@@ -376,7 +376,7 @@ func (s *DiscoverStage) challenge(ctx context.Context, t *tkstaskv1.Task, sc *tk
 			r.code = codeOf(resp.Errors)
 			return s.ended(ctx, t, sc, r, DiscoverStopGone, c)
 		case resp.Class != detect.OK:
-			return classOutcome(t, resp.Class, resp.Reason, "", c), true
+			return respOutcome(t, resp, "", c), true
 		}
 		res, rep := parse.ChallengeDetail(resp.Body)
 		d.Client.Parsed(resp, rep.OK())

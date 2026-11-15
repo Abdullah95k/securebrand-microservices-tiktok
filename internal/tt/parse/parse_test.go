@@ -208,3 +208,22 @@ func TestAvatarMediaID(t *testing.T) {
 		t.Error("a link without a key must keep the account's one id")
 	}
 }
+
+// An empty page without has_more is the end of the list, not drift; a page
+// with comments still needs it (2026-11-15: the drift opened the breaker).
+func TestCommentsHasMoreAbsent(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body  string
+		drift bool
+	}{
+		"empty, no has_more":    {`{"status_code":0,"total":0,"cursor":0,"comments":[]}`, false},
+		"null, no has_more":     {`{"status_code":0,"comments":null}`, false},
+		"no comments key":       {`{"status_code":0}`, false},
+		"comments, no has_more": {`{"status_code":0,"comments":[{"cid":"7682439766627038954","aweme_id":"7682427663735590109","create_time":1757171405,"user":{"uid":"7173266195505352161"}}]}`, true},
+	} {
+		res, rep := parse.Comments([]byte(tc.body), parse.CommentContext{UserID: 42}, parse.Options{AuthorKey: key})
+		if rep.OK() == tc.drift || res.HasMore {
+			t.Errorf("%s: ok %v (want %v), has_more %v, missing %v", name, rep.OK(), !tc.drift, res.HasMore, rep.Missing)
+		}
+	}
+}

@@ -105,7 +105,7 @@ func (s *PostStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 		}
 		c["wire_bytes"] += resp.BytesIn + resp.BytesOut
 		if resp.Class != detect.OK {
-			return classOutcome(t, resp.Class, resp.Reason, st.Cursor, c)
+			return respOutcome(t, resp, st.Cursor, c)
 		}
 		res, rep := parse.Comments(resp.Body, cc, popt)
 		d.Client.Parsed(resp, rep.OK())
@@ -412,7 +412,7 @@ func (s *ThreadStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 		}
 		c["wire_bytes"] += resp.BytesIn + resp.BytesOut
 		if resp.Class != detect.OK {
-			return classOutcome(t, resp.Class, resp.Reason, st.Cursor, c)
+			return respOutcome(t, resp, st.Cursor, c)
 		}
 		res, rep := parse.Comments(resp.Body, cc, popt)
 		d.Client.Parsed(resp, rep.OK())

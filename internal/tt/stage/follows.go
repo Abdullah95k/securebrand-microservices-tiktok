@@ -204,7 +204,7 @@ func (s *FollowsStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 		}
 		if resp.Class != detect.OK {
 			metrics.FollowPages.WithLabelValues(dir, "error").Inc()
-			return classOutcome(t, resp.Class, resp.Reason, r.pos.String(), c)
+			return respOutcome(t, resp, r.pos.String(), c)
 		}
 		softRetried = false
 		res, rep := parse.FollowList(resp.Body, popt)

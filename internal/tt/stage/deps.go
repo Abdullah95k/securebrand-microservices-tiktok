@@ -194,6 +194,21 @@ func classOutcome(t *tkstaskv1.Task, cls detect.Class, reason, cursor string, c 
 	}
 }
 
+// respOutcome is classOutcome for a response that is not OK, except that a
+// short-circuited one (the query's breaker open, nothing sent) waits like a
+// task without an exit: the breaker's doing, not the task's, so it does
+// not count toward the task's stalls. Counted against the task, an open
+// breaker sent every task of the query to the dead letter queue within
+// five retries (2026-11-15: about 2,000 post tasks an hour).
+func respOutcome(t *tkstaskv1.Task, resp *graphql.Response, cursor string, c map[string]int64) Outcome {
+	o := classOutcome(t, resp.Class, resp.Reason, cursor, c)
+	if resp.ShortCircuit {
+		c["short_circuits"]++
+		o.Waiting = true
+	}
+	return o
+}
+
 // Start registers a job's root task and produces it: how the API and the
 // scheduler start an account check.
 func (d *Deps) Start(ctx context.Context, root *tkstaskv1.Task) error { return d.spawn(ctx, root) }

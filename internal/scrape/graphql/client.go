@@ -59,6 +59,9 @@ type Response struct {
 	// SignRetried marks a signed call TikTok refused once and answered
 	// signed again on another page (SignRetry).
 	SignRetried bool
+	// ShortCircuit marks a response the client made up: the query's
+	// breaker is open, so nothing was sent. Not the task's doing.
+	ShortCircuit bool
 }
 
 // Client sends GraphQL and JSON web-API requests on behalf of identities.
@@ -198,7 +201,7 @@ func (c *Client) Do(ctx context.Context, id *session.Identity, req Request) (*Re
 		fb, ok := c.Registry.Fallback(req.Query, q.DocID)
 		if !ok || !c.Breakers.Allow(breakerKey(fb)) {
 			metrics.QueryShortCircuit.WithLabelValues(q.Name).Inc()
-			return &Response{Query: q, Class: detect.SchemaDrift,
+			return &Response{Query: q, Class: detect.SchemaDrift, ShortCircuit: true,
 				Reason: "breaker open for " + q.Name + " doc_id " + q.DocID + ": its responses keep failing; waiting for a registry or parser update"}, nil
 		}
 		q = fb
