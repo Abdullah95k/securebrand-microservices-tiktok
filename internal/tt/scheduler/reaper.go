@@ -44,6 +44,14 @@ type Reaper struct {
 	// Content, when set, publishes a closed job's JobCoverage on
 	// collection.coverage.v1 beside tt.job.v1 (M15b).
 	Content *content.Emitter
+	// FleetStall is how many jobs one tick may close as stalled and still
+	// count each as its account's failed check (default 20). At or above
+	// it, the stall is tks's own (Valkey, Kafka or the crawlers down), not
+	// the accounts': the schedule's backoff is left alone, so an outage
+	// does not push every account it touched to 2, 4 or 8 times its
+	// interval (2026-11-14, Valkey OOM). A job whose accounting state is
+	// gone never counts: that state is tks's.
+	FleetStall int
 
 	// The tick after a full page goes on from its last job (by creation),
 	// so more than a page of long-running jobs can't keep a stuck one from
@@ -116,6 +124,7 @@ func (r *Reaper) Tick(ctx context.Context) error {
 		}
 	}
 	now := time.Now()
+	var failedChecks []uuid.UUID // stalled jobs, counted against their accounts below
 	for _, j := range list {
 		st, err := r.Jobs.Status(ctx, j.id.String())
 		if err != nil {
@@ -159,11 +168,8 @@ func (r *Reaper) Tick(ctx context.Context) error {
 		if err := r.Jobs.Cancel(ctx, j.id.String()); err != nil {
 			slog.Warn("reaper: closed job's tasks not stopped", "job", j.id, "err", err)
 		}
-		// The schedule counts it as a failed check, so a stuck account
-		// backs off.
-		if _, err := r.DB.Exec(ctx, `UPDATE account_schedule SET consecutive_failures = consecutive_failures + 1
-			WHERE last_job_id = $1`, j.id); err != nil {
-			slog.Warn("reaper: schedule not updated", "job", j.id, "err", err)
+		if st.Spawned > 0 {
+			failedChecks = append(failedChecks, j.id)
 		}
 		metrics.Jobs.WithLabelValues(final, topics.LaneName(tkstaskv1.Lane(j.lane))).Inc()
 		if j.kind != dispatch.KindOnDemand {
@@ -172,6 +178,18 @@ func (r *Reaper) Tick(ctx context.Context) error {
 			metrics.Checks.WithLabelValues(checkKind(j.kind, j.mode), final, "late").Inc()
 		}
 		slog.Warn("reaper: job closed", "job", j.id, "status", final, "reason", reason)
+	}
+	if n := len(failedChecks); n >= cmp.Or(r.FleetStall, 20) {
+		slog.Warn("reaper: many jobs stalled at once: tks's own failure, not counted against their accounts", "jobs", n)
+		return nil
+	}
+	// The schedule counts each as a failed check, so a stuck account
+	// backs off.
+	for _, id := range failedChecks {
+		if _, err := r.DB.Exec(ctx, `UPDATE account_schedule SET consecutive_failures = consecutive_failures + 1
+			WHERE last_job_id = $1`, id); err != nil {
+			slog.Warn("reaper: schedule not updated", "job", id, "err", err)
+		}
 	}
 	return nil
 }
