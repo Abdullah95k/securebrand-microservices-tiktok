@@ -73,7 +73,15 @@ func Comments(body []byte, cc CommentContext, o Options) (CommentsResult, Report
 	}
 	res.Total, res.HasMore, res.Cursor = doc.Get("total").Int(), doc.Get("has_more").Bool(), doc.Get("cursor").Int()
 	if !doc.Get("has_more").Exists() {
-		rep.AddMissing("has_more")
+		// A page with no comments and no has_more is the end of the list,
+		// not a changed shape: TikTok leaves has_more out of some empty
+		// pages (2026-11-15), and taking them for drift opened the comments
+		// breaker. With comments, has_more stays required.
+		if n := doc.Get("comments"); n.Exists() && n.Type != gjson.Null && len(n.Array()) > 0 {
+			rep.AddMissing("has_more")
+		} else {
+			rep.AddOptional("has_more")
+		}
 	}
 	seen := map[int64]bool{}
 	add := func(c gjson.Result, parent int64) (int64, bool) {

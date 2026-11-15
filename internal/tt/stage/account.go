@@ -172,7 +172,7 @@ func (s *AccountStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 			continue
 		}
 		if resp.Class != detect.OK {
-			return classOutcome(t, resp.Class, resp.Reason, st.Cursor, c)
+			return respOutcome(t, resp, st.Cursor, c)
 		}
 		softRetried = false
 		res, rep := parse.PostList(resp.Body, popt)

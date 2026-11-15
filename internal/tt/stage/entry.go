@@ -78,7 +78,7 @@ func (s *EntryStage) Run(ctx context.Context, t *tkstaskv1.Task) Outcome {
 	case detect.ContentUnavailable:
 		return s.A.unavailable(ctx, t, sc, statusOf(resp.Errors), c)
 	default:
-		return classOutcome(t, resp.Class, resp.Reason, "", c)
+		return respOutcome(t, resp, "", c)
 	}
 	res, rep := parse.PostList(resp.Body, parse.Options{AuthorKey: d.Emit.Key, Query: listQuery, Variant: q.DocID})
 	d.Client.Parsed(resp, rep.OK())
