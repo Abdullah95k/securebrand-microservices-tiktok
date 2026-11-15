@@ -236,10 +236,10 @@ func TestChartProduction(t *testing.T) {
 		for _, l := range c.Autoscale.Lag {
 			least = min(least, platformPartitions(l.Topic))
 		}
-		// The persister reads every tt.* topic, 3 partitions at least.
-		if name == "persister" {
-			least = min(least, 3)
-		}
+		// The persister reads every tt.* topic in one group, and its lag
+		// triggers are its busy ones (tt.post.v1 6 partitions, tt.comment.v1
+		// 12): a pod past a small topic's 3 partitions only goes without
+		// that topic's records, so its bound is the triggers' (2026-11-15).
 		if maxPods > least || maxPods < c.Autoscale.Min {
 			t.Errorf("%s scales to %d pods: more than its topics' %d partitions, or under its minimum %d", name, maxPods, least, c.Autoscale.Min)
 		}

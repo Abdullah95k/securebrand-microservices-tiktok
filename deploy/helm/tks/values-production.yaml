@@ -266,7 +266,15 @@ components:
     postgresRole: crawler
   persister:
     postgresRole: persister
-    autoscale: {max: 3}
+    # Four (2026-11-15): at 60 admissions an hour (D-078) three persisters
+    # only kept up with the input, about 73,000 comments and 21,000 posts
+    # an hour, and never drained the backlog left by the Valkey OOM
+    # (comments 3.5 M, posts 191,000 behind), so a check's new post
+    # waited about 5 h to be stored. Comment batches take 10 s or more
+    # (tks_persist_batch_seconds), so the database may be the limit: four
+    # first, six (one per tt.post.v1 partition) once PostgreSQL shows the
+    # headroom. 4 pods x max_conns 4 = 16 connections through PgBouncer.
+    autoscale: {max: 4}
   media-downloader:
     postgresRole: crawler
     autoscale: {max: 3}
