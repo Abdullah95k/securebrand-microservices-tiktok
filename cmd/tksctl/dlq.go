@@ -5,6 +5,8 @@ import (
 	"flag"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kgo"
+
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/app"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/config"
 	"github.com/abdullah95k/securebrand-microservices-tiktok/internal/crawl/checkpoint"
@@ -26,12 +28,22 @@ func dlqReplay(ctx context.Context, cfg *config.Config, args []string) (*dlq.Res
 	reason := fs.String("reason", "", "only replay dead letters with this x-reason header")
 	max := fs.Int("max", 1000, "maximum records replayed")
 	idle := fs.Duration("idle", 10*time.Second, "stop after this long without records")
+	// The platform's managed Kafka grants tks's user produce and consume
+	// on tt.* and tks.* only, without cluster permissions; a replay refused
+	// there with CLUSTER_AUTHORIZATION_FAILED (2026-11-15). A replayed task
+	// does not need idempotent writes: a task sent twice is skipped by its
+	// done marker, and the persister's writes are idempotent.
+	noIdem := fs.Bool("no-idempotent", false, "produce without idempotent writes (no cluster IdempotentWrite permission needed)")
 	_ = fs.Parse(args)
 	kcfg, err := app.KafkaClient(cfg, "-tksctl")
 	if err != nil {
 		return nil, err
 	}
-	p, err := kafka.NewProducer(kcfg)
+	var extra []kgo.Opt
+	if *noIdem {
+		extra = append(extra, kgo.DisableIdempotentWrite())
+	}
+	p, err := kafka.NewProducer(kcfg, extra...)
 	if err != nil {
 		return nil, err
 	}
