@@ -185,6 +185,58 @@ func TestReaper(t *testing.T) {
 	}
 }
 
+// Many jobs stalled at once are tks's failure, not their accounts': none
+// backs its account off, and a job whose state is gone never does.
+func TestReaperFleetStall(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	add := func(ref string, spawn bool) uuid.UUID {
+		id := uuid.New()
+		e.exec(t, `INSERT INTO jobs (job_id, kind, lane, mode, account_ref, params, status, created_at)
+			VALUES ($1, 'scheduled', 2, 'incremental', $2, '{}', 'running', now() - interval '2 hours')`, id, ref)
+		e.exec(t, `INSERT INTO account_schedule (account_ref, interval_seconds, next_run_at, last_job_id) VALUES ($1, 9900, now(), $2)`, ref, id)
+		if spawn {
+			if err := e.trk.Spawn(ctx, id.String(), "task-1"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return id
+	}
+	add("u:lost", false)
+	for _, ref := range []string{"u:a", "u:b", "u:c"} {
+		add(ref, true)
+	}
+	r := &Reaper{DB: e.db, Jobs: e.trk, Producer: e.prod, After: time.Millisecond, MaxAge: time.Hour, FleetStall: 3}
+	time.Sleep(1100 * time.Millisecond) // activity is kept in seconds
+	if err := r.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := e.db.Query(ctx, `SELECT s.account_ref, j.status, s.consecutive_failures FROM account_schedule s JOIN jobs j ON j.job_id = s.last_job_id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	seen := 0
+	for rows.Next() {
+		var ref, status string
+		var failures int
+		if err := rows.Scan(&ref, &status, &failures); err != nil {
+			t.Fatal(err)
+		}
+		seen++
+		want := "partial"
+		if ref == "u:lost" {
+			want = "failed"
+		}
+		if status != want || failures != 0 {
+			t.Errorf("%s: job %s, schedule failures %d; want %s and 0", ref, status, failures, want)
+		}
+	}
+	if seen != 4 {
+		t.Fatalf("%d accounts, want 4", seen)
+	}
+}
+
 func TestMaintenance(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()

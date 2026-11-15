@@ -223,6 +223,12 @@ func (p *Planner) Tick(ctx context.Context) error {
 		if err != nil {
 			slog.Warn("planner: dispatch failed", "account", d.ref, "err", err)
 			metrics.PlannerSlots.WithLabelValues("dispatch_failed").Inc()
+			// Nothing started: the slot is tried again soon instead of a
+			// whole interval later (its next_run_at moved when it was picked).
+			if _, err := p.DB.Exec(ctx, `UPDATE account_schedule SET next_run_at = least(next_run_at, $2::timestamptz + $3::interval)
+				WHERE account_ref = $1`, d.ref, p.now(), SlotRetry); err != nil {
+				return err
+			}
 			continue
 		}
 		switch {
