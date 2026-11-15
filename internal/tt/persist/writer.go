@@ -103,6 +103,17 @@ func written(entity string, n int64, start time.Time) {
 	metrics.PersistBatch.WithLabelValues(entity).Observe(time.Since(start).Seconds())
 }
 
+// stepClock returns a lap function that observes the time since its last
+// call (or since stepClock) as entity's step in tks_persist_step_seconds.
+func stepClock(entity string) func(step string) {
+	last := time.Now()
+	return func(step string) {
+		now := time.Now()
+		metrics.PersistStep.WithLabelValues(entity, step).Observe(now.Sub(last).Seconds())
+		last = now
+	}
+}
+
 // withPartitions runs fn and, if a partition of table was missing, creates
 // the ones holding times and runs it once more. Posts and their comments
 // share their month.

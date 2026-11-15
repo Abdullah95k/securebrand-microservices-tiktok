@@ -99,7 +99,10 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 		clear(got)
 		fresh := map[int64]bool{} // comments written for the first time
 		stored = fresh
-		return pgx.BeginFunc(ctx, w.DB, func(tx pgx.Tx) error {
+		var inner time.Time
+		err := pgx.BeginFunc(ctx, w.DB, func(tx pgx.Tx) error {
+			lap := stepClock("comment")
+			defer func() { inner = time.Now() }()
 			rows := make([][]any, 0, len(cs))
 			var dels []*ttv1.Comment
 			people := map[string][]any{}
@@ -123,15 +126,18 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 				if err := upsertComments(ctx, tx, rows, &n, &edited, &restored, fresh); err != nil {
 					return err
 				}
+				lap("upsert")
 			}
 			if len(dels) > 0 {
 				if _, err := markDeleted(ctx, tx, dels); err != nil {
 					return err
 				}
+				lap("deleted")
 			}
 			if err := writePeople(ctx, tx, people); err != nil {
 				return err
 			}
+			lap("people")
 			if !w.partB() || len(fresh) == 0 {
 				return nil
 			}
@@ -139,8 +145,16 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 			if err := recordSightings(ctx, tx, direct, got); err != nil {
 				return err
 			}
-			return recordReplies(ctx, tx, replies, got)
+			if err := recordReplies(ctx, tx, replies, got); err != nil {
+				return err
+			}
+			lap("sightings")
+			return nil
 		})
+		if err == nil && !inner.IsZero() {
+			metrics.PersistStep.WithLabelValues("comment", "commit").Observe(time.Since(inner).Seconds())
+		}
+		return err
 	})
 	if err != nil {
 		return fmt.Errorf("persist: comments: %w", err)
