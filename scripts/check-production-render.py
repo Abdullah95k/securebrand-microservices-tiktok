@@ -5,7 +5,7 @@ one commit, every container's credentials from platform-credentials, the
 Secret proxies mounted only by the pods that reach TikTok (the crawlers, the
 canary and the signer; the others start without it), each component's own Postgres role (the signer none, the migrate
 hook the owner's, the backup job the read-only one), no topic hook, KEDA
-maxima at most 3 or the partitions, the backup job's bucket from
+maxima at most 3 or the partitions (MAX_REPLICAS), the backup job's bucket from
 S3_BUCKET_BACKUPS (M16).
 Usage: check-production-render.py RENDER.yaml"""
 import sys
@@ -13,6 +13,10 @@ import sys
 import yaml
 
 REGISTRY = "registry.digitalocean.com/securebrand/"
+# KEDA maxima above the platform's starting 3 partitions, where the topics
+# a component reads have more: the persister reads tt.post.v1 (6
+# partitions) and tt.comment.v1 (12) (the master, 2026-11-15).
+MAX_REPLICAS = {"tks-persister": 6}
 ROLES = {"api": "API", "scheduler": "SCHEDULER", "persister": "PERSISTER", "signer": None, "canary": "CRAWLER",
          "media-downloader": "CRAWLER", "crawler-account": "CRAWLER", "crawler-post": "CRAWLER",
          "crawler-thread": "CRAWLER", "crawler-retry": "CRAWLER", "backup": "READER"}
@@ -68,7 +72,7 @@ def main(path):
                 errs.append(f"{name}: mounts {mounted}, but must start without the proxies")
         if kind == "ScaledObject":
             n = d["spec"]["maxReplicaCount"]
-            if n > 3:
+            if n > MAX_REPLICAS.get(name, 3):
                 errs.append(f"{name}: maxReplicaCount {n} over its topics' partitions")
             for t in d["spec"]["triggers"]:
                 m = t["metadata"]
