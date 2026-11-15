@@ -40,7 +40,7 @@ commands:
   accounts import FILE --client NAME [--label L]... [--dry-run] [--disable-missing [--confirm] [--force]]
   accounts import --report BATCH --client NAME [--problems]
   discovery keywords seed | discovery keywords import --file F | discovery keywords list [--language L] [--group G]
-  dlq replay [--topic tks.task.dlq|tks.persist.dlq] [--reason R] [--max N] [--idle D]
+  dlq replay [--topic tks.task.dlq|tks.persist.dlq] [--reason R] [--max N] [--idle D] [--no-idempotent]
   report [--from "YYYY-MM-DD HH:MM"] [--to ...] [--hours 24] [--prometheus URL] [--check] [--json]   (Iraq time)
   stop --reason R | start
   content export [--since 2026-11-07T00:00:00Z|24h] [--batch N] [--idle D]
