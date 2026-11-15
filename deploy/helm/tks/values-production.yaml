@@ -266,7 +266,15 @@ components:
     postgresRole: crawler
   persister:
     postgresRole: persister
-    autoscale: {max: 3}
+    # Six (2026-11-15): at 60 admissions an hour (D-078) three persisters
+    # only kept up with the input, about 73,000 comments and 21,000 posts
+    # an hour, and never drained the backlog left by the Valkey OOM
+    # (comments 3.5 M, posts 191,000 behind), so a check's new post
+    # waited about 5 h to be stored. tt.post.v1 has 6 partitions and
+    # tt.comment.v1 12, so each pod reads one post partition; media's 3 go
+    # to three of them. 6 pods × max_conns 4 = 24 connections through
+    # PgBouncer.
+    autoscale: {max: 6}
   media-downloader:
     postgresRole: crawler
     autoscale: {max: 3}
