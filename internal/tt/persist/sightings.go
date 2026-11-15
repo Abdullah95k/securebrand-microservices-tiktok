@@ -130,10 +130,17 @@ func (w *Writer) commentSightings(cs []*ttv1.Comment, fresh map[int64]bool) (dir
 // registered under (its id, secUid or any username it had; the batch
 // writes accounts before posts and comments). An entry check's posts,
 // stored like a monitored account's (discovery-plan §10), bring no one in.
-const monitored = `EXISTS (SELECT 1 FROM account_schedule s WHERE s.enabled AND (s.user_id = d.via
-	OR s.account_ref = 'id:' || d.via
-	OR s.account_ref IN (SELECT 'sec:' || a.sec_uid FROM accounts a WHERE a.user_id = d.via
-		UNION ALL SELECT 'u:' || lower(u.username) FROM account_usernames u WHERE u.user_id = d.via)))`
+// monitored is the same test as one EXISTS with ORs, split so each part
+// is an index lookup (account_schedule's user_id index and primary key,
+// accounts' and account_usernames' keys): the ORs inside one EXISTS
+// scanned account_schedule for every sighting, slow once discovery had
+// registered some 14,000 accounts (2026-11-15).
+const monitored = `(EXISTS (SELECT 1 FROM account_schedule s WHERE s.enabled AND s.user_id = d.via)
+	OR EXISTS (SELECT 1 FROM account_schedule s WHERE s.enabled AND s.account_ref = 'id:' || d.via)
+	OR EXISTS (SELECT 1 FROM accounts a JOIN account_schedule s ON s.account_ref = 'sec:' || a.sec_uid
+		WHERE a.user_id = d.via AND s.enabled)
+	OR EXISTS (SELECT 1 FROM account_usernames u JOIN account_schedule s ON s.account_ref = 'u:' || lower(u.username)
+		WHERE u.user_id = d.via AND s.enabled))`
 
 // recordSightings appends sightings of monitored accounts.
 func recordSightings(ctx context.Context, tx pgx.Tx, ss []sighting, got sightingCounts) error {
@@ -171,9 +178,19 @@ func recordSightings(ctx context.Context, tx pgx.Tx, ss []sighting, got sighting
 // sighting of the author of the comment each answers (reply_to_comment_id,
 // else its top-level comment), read from the stored comments: the thread's
 // top-level comment is always written before its replies are read.
-func recordReplies(ctx context.Context, tx pgx.Tx, cs []*ttv1.Comment, got sightingCounts) error {
+//
+// The answered author's sec_uid and username come from this batch's
+// authors first (people, as writePeople takes them: they are written after
+// the comments commit), then from the people already stored.
+func recordReplies(ctx context.Context, tx pgx.Tx, cs []*ttv1.Comment, people map[string][]any, got sightingCounts) error {
 	if len(cs) == 0 {
 		return nil
+	}
+	keys := make([][]byte, 0, len(people))
+	secs, names := make([]*string, 0, len(people)), make([]*string, 0, len(people))
+	for _, r := range people {
+		keys = append(keys, r[0].([]byte))
+		secs, names = append(secs, r[2].(*string)), append(names, r[3].(*string))
 	}
 	via := make([]int64, 0, len(cs))
 	created := make([]time.Time, 0, len(cs))
@@ -192,13 +209,15 @@ func recordReplies(ctx context.Context, tx pgx.Tx, cs []*ttv1.Comment, got sight
 	}
 	rows, err := tx.Query(ctx, `INSERT INTO discovery_sightings (how, found_in, via_user_id, user_id, sec_uid, username, post_id,
 			comment_id, seen_at)
-		SELECT 'reply', 'comment', d.via, t.author_user_id, p.sec_uid, p.username, d.post_id, d.comment_id, d.at
+		SELECT 'reply', 'comment', d.via, t.author_user_id, coalesce(b.sec_uid, p.sec_uid), coalesce(b.username, p.username),
+			d.post_id, d.comment_id, d.at
 		FROM unnest($1::bigint[], $2::timestamptz[], $3::bigint[], $4::bigint[], $5::bigint[], $6::timestamptz[])
 			AS d(via, created, post_id, target, comment_id, at)
 		JOIN comments t ON t.post_created_at = d.created AND t.post_id = d.post_id AND t.comment_id = d.target
+		LEFT JOIN unnest($7::bytea[], $8::text[], $9::text[]) AS b(author_key, sec_uid, username) ON b.author_key = t.author_key
 		LEFT JOIN people p ON p.author_key = t.author_key
 		WHERE t.author_user_id IS NOT NULL AND t.author_user_id <> d.via AND `+monitored+` RETURNING how`,
-		via, created, posts, targets, ids, at)
+		via, created, posts, targets, ids, at, keys, secs, names)
 	if err != nil {
 		return err
 	}

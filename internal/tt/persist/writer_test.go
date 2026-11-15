@@ -554,3 +554,26 @@ func TestCommentSteps(t *testing.T) {
 		}
 	}
 }
+
+// An author seen again unchanged is not written, nor locked: the upsert's
+// ON CONFLICT DO UPDATE locked every author of a batch (row xmax set), and
+// the persisters queued on each other's popular authors.
+func TestUnchangedAuthorNotLocked(t *testing.T) {
+	w := newWriter(t)
+	ctx := context.Background()
+	t0 := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	if err := w.Comments(ctx, []*ttv1.Comment{comment(30, 0, t0, "first", 9020)}); err != nil {
+		t.Fatal(err)
+	}
+	again := comment(31, 0, t0.Add(time.Minute), "second", 9020)
+	again.Author.Username = "ufirst" // the same person, unchanged
+	if err := w.Comments(ctx, []*ttv1.Comment{again}); err != nil {
+		t.Fatal(err)
+	}
+	if n := one[int64](t, w.DB, `SELECT count(*) FROM people`); n != 1 {
+		t.Fatalf("%d people, want 1", n)
+	}
+	if x := one[string](t, w.DB, `SELECT xmax::text FROM people`); x != "0" {
+		t.Errorf("the unchanged author's row was locked or updated by the second batch (xmax %s)", x)
+	}
+}

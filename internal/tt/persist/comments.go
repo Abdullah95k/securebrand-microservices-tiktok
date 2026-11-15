@@ -94,6 +94,11 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 	var n, edited, restored, upserted int64
 	got := sightingCounts{}
 	var stored map[int64]bool // the last attempt's first-time comments
+	// The authors go in their own short transaction after the comments
+	// commit: in the comments' transaction, every author of a batch stayed
+	// row-locked until its end, and the persisters queued on each other's
+	// popular authors (2026-11-15: people p50 107 s with 4 pods).
+	var authors map[string][]any
 	err := w.withPartitions(ctx, "comments", times, func() error {
 		n, edited, restored, upserted = 0, 0, 0, 0
 		clear(got)
@@ -106,6 +111,7 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 			rows := make([][]any, 0, len(cs))
 			var dels []*ttv1.Comment
 			people := map[string][]any{}
+			authors = nil
 			for _, c := range cs {
 				if c.Status == ttv1.CommentStatus_COMMENT_STATUS_DELETED {
 					dels = append(dels, c)
@@ -134,10 +140,7 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 				}
 				lap("deleted")
 			}
-			if err := writePeople(ctx, tx, people); err != nil {
-				return err
-			}
-			lap("people")
+			authors = people
 			if !w.partB() || len(fresh) == 0 {
 				return nil
 			}
@@ -145,7 +148,7 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 			if err := recordSightings(ctx, tx, direct, got); err != nil {
 				return err
 			}
-			if err := recordReplies(ctx, tx, replies, got); err != nil {
+			if err := recordReplies(ctx, tx, replies, people, got); err != nil {
 				return err
 			}
 			lap("sightings")
@@ -158,6 +161,13 @@ func (w *Writer) Comments(ctx context.Context, cs []*ttv1.Comment) error {
 	})
 	if err != nil {
 		return fmt.Errorf("persist: comments: %w", err)
+	}
+	if len(authors) > 0 {
+		lap := stepClock("comment")
+		if err := pgx.BeginFunc(ctx, w.DB, func(tx pgx.Tx) error { return writePeople(ctx, tx, authors) }); err != nil {
+			return fmt.Errorf("persist: comment authors: %w", err)
+		}
+		lap("people")
 	}
 	written("comment", n, start)
 	got.publish()
@@ -192,8 +202,19 @@ func writePeople(ctx context.Context, tx pgx.Tx, people map[string][]any) error 
 	if err := copyTemp(ctx, tx, "tmp_people", "people", peopleCols, prows); err != nil {
 		return err
 	}
+	// Only the people new or changed are written: ON CONFLICT DO UPDATE
+	// locks the existing row even when its WHERE then skips it, so every
+	// author of a batch was locked, changed or not. The filter reads
+	// without locks; the upsert's WHERE still decides under the lock.
 	_, err := tx.Exec(ctx, `INSERT INTO people AS p (`+strings.Join(peopleCols, ",")+`)
-		SELECT `+strings.Join(peopleCols, ",")+` FROM tmp_people ORDER BY author_key
+		SELECT `+strings.Join(peopleCols, ",")+` FROM tmp_people t
+		WHERE NOT EXISTS (SELECT 1 FROM people o WHERE o.author_key = t.author_key
+			AND NOT (o.last_seen_at <= t.last_seen_at
+			  AND (o.last_seen_at < t.last_seen_at - interval '1 day'
+			   OR (o.user_id, o.sec_uid, o.username, o.nickname, o.avatar_url, o.verified, o.predicted_age_group)
+			      IS DISTINCT FROM (t.user_id, t.sec_uid, t.username, t.nickname, t.avatar_url, t.verified,
+			                        COALESCE(t.predicted_age_group, o.predicted_age_group)))))
+		ORDER BY author_key
 		ON CONFLICT (author_key) DO UPDATE SET `+set(peopleCols, map[string]string{"author_key": "", "first_seen_at": "",
 		"last_seen_at": "GREATEST(p.last_seen_at, EXCLUDED.last_seen_at)",
 		// The last band TikTok served stays when a read carries none.
